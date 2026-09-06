@@ -2,6 +2,7 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
+- **v0.6.0** — Gallery/Image Edit両タブにPSD(Photoshop)対応を追加 — 複数画像の一括PSD書き出し、レイヤー保存/読み込み、Gallery表示、Image Editのレイヤーパネル改善
 - **v0.5.8** — Tagger DBタブに一括削除機能を追加（外部コントリビューターPRのレビュー・検証・修正・マージ）
 - **v0.5.7** — 設定エクスポート/フルバックアップのドキュメント修正: v0.5.5のVideo Plan機能追加分の言及漏れ
 - **v0.5.6** — バグ修正: WD Taggerで不正確なタグが生成される問題を修正(GitHub Issue #1)

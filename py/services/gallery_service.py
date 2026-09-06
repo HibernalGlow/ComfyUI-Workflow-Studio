@@ -16,8 +16,34 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# サポートする画像拡張子（.mp4は動画だがGalleryでは静止画と同じ一覧・配信経路を共有する）
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".mp4"}
+# サポートする画像拡張子（.mp4は動画だがGalleryでは静止画と同じ一覧・配信経路を共有する。
+# .psdはブラウザが直接レンダリングできないため、配信時に合成済みPNGへ変換する）
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".mp4", ".psd"}
+
+# Canvas2D の globalCompositeOperation 文字列 -> psd_tools.constants.BlendMode 名
+# (Image Edit タブの Layer.blendMode はCanvas2Dの合成モード文字列をそのまま保持している)
+_PSD_BLEND_MODE_MAP = {
+    "source-over": "NORMAL",
+    "multiply": "MULTIPLY",
+    "screen": "SCREEN",
+    "overlay": "OVERLAY",
+    "darken": "DARKEN",
+    "lighten": "LIGHTEN",
+    "color-dodge": "COLOR_DODGE",
+    "color-burn": "COLOR_BURN",
+    "hard-light": "HARD_LIGHT",
+    "soft-light": "SOFT_LIGHT",
+    "difference": "DIFFERENCE",
+    "exclusion": "EXCLUSION",
+    "hue": "HUE",
+    "saturation": "SATURATION",
+    "color": "COLOR",
+    "luminosity": "LUMINOSITY",
+}
+# 逆引き: psd_tools.constants.BlendMode 名 -> Canvas2D 文字列（PSDインポート用）。
+# CSSに対応物が無いPSD側のブレンドモード(Dissolve, Linear Burn/Dodge, Vivid/Linear/Pin Light,
+# Hard Mix, Subtract, Divide, Darker/Lighter Color, Pass Through)は "source-over" にフォールバックする。
+_CSS_BLEND_MODE_REVERSE = {v: k for k, v in _PSD_BLEND_MODE_MAP.items()}
 
 # data URL の MIME タイプ -> 拡張子（save_image_to_gallery / save_image_to_folder共用）
 _SAVE_EXT_BY_MIME = {
@@ -740,6 +766,10 @@ class GalleryService:
                         info["height"] = stream.height
                     if container.duration:
                         info["duration"] = container.duration / 1_000_000
+            elif ext == ".psd":
+                from psd_tools import PSDImage
+                psd = PSDImage.open(path)
+                info["width"], info["height"] = psd.width, psd.height
             elif ext != ".svg":
                 from PIL import Image
                 with Image.open(path) as img:
@@ -1007,8 +1037,215 @@ class GalleryService:
                 errors.append(f"{p.name}: {e}")
         return {"moved": moved, "errors": errors}
 
+    def build_psd_from_images(self, paths: list) -> bytes:
+        """複数画像を各1レイヤーとして1つのPSDにまとめ、バイナリを返す。
+        画像サイズが異なる場合はキャンバスを最大サイズに合わせ、各レイヤーは左上(0,0)基準で配置する。
+        """
+        try:
+            from psd_tools import PSDImage
+            from psd_tools.api.layers import PixelLayer
+        except ImportError as e:
+            raise RuntimeError(
+                "psd-tools is not installed. Run: "
+                "python_embeded\\python.exe -m pip install psd-tools"
+            ) from e
+        from PIL import Image
+        import io
+
+        layers_data = []
+        for img_path in paths:
+            p = Path(img_path).resolve()
+            if not p.is_file() or p.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            if p.suffix.lower() == ".mp4":
+                continue  # 動画はPSDレイヤーにできない
+            if not self._check_path_allowed(p):
+                continue
+            try:
+                im = Image.open(p).convert("RGBA")
+            except Exception as e:
+                logger.warning("build_psd_from_images: failed to open %s: %s", p, e)
+                continue
+            layers_data.append((p.stem, im))
+
+        if not layers_data:
+            raise ValueError("No valid images to export")
+
+        max_w = max(im.width for _, im in layers_data)
+        max_h = max(im.height for _, im in layers_data)
+
+        base = Image.new("RGBA", (max_w, max_h), (0, 0, 0, 0))
+        psd = PSDImage.frompil(base)
+        for name, im in layers_data:
+            PixelLayer.frompil(im, psd, name=name, top=0, left=0)
+
+        buf = io.BytesIO()
+        psd.save(buf)
+        return buf.getvalue()
+
+    def build_psd_from_layers(self, width: int, height: int, layers: list) -> bytes:
+        """Image Edit タブのレイヤー配列(dataURL+メタデータ)から1つのPSDを組み立てる。
+        各レイヤー画像は既にフロントエンド側で回転・反転・拡縮をベイクしたキャンバス全体サイズの
+        PNGとして渡される前提のため位置は常に(0,0)。opacity/blendModeはPSDレイヤー属性として渡す。
+        """
+        try:
+            from psd_tools import PSDImage
+            from psd_tools.api.layers import PixelLayer
+            from psd_tools.constants import BlendMode
+        except ImportError as e:
+            raise RuntimeError(
+                "psd-tools is not installed. Run: "
+                "python_embeded\\python.exe -m pip install psd-tools"
+            ) from e
+        from PIL import Image
+        import base64
+        import io
+        import re
+
+        if not layers:
+            raise ValueError("No layers to export")
+        if width <= 0 or height <= 0:
+            raise ValueError("Invalid canvas size")
+
+        base = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        psd = PSDImage.frompil(base)
+
+        added = 0
+        for layer_data in layers:
+            data_url = layer_data.get("imageData", "")
+            m = re.match(r"^data:image/\w+;base64,(.+)$", data_url)
+            if not m:
+                continue
+            try:
+                im = Image.open(io.BytesIO(base64.b64decode(m.group(1)))).convert("RGBA")
+            except Exception as e:
+                logger.warning("build_psd_from_layers: failed to decode layer image: %s", e)
+                continue
+
+            name = str(layer_data.get("name") or "Layer")[:255]
+            opacity = int(max(0.0, min(1.0, float(layer_data.get("opacity", 1.0)))) * 255)
+            visible = bool(layer_data.get("visible", True))
+            blend_key = _PSD_BLEND_MODE_MAP.get(layer_data.get("blendMode", "source-over"), "NORMAL")
+            blend_mode = getattr(BlendMode, blend_key)
+
+            pixel_layer = PixelLayer.frompil(im, psd, name=name, top=0, left=0)
+            pixel_layer.opacity = opacity
+            pixel_layer.blend_mode = blend_mode
+            pixel_layer.visible = visible
+            added += 1
+
+        if added == 0:
+            raise ValueError("No valid layer images to export")
+
+        buf = io.BytesIO()
+        psd.save(buf)
+        return buf.getvalue()
+
+    def _extract_psd_layers(self, psd) -> dict:
+        """PSDImageインスタンスからレイヤー配列(dataURL+メタデータ)を抽出する共通ロジック。
+        グループ自体・ラスタ化できないレイヤー(調整レイヤー等)はスキップする。
+        戻り値のlayersはフロントエンドのLayer配列規約(先頭=最前面)に合わせて並べる。
+        """
+        from psd_tools.constants import BlendMode
+        import base64
+        import io
+
+        layers_out = []
+        for layer in psd.descendants():
+            if layer.is_group():
+                continue
+            try:
+                im = layer.topil()
+            except Exception as e:
+                logger.warning("_extract_psd_layers: failed to rasterize layer %r: %s", layer.name, e)
+                continue
+            if im is None:
+                continue
+            im = im.convert("RGBA")
+
+            left, top, right, bottom = layer.bbox
+            w, h = right - left, bottom - top
+            if w <= 0 or h <= 0:
+                continue
+
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+            blend_value = layer.blend_mode
+            try:
+                blend_name = BlendMode(blend_value.value if hasattr(blend_value, "value") else blend_value).name
+            except ValueError:
+                blend_name = "NORMAL"
+            css_blend = _CSS_BLEND_MODE_REVERSE.get(blend_name, "source-over")
+
+            layers_out.append({
+                "name": layer.name or "Layer",
+                "x": left,
+                "y": top,
+                "width": w,
+                "height": h,
+                "opacity": (layer.opacity if layer.opacity is not None else 255) / 255.0,
+                "visible": bool(layer.visible),
+                "blendMode": css_blend,
+                "imageData": data_url,
+            })
+
+        if not layers_out:
+            raise ValueError("No importable layers found in this PSD")
+
+        # descendants()は背面→前面(下から上)の順で返るため、
+        # フロントエンドのLayer配列規約(先頭=最前面)に合わせて反転する
+        layers_out.reverse()
+
+        return {"width": psd.width, "height": psd.height, "layers": layers_out}
+
+    def import_psd_layers(self, psd_bytes: bytes) -> dict:
+        """アップロードされたPSDファイル(バイト列)をレイヤー配列(dataURL+メタデータ)に分解する。"""
+        try:
+            from psd_tools import PSDImage
+        except ImportError as e:
+            raise RuntimeError(
+                "psd-tools is not installed. Run: "
+                "python_embeded\\python.exe -m pip install psd-tools"
+            ) from e
+        import io
+
+        try:
+            psd = PSDImage.open(io.BytesIO(psd_bytes))
+        except Exception as e:
+            raise ValueError(f"Failed to read PSD file: {e}") from e
+
+        return self._extract_psd_layers(psd)
+
+    def get_psd_layers_from_path(self, image_path: str) -> dict:
+        """サーバー上に既にあるPSDファイル(Gallery上のパス)をレイヤー配列に分解する。
+        Galleryから直接Image Editへ送る際、アップロードの往復無しで済ませるために使う。
+        """
+        p = Path(image_path).resolve()
+        if not p.is_file() or p.suffix.lower() != ".psd":
+            raise ValueError("Not a PSD file")
+        if not self._check_path_allowed(p):
+            raise ValueError("Access denied")
+
+        try:
+            from psd_tools import PSDImage
+        except ImportError as e:
+            raise RuntimeError(
+                "psd-tools is not installed. Run: "
+                "python_embeded\\python.exe -m pip install psd-tools"
+            ) from e
+
+        try:
+            psd = PSDImage.open(p)
+        except Exception as e:
+            raise ValueError(f"Failed to read PSD file: {e}") from e
+
+        return self._extract_psd_layers(psd)
+
     def serve_image(self, image_path: str):
-        """画像のPathオブジェクトを返す（ルートで使用）"""
+        """画像のPathオブジェクトを返す（ルートで使用）。
+        PSDはブラウザが直接レンダリングできないため、合成済みPNGにキャッシュ変換して返す。"""
         p = Path(image_path).resolve()
         if not p.is_file():
             return None
@@ -1017,7 +1254,33 @@ class GalleryService:
         if not self._check_path_allowed(p):
             logger.warning("serve_image: path not allowed: %s", p)
             return None
+        if p.suffix.lower() == ".psd":
+            return self._get_psd_composite_cache(p)
         return p
+
+    def _get_psd_composite_cache(self, p: Path) -> Path | None:
+        """PSDの全レイヤー合成結果をフル解像度PNGとしてディスクキャッシュし、そのPathを返す。"""
+        try:
+            mtime = int(p.stat().st_mtime * 1000)
+        except OSError:
+            return None
+        cache_key = hashlib.md5(f"{p}:{mtime}:full".encode()).hexdigest()
+        cache_dir = self.data_dir / "thumb_cache"
+        cache_dir.mkdir(exist_ok=True)
+        out_path = cache_dir / f"{cache_key}_psdfull.png"
+        if out_path.exists():
+            return out_path
+        try:
+            from psd_tools import PSDImage
+            psd = PSDImage.open(p)
+            img = psd.composite()
+            if img is None:
+                return None
+            img.convert("RGBA").save(out_path, "PNG")
+            return out_path
+        except Exception as e:
+            logger.warning("serve_image: psd composite failed for %s: %s", p, e)
+            return None
 
     def serve_thumbnail(self, image_path: str, width: int = 256) -> Path | None:
         """縮小サムネイルのPathを返す。
@@ -1026,6 +1289,7 @@ class GalleryService:
         Pillowが使えない場合は元ファイルにフォールバック。
         MP4はPillowで開けないためPyAVで先頭フレームを抽出しJPEGとしてキャッシュする
         （元ファイルへのフォールバックはできないため、失敗時はNoneを返す）。
+        PSDはpsd_toolsでレイヤーを合成してからJPEGとしてキャッシュする（同様にフォールバック不可）。
         """
         p = Path(image_path).resolve()
         if not p.is_file():
@@ -1074,6 +1338,24 @@ class GalleryService:
                 return thumb_path
             except Exception as e:
                 logger.warning("serve_thumbnail: mp4 frame extraction failed for %s: %s", p, e)
+                return None
+
+        # PSDはPillowで直接開けない(内部のマージ画像がPhotoshop側の実装依存で信頼できない)ため
+        # psd_toolsでレイヤーを正しく合成してからサムネイル化する。
+        if p.suffix.lower() == ".psd":
+            try:
+                from psd_tools import PSDImage
+                from PIL import Image
+                psd = PSDImage.open(p)
+                img = psd.composite()
+                if img is None:
+                    return None
+                img = img.convert("RGB")
+                img.thumbnail((width, width), Image.LANCZOS)
+                img.save(thumb_path, "JPEG", quality=85, optimize=True)
+                return thumb_path
+            except Exception as e:
+                logger.warning("serve_thumbnail: psd composite failed for %s: %s", p, e)
                 return None
 
         try:

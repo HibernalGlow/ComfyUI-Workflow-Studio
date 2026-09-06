@@ -23,6 +23,10 @@ piexif>=1.1.3
 # -- Required to load UNSLOTH_API_KEY from a local .env file (Unsloth backend, AI TOOL tab) --
 python-dotenv>=1.0,<2.0
 
+# -- Multi-layer PSD export (Gallery tab bulk action) --
+# Pure-Python, ships prebuilt wheels (no C compiler required on Windows).
+psd-tools>=1.10
+
 # -- MP4 thumbnail generation (Gallery tab) --
 # Uses PyAV (av) to decode the first frame. ComfyUI core already requires av>=17.0.0,
 # so it is normally pre-installed in python_embeded and no action is needed here.

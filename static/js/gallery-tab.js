@@ -43,6 +43,7 @@ const API = {
     imagesDelete:               `/wfm/gallery/images/delete`,
     imagesMove:                 `/wfm/gallery/images/move`,
     imagesExportZip:            `/wfm/gallery/images/export-zip`,
+    imagesExportPsd:            `/wfm/gallery/images/export-psd`,
 };
 
 export const FEEDER_GROUP = "__Feeder__";
@@ -328,6 +329,30 @@ async function exportSelectedImagesToZip(paths) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         showToast(t("exportCompleted"), "success");
+    } catch (e) {
+        showToast(t("errorWithMsg", e.message), "error");
+    }
+}
+
+async function exportSelectedImagesToPsd(paths) {
+    if (paths.length === 0) return;
+    try {
+        const res = await fetch(API.imagesExportPsd, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paths }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `gallery_export_${Date.now()}.psd`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(t("psdExportCompleted"), "success");
     } catch (e) {
         showToast(t("errorWithMsg", e.message), "error");
     }
@@ -1836,17 +1861,32 @@ function bindEvents() {
     });
 
     // 選択画像を Image Edit タブへ送信
-    document.getElementById("wfm-gallery-send-image-edit-btn")?.addEventListener("click", () => {
+    document.getElementById("wfm-gallery-send-image-edit-btn")?.addEventListener("click", async () => {
         if (!state.selectedImage) {
             showToast("Please select an image first", "info");
             return;
         }
-        const url  = API.serveImage(state.selectedImage.path);
+        if (!window._wfmImageEditTab) return;
+        const path = state.selectedImage.path;
         const name = (state.selectedImage.filename || "gallery-image").replace(/\.[^.]+$/, "");
-        if (window._wfmImageEditTab) {
-            document.querySelector('[data-tab="image-edit"]')?.click();
-            window._wfmImageEditTab.loadFromUrl(url, name);
+
+        // PSDはフラット画像1枚ではなくレイヤー分解して送る(Open PSDボタンと同じ経路)
+        if (/\.psd$/i.test(path)) {
+            try {
+                const r = await fetch(`/wfm/gallery/image/psd-layers?path=${encodeURIComponent(path)}`);
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+                const data = await r.json();
+                document.querySelector('[data-tab="image-edit"]')?.click();
+                await window._wfmImageEditTab.loadPsdLayersData(data, name);
+            } catch (err) {
+                showToast(`PSD import failed: ${err.message}`, "error");
+            }
+            return;
         }
+
+        const url = API.serveImage(path);
+        document.querySelector('[data-tab="image-edit"]')?.click();
+        window._wfmImageEditTab.loadFromUrl(url, name);
     });
 
     // 選択画像を GenerateUI Image タブへ送信
@@ -2129,6 +2169,36 @@ function bindEvents() {
     document.getElementById("wfm-gallery-bulk-export")?.addEventListener("click", () => {
         if (state.selectedImages.size === 0) return;
         exportSelectedImagesToZip([...state.selectedImages]);
+    });
+
+    document.getElementById("wfm-gallery-bulk-psd")?.addEventListener("click", () => {
+        if (state.selectedImages.size === 0) return;
+        exportSelectedImagesToPsd([...state.selectedImages]);
+    });
+
+    document.getElementById("wfm-gallery-bulk-edit-layers")?.addEventListener("click", () => {
+        if (state.selectedImages.size === 0) return;
+        if (!window._wfmImageEditTab) return;
+
+        const allPaths = [...state.selectedImages];
+        const paths    = allPaths.filter(p => !/\.mp4$/i.test(p));
+        if (paths.length === 0) {
+            showToast(t("editLayersNoImages"), "error");
+            return;
+        }
+
+        const items = paths.map(p => {
+            const img      = state.images.find(i => i.path === p);
+            const filename = img?.filename || p.split(/[\\/]/).pop() || "layer";
+            return { url: API.serveImage(p), name: filename.replace(/\.[^.]+$/, "") };
+        });
+
+        document.querySelector('[data-tab="image-edit"]')?.click();
+        window._wfmImageEditTab.loadLayersFromUrls(items);
+
+        if (paths.length < allPaths.length) {
+            showToast(t("editLayersSkippedVideo", allPaths.length - paths.length), "info");
+        }
     });
 
     document.getElementById("wfm-gallery-bulk-delete")?.addEventListener("click", () => {

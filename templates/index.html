@@ -1760,7 +1760,7 @@
                             <h3 id="wfm-help-gallery-card-folder-title">Folder &amp; Selection</h3>
                             <ul>
                                 <li id="wfm-help-gallery-5">Folder tree: click to load images, expand with ▶; "+ New" creates a subfolder inside the selected folder, "Del" deletes it with all contents</li>
-                                <li id="wfm-help-gallery-6">Multi-select with Ctrl+click — bulk bar: select group → 'Add to Group' / 'Remove from Group'; 'Favorite All' / 'Unfavorite All'; 'Compare' (2–4 images); 'Move To...'; '<b>Export</b>' (downloads all selected images as a ZIP file); 'Delete File'</li>
+                                <li id="wfm-help-gallery-6">Multi-select with Ctrl+click — bulk bar: select group → 'Add to Group' / 'Remove from Group'; 'Favorite All' / 'Unfavorite All'; 'Compare' (2–4 images); 'Move To...'; '<b>Export</b>' (downloads all selected images as a ZIP file); '<b>Create PSD</b>' (combines the selected images into one layered PSD file); '<b>Edit as Layers</b>' (opens the selected images in the Image Edit tab, each as its own layer); 'Delete File'</li>
                                 <li id="wfm-help-gallery-15"><b>F button</b> (cyan overlay, top-left of each thumbnail): toggle the image in/out of the <b>__Feeder__</b> group with a single click; active state stays visible (cyan) when the image is already in the group; use this to quickly queue images for the Feeder tab Gallery mode</li>
                             </ul>
                         </div>
@@ -1778,16 +1778,19 @@
                                 <li id="wfm-help-gallery-12"><b>Metadata</b> button (green, in the detail panel tab bar): opens the selected image in the Metadata tab for full embedded-data inspection; Alt+click on any image thumbnail has the same effect</li>
                                 <li id="wfm-help-gallery-13"><b>Load GenUI</b> button (blue, in the detail panel tab bar): loads the embedded ComfyUI workflow from the selected image directly into the GenerateUI tab and switches to it; shows a warning toast if no workflow is embedded or the format is not supported</li>
                                 <li id="wfm-help-gallery-14"><b>Tagger</b> button (purple, in the detail panel action row): opens the selected image directly in the Tagger tab's Single mode for instant tagging</li>
-                                <li id="wfm-help-gallery-16"><b>Image Edit</b> button (toolbar, next to Refresh): sends the currently selected image to the Image Edit tab; if layers already exist the image is added as a new layer scaled to fit the canvas, otherwise it becomes Layer 1</li>
+                                <li id="wfm-help-gallery-16"><b>Image Edit</b> button (toolbar, next to Refresh): sends the currently selected image to the Image Edit tab; if layers already exist the image is added as a new layer scaled to fit the canvas, otherwise it becomes Layer 1; PSD files are fully decomposed into their original layers instead of being flattened into one image</li>
                                 <li id="wfm-help-gallery-17"><b>Send GenUI Image</b> button (toolbar, next to Image Edit): uploads the selected image to ComfyUI and sets it as the input for the first LoadImage node in the GenerateUI tab; automatically switches to GenerateUI → Input → Image; requires a workflow with at least one LoadImage node to be loaded first</li>
                                 <li id="wfm-help-gallery-27"><b>Send to LI node</b> button (toolbar, next to Send GenUI Image): uploads the selected image and writes its filename into the image widget of the currently selected node on the ComfyUI canvas (falling back to the first LoadImage-type node found) — same destination as Image Edit tab's Send to LI node; requires Workflow Studio to have been opened from ComfyUI's top menu button</li>
+                                <li id="wfm-help-gallery-28"><b>Create PSD</b> bulk button: combines all selected images into a single layered PSD file and downloads it — each image becomes its own layer (named after the file), positioned top-left on a canvas sized to the largest selected image; the last selected image ends up on top</li>
+                                <li id="wfm-help-gallery-29"><b>Edit as Layers</b> bulk button: switches to the Image Edit tab and opens all selected images at once, each as an independent layer (video files in the selection are skipped); the last selected image ends up on top</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-gallery-card-formats-title">Formats &amp; Auto-save</h3>
                             <ul>
                                 <li id="wfm-help-gallery-10">Workflow auto-save: images generated in the Generate UI tab automatically have their workflow saved to gallery metadata and shown in the JSON tab</li>
-                                <li id="wfm-help-gallery-11">Supports PNG (tEXt/iTXt), JPEG, WebP, GIF, MP4; workflow extraction reads ComfyUI prompt/workflow keys embedded in PNG metadata or in MP4 container tags (as written by SaveVideo, e.g. MiniMax H3 output)</li>
+                                <li id="wfm-help-gallery-11">Supports PNG (tEXt/iTXt), JPEG, WebP, GIF, MP4, PSD; workflow extraction reads ComfyUI prompt/workflow keys embedded in PNG metadata or in MP4 container tags (as written by SaveVideo, e.g. MiniMax H3 output)</li>
+                                <li id="wfm-help-gallery-30">PSD files: thumbnails and full-size previews show all layers merged together (hidden layers excluded); the underlying PSD file itself is left untouched — only the preview shown in Gallery is a flattened rendering</li>
                             </ul>
                         </div>
                     </div>
@@ -1968,8 +1971,10 @@
                             <h3 id="wfm-help-imageedit-card-overview-title">Overview</h3>
                             <ul>
                                 <li id="wfm-help-imageedit-1">Layer-based image editor — compose images with multiple layers (Image, Text, Draw, Mask types) and export the composite</li>
-                                <li id="wfm-help-imageedit-2">Loading images: drag &amp; drop onto the canvas, Upload button, or send from the Gallery tab via the Image Edit button in the Gallery toolbar; the first image becomes Layer 1 (auto-locked); subsequent images are added as new layers scaled to fit the canvas</li>
+                                <li id="wfm-help-imageedit-2">Loading images: drag &amp; drop onto the canvas, <b>File Open</b> button, or send from the Gallery tab via the Image Edit button in the Gallery toolbar; the first image becomes Layer 1 (auto-locked); subsequent images are added as new layers scaled to fit the canvas</li>
                                 <li id="wfm-help-imageedit-3">New button: create a blank canvas — prompts for WxH size (e.g. 512x768); clears all existing layers and automatically adds an empty Layer 1</li>
+                                <li id="wfm-help-imageedit-31"><b>Open PSD</b> button (next to File Open): loads a layered PSD file from disk and decomposes it into individual layers — position, size, visibility, opacity, and blend mode are restored for each layer; groups and non-raster layers (adjustment layers, etc.) are flattened into their rendered appearance</li>
+                                <li id="wfm-help-imageedit-32"><b>Close</b> button (next to Open PSD): closes the current document after a confirmation prompt, discarding all layers and unsaved edits and returning to the empty placeholder view</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1981,7 +1986,7 @@
                                 <li id="wfm-help-imageedit-7">Shape (S): draw geometric shapes onto the canvas; each committed shape becomes an independent draw layer; Tool Options: Shape type (Rect / Ellipse / Line / FreeLine), Rounded checkbox (Rect / Ellipse only), Fill color + None toggle (hidden for Line / FreeLine), Stroke color + width + None toggle (None hidden for Line / FreeLine where stroke is always active), Opacity slider, ↩ Undo button; drag to draw — a blue dashed outline previews the shape; release to commit</li>
                                 <li id="wfm-help-imageedit-7b">Blur (≈): apply Gaussian blur or mosaic to the active layer — whole-layer or region-based (drag a rectangle); see the Blur Tool card below for details</li>
                                 <li id="wfm-help-imageedit-7c">BG Remove (⬚): remove the background from the active layer using Lightweight (@imgly, runs in browser) or BiRefNet (requires Mask Editor One + birefnet.safetensors in ComfyUI/models/background_removal/); see the BG Remove Tool card below for details</li>
-                                <li id="wfm-help-imageedit-7d">Mask (🎭): paint masks on a mask layer using 6 sub-tools — Paint (freehand), Color (flood-select by similar color), Alpha (extract from image transparency), Text (stamp text), Vector (Catmull-Rom spline polygon), Shape (rect / ellipse); SAM3 text-prompt segmentation is also available when Mask Editor One is installed; click "M" in the Layers header to add a mask layer; see the Mask Tool card below for details</li>
+                                <li id="wfm-help-imageedit-7d">Mask (🎭): paint masks on a mask layer using 6 sub-tools — Paint (freehand), Color (flood-select by similar color), Alpha (extract from image transparency), Text (stamp text), Vector (Catmull-Rom spline polygon), Shape (rect / ellipse); SAM3 text-prompt segmentation is also available when Mask Editor One is installed; click "Mask" (second row of the Layers header) to add a mask layer; see the Mask Tool card below for details</li>
                                 <li id="wfm-help-imageedit-7e">Inpaint (🩹): composites the visible layers plus a Mask layer into one RGBA image (mask baked into the alpha channel) and applies it to the first inpaint-capable LoadImage node in the workflow currently loaded in GenerateUI (a node whose MASK output feeds something like VAEEncodeForInpaint); enter Positive/Negative prompts, Grow Mask By (applied to the VAE Encode (for Inpainting) node), and Denoise (applied to KSampler) in the properties panel, then click Run to upload and generate without leaving the Image Edit tab — the result is shown back in the properties panel when done; requires a Mask layer to be painted first and an inpaint-capable workflow loaded in GenerateUI; also works with workflows built around the Mask Editor One custom node (comfyui-mask-editor-one) instead of LoadImage — image/mask are pushed to it via its node_id-keyed server cache and layer_data widget; "Use dedicated workflow" checkbox: when off, the workflow currently loaded in GenerateUI is used (unchanged); when on, pick a saved workflow from the dropdown — it is loaded, edited, and generated entirely in the background without disturbing the workflow shown in GenerateUI</li>
                             </ul>
                         </div>
@@ -1989,7 +1994,8 @@
                             <h3 id="wfm-help-imageedit-layer-title">Layer Panel</h3>
                             <ul>
                                 <li id="wfm-help-imageedit-8">Layers are listed from front (top) to back (bottom); click a layer row to make it active</li>
-                                <li id="wfm-help-imageedit-8b">"M" button in the Layers header: adds a new mask layer above the current layer and automatically switches to the Mask tool</li>
+                                <li id="wfm-help-imageedit-8b">The Layers header has two rows: the top row has +, ⧉ (Duplicate), −, ↑, ↓; the "<b>Mask</b>" button sits alone on the second row — it adds a new mask layer above the current layer and automatically switches to the Mask tool</li>
+                                <li id="wfm-help-imageedit-33">⧉ (Duplicate layer) button: copies the active layer — including its pixels, position, size, opacity, blend mode, and visibility — and inserts the copy directly above the original as the new active layer; works on any layer type (image, draw, text, mask)</li>
                                 <li id="wfm-help-imageedit-9">👁 / 🚫 button: toggle layer visibility</li>
                                 <li id="wfm-help-imageedit-10">🔒 / 🔓 button: toggle layer lock — a locked layer cannot be moved, resized, or rotated (orange bounding box is shown); Layer 1 is locked automatically when the first image is loaded to prevent accidental moves</li>
                                 <li id="wfm-help-imageedit-11">Opacity slider at the bottom adjusts the active layer's transparency</li>
@@ -2021,7 +2027,7 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-imageedit-mask-title">Mask Tool (🎭)</h3>
                             <ul>
-                                <li id="wfm-help-imageedit-mask-1">Add a mask layer: click the "M" button in the Layers panel header; the new mask layer is inserted above the active layer and the Mask tool activates automatically</li>
+                                <li id="wfm-help-imageedit-mask-1">Add a mask layer: click the "Mask" button on the second row of the Layers panel header; the new mask layer is inserted above the active layer and the Mask tool activates automatically</li>
                                 <li id="wfm-help-imageedit-mask-2">Clicking a mask layer in the layer list automatically switches to the Mask tool</li>
                                 <li id="wfm-help-imageedit-mask-3">Tool Options bar — sub-tools: Paint / Color / Alpha / Text / Vector / Shape (all work without Mask Editor One) / SAM3 (requires Mask Editor One, disabled if not installed); Invert checkbox inverts the overlay preview; Overlay color picker changes the preview color (default red); Blur slider (0–50 px) softens the overlay edge; the overlay is only shown for the currently active mask layer — inactive mask layers stay hidden until selected</li>
                                 <li id="wfm-help-imageedit-mask-4">Properties pane — Paint mode: Mode (Add / Erase), Size (1–200 px), Hardness (0–100%); MASK EDITOR ONE section (always visible — header text is green when ABR brushes are available, gray when none are imported yet): Select button opens the ABR brush library (disabled until at least one brush exists) — choosing a brush replaces the default circle brush; ✕ clears the brush back to Circle; when an image brush is active, Hardness is disabled and additional controls appear: Spacing (stamp interval 5–100%), Angle (rotation 0–359°), Sz Jitter (random size reduction per stamp 0–100%), Rot. Jitter (random rotation per stamp on/off)</li>
@@ -2067,6 +2073,7 @@
                             <ul>
                                 <li id="wfm-help-imageedit-17">Save PNG: composites all visible layers and downloads the result as a PNG file</li>
                                 <li id="wfm-help-imageedit-18">Save to Gallery: prompts for a filename (default: wfs-image-YYYYMMDDHHmmss) and saves the composite PNG directly to the Gallery root folder (configured in Settings &gt; Gallery Output Folder); requires the Gallery tab to have been opened at least once to set the root</li>
+                                <li id="wfm-help-imageedit-34">Save PSD: downloads a layered PSD file with every layer preserved separately — position, rotation, flip, and scale are baked into each layer's pixels (PSD layers cannot store a rotation angle), while opacity, blend mode, and visibility are kept as real, editable PSD layer attributes; clipping masks are merged into their target layer since PSD's native layer-mask mechanism is not used</li>
                                 <li id="wfm-help-imageedit-19b">Send to Workflow: uploads the composite PNG to ComfyUI's input folder via /upload/image and writes the resulting filename into the image widget of the currently selected node in the ComfyUI graph, falling back to the first LoadImage-type node found; requires Workflow Studio to have been opened from ComfyUI's top menu button so the ComfyUI tab is reachable</li>
                                 <li id="wfm-help-imageedit-20">Canvas navigation: scroll wheel to zoom, Space + drag to pan</li>
                                 <li id="wfm-help-imageedit-21">Undo / Redo: Ctrl+Z / Ctrl+Y (or toolbar buttons ↩ ↪)</li>
@@ -2267,6 +2274,8 @@
                     <button id="wfm-gallery-bulk-compare" class="wfm-btn wfm-btn-sm" style="display:none;"></button>
                     <button id="wfm-gallery-bulk-move" class="wfm-btn wfm-btn-sm"></button>
                     <button id="wfm-gallery-bulk-export" class="wfm-btn wfm-btn-sm"></button>
+                    <button id="wfm-gallery-bulk-psd" class="wfm-btn wfm-btn-sm"></button>
+                    <button id="wfm-gallery-bulk-edit-layers" class="wfm-btn wfm-btn-sm"></button>
                     <button id="wfm-gallery-bulk-delete" class="wfm-btn wfm-btn-sm wfm-btn-danger"></button>
                 </div>
             </div>
@@ -2621,15 +2630,21 @@
                     <!-- Action bar -->
                     <div class="ie-action-bar">
                         <label class="wfm-btn wfm-btn-sm" style="cursor:pointer;">
-                            Upload
+                            File Open
                             <input type="file" id="ie-upload-input" accept="image/*" style="display:none;">
                         </label>
+                        <label class="wfm-btn wfm-btn-sm" style="cursor:pointer;" title="Open a layered PSD file">
+                            Open PSD
+                            <input type="file" id="ie-open-psd-input" accept=".psd" style="display:none;">
+                        </label>
                         <button class="wfm-btn wfm-btn-sm" id="ie-new-btn">New</button>
+                        <button class="wfm-btn wfm-btn-sm" id="ie-close-btn" title="Close the current document">Close</button>
                         <span style="flex:1;"></span>
                         <button class="wfm-btn wfm-btn-sm" id="ie-undo-btn" title="Undo (Ctrl+Z)">↩</button>
                         <button class="wfm-btn wfm-btn-sm" id="ie-redo-btn" title="Redo (Ctrl+Y)">↪</button>
                         <button class="wfm-btn wfm-btn-sm" id="ie-save-btn">Save PNG</button>
                         <button class="wfm-btn wfm-btn-sm" id="ie-save-gallery-btn" title="Save to Gallery root folder">Save to Gallery</button>
+                        <button class="wfm-btn wfm-btn-sm" id="ie-save-psd-btn" title="Save all layers as a layered PSD file">Save PSD</button>
                         <button class="wfm-btn wfm-btn-sm" id="ie-send-workflow-btn" title="Upload and write this image's filename into the selected node's image widget (e.g. LoadImage)">Send to LI node</button>
                     </div>
 
@@ -2670,12 +2685,17 @@
                 <!-- Right Panel (Layers) -->
                 <div class="ie-right-panel">
                     <div class="ie-layers-header">
-                        <span>Layers</span>
-                        <button class="wfm-btn wfm-btn-sm" id="ie-add-layer-btn"  title="Add layer">+</button>
-                        <button class="wfm-btn wfm-btn-sm" id="ie-add-mask-btn"   title="Add mask layer" style="font-weight:700;color:var(--wfm-accent,#4682e6);">M</button>
-                        <button class="wfm-btn wfm-btn-sm" id="ie-del-layer-btn"  title="Delete layer">−</button>
-                        <button class="wfm-btn wfm-btn-sm" id="ie-layer-up-btn"   title="Move up">↑</button>
-                        <button class="wfm-btn wfm-btn-sm" id="ie-layer-down-btn" title="Move down">↓</button>
+                        <div class="ie-layers-header-row">
+                            <span>Layers</span>
+                            <button class="wfm-btn wfm-btn-sm" id="ie-add-layer-btn"  title="Add layer">+</button>
+                            <button class="wfm-btn wfm-btn-sm" id="ie-dup-layer-btn"  title="Duplicate layer">⧉</button>
+                            <button class="wfm-btn wfm-btn-sm" id="ie-del-layer-btn"  title="Delete layer">−</button>
+                            <button class="wfm-btn wfm-btn-sm" id="ie-layer-up-btn"   title="Move up">↑</button>
+                            <button class="wfm-btn wfm-btn-sm" id="ie-layer-down-btn" title="Move down">↓</button>
+                        </div>
+                        <div class="ie-layers-header-row">
+                            <button class="wfm-btn wfm-btn-sm" id="ie-add-mask-btn" title="Add mask layer" style="font-weight:700;color:var(--wfm-accent,#4682e6);">Mask</button>
+                        </div>
                     </div>
                     <div class="ie-layer-list" id="ie-layer-list"></div>
                     <div class="ie-opacity-row">

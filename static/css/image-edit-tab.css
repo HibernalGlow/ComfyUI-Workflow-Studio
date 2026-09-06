@@ -311,8 +311,8 @@
 
 .ie-layers-header {
     display: flex;
-    align-items: center;
-    gap: 2px;
+    flex-direction: column;
+    gap: 4px;
     padding: 5px 6px;
     border-bottom: 1px solid var(--wfm-border);
     font-size: 11px;
@@ -323,7 +323,13 @@
     flex-shrink: 0;
 }
 
-.ie-layers-header > span {
+.ie-layers-header-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.ie-layers-header-row > span {
     flex: 1;
 }
 

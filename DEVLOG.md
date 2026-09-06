@@ -2,6 +2,36 @@
 
 ---
 
+## v0.6.0
+
+### Gallery/Image Edit両タブにPSD(Photoshop)対応を追加 — 複数画像の一括PSD書き出し、レイヤー保存/読み込み、Gallery表示、Image Editのレイヤーパネル改善
+
+ユーザーから「ギャラリーで複数画像を選択してPSDファイルを作成したい」という依頼を起点に、段階的に機能を積み上げてPSD対応を一式実装した。
+
+**ライブラリ選定の紆余曲折**: 当初はPythonでPSDを書き込めるライブラリとして`pytoshop`を候補に選定したが、実際にインストールを試すとWindows用のプリビルドwheelが存在せず、`packbits`というC拡張のビルドに`cl.exe`（Visual Studio Build Tools）を要求することが発覚した。StabilityMatrix/ComfyUI Portable環境のユーザーは通常Cコンパイラを持たないため、この依存はほぼ確実にインストール失敗を招く。代わりに`psd-tools>=1.10`を採用した——1.10以降は読み取り専用ではなく`PSDImage.frompil()`/`PixelLayer.frompil()`による書き込みにも対応しており、依存(`attrs`, `numpy`, `Pillow`, `typing-extensions`)は全てプリビルドwheelを持ちCコンパイラ不要。実機と同等の条件（venv構築→pip install→実際にPSD作成→再読み込みで往復検証）でレイヤー構成・重なり順・opacity・blend_mode・visibleが正しく機能することを確認してから実装に着手した。
+
+**Gallery: 複数選択→PSD一括書き出し** — Galleryの一括操作バーに「PSD作成」ボタンを追加。選択した複数画像を、既存のZIPエクスポート機能と同じ選択・送信パターンを踏襲して1つのPSDファイル（各画像=1レイヤー、レイヤー名=ファイル名）にまとめてダウンロードする。画像サイズが異なる場合は最大サイズのキャンバスに左上基準で配置する仕様とした（ユーザー選定）。バックエンドは`GalleryService.build_psd_from_images()`、ルートは`POST /wfm/gallery/images/export-psd`。
+
+**Image Edit: Save PSD / Open PSD** — Image Editタブ自体にも「Save PSD」（アクションバー）を追加。`LayerManager.layers`を背面→前面順に走査し、各レイヤーをキャンバス全体サイズのoffscreen canvasに`Layer.applyTransform()`（回転・反転・拡縮）のみベイクして書き出す——PSDのピクセルレイヤーは矩形しか持てず回転角度を保持できないため、位置・変形は必ずピクセルに焼き込む一方、opacity・blend_mode・visibleは実際のPSDレイヤー属性としてそのまま渡し、Photoshop側で編集可能な状態を保つ。`maskApply=true`のクリッピングマスクは対象レイヤーと合成して1枚にベイクする簡略化とし、PSD本来のレイヤーマスク機構は使わない（「ライブラリで素直に対応できない部分は無視してよい」というユーザーの了承のもとでの意図的な妥協）。続けて逆方向の「Open PSD」も実装——`psd_tools.PSDImage.open()`→`psd.descendants()`で全レイヤーを再帰的に走査し、`layer.topil()`でレイヤーのbbox範囲にクロップ済みの実サイズ・実位置の画像を復元、`layer.bbox`/`opacity`/`blend_mode`/`visible`を`Layer`オブジェクトに変換する。グループ自体（フォルダ）はスキップしつつ中身は再帰的に取り込み、PSD側のブレンドモード（4バイトタグ）とCanvas2Dの`globalCompositeOperation`文字列の相互変換テーブルを新設した（Canvas2Dに対応物が無いモードはNormalにフォールバック）。
+
+**Gallery → Image Edit: 複数画像を一括レイヤー転送** — Galleryの一括操作バーに「レイヤーとして編集」ボタンを追加。選択した複数画像（mp4は自動除外）でImage Editタブに切り替え、各画像を独立レイヤーとして展開する。既存の単一画像版「Image Edit」送信ボタンと同じ`window._wfmImageEditTab`グローバル参照の仕組みを再利用し、PSDファイルを経由しない直接URL読み込み方式（`loadLayersFromUrls()`新設）とした——各URLを`new Image()`で並列ロードし、最大幅・高さをキャンバスサイズとして採用、`fitToCanvas()`（既存ヘルパー）で各画像をアスペクト比を保ったまま中央配置する。
+
+**Gallery: PSDファイルの一覧・サムネイル・プレビュー表示** — `.psd`を`IMAGE_EXTENSIONS`に追加し、Galleryのフォルダ一覧・検索・グループ機能に自動的に乗るようにした。ブラウザは`<img>`でPSDを直接レンダリングできないため、`serve_image`/`serve_thumb`ルートで`.psd`の場合は`psd_tools`で全レイヤーを合成（非表示レイヤーは除外）した上でPNG/JPEGに変換し、mtimeベースのキャッシュキーでディスクキャッシュして配信する方式にした。情報パネルの幅・高さもPSDヘッダーから取得するようにした。
+
+**実機テストで発覚した2件のバグとその修正**:
+1. **サムネイル表示が遅く、他の無関係なPNGサムネイルまで真っ黒になる**——原因は`serve_image`/`serve_thumb`ルートがPSD合成という重いCPU処理を`async def`ハンドラ内で直接同期実行しており、aiohttpの単一スレッドイベントループ全体をブロックしていたこと。PSD1枚の合成中は他の並行リクエスト（別画像のサムネイル配信など）も完全に止まり、結果的に無関係な画像まで表示が固まって見えた。`serve_image`・`serve_thumb`・`import_psd_layers`・新設`get_psd_layers`の4ルートを`loop.run_in_executor(None, ...)`でデフォルトのThreadPoolExecutorに逃がすことで解消した。この教訓は今後の重い処理全般に適用すべき一般原則として別途メモリに記録した。
+2. **単一画像「Image Edit」送信ボタンでPSDを開くと1レイヤーしかない**（「Open PSD」ボタンでは正しく全レイヤー開ける）——原因はこのボタンが常に`loadFromUrl()`（1枚のフラット画像として読み込む経路）を使っており、PSD専用のレイヤー分解経路を通っていなかったこと。サーバー上のファイルを再アップロードせず直接レイヤー分解できる新規`GET /wfm/gallery/image/psd-layers`（`GalleryService.get_psd_layers_from_path()`）を追加し、既存の`import_psd_layers()`とロジックを`_extract_psd_layers()`に共通化した上で、PSDファイルの場合はこの新エンドポイントを使うよう分岐させた。
+
+**Image Editタブのアクションバー・レイヤーパネル改善**: 「Upload」を「File Open」に改名し「Open PSD」をその右隣に移動；新規「Close」ボタン（確認ダイアログ後、現在のドキュメントを破棄してプレースホルダー表示に戻す）を追加；レイヤーパネルヘッダーを2段構成（1段目=+/⧉(複製)/−/↑/↓、2段目=「Mask」ボタン単独、旧「M」から改名・移動）に変更；新規「複製レイヤー」ボタン（⧉）を追加し、`Layer.toJSON()`→`Layer.fromJSON()`のシリアライズ往復でアクティブレイヤーを複製（id再採番）して元レイヤーの直前に挿入する方式とした。実装にあたり、レイヤーリストクリック時の「選択」ロジック（種別・現在ツールに応じたキャンバス同期）を`_activateLayerById()`という共通メソッドに抽出し、複製直後の自動選択でも再利用することで、レイヤー種別（画像・描画・マスク・テキスト）を問わず正しく動作するようにした。
+
+**ヘルプドキュメント更新**: 上記全機能についてヘルプタブを更新（`templates/index.html` + `i18n.js`英日中3言語 + `app.js`のhelpIdMapの3点セット）。更新作業の検証中に、今回の変更とは無関係の既存バグを2件発見し合わせて修正した——Image Editの「タイプアイコン」説明が英語版で重複定義されておりマスクレイヤーの表記が欠けていた点（片方は死んだ定義だったため削除）、日本語版でStyle Catalogの「Load in GenerateUI」項目が丸ごと未翻訳で英語表示にフォールバックしていた点（翻訳を追加）。
+
+**検証**: PSD書き込み/読み込みロジックは全て、実際の`GalleryService`コード（相対importを差し替えたコピーをテスト用venvで直接実行）に対してテストスクリプトで検証した——複数レイヤー・サイズ不一致・非表示レイヤー・opacity/blend_mode・グループ内レイヤー・クリッピングマスクを含むPSDを実際に構築し、書き出し→再読み込みで往復一致することを確認。Gallery一括PSD書き出し・Image Edit Save/Open PSD・Gallery表示・Gallery→Image Editレイヤー転送・アクションバー/レイヤーパネル改善は全てユーザーが実機（実ComfyUI環境）で動作確認済み。
+
+**How to apply**: Cコンパイラを要求するPythonライブラリはWindows向けComfyUIカスタムノードでは避け、`pip install --only-binary=:all: <lib>`でプリビルドwheelの有無を先に確認してから採用する。aiohttpの`async def`ルート内でCPU負荷の高い同期処理（画像デコード・合成・リサイズ等）を直接呼ばず、`loop.run_in_executor()`でスレッドプールに逃がす——特にサムネイル/プレビューのように頻繁に並行して呼ばれるエンドポイントは、1回の遅延が他の全リクエストに波及するため重要。ヘルプ更新は`index.html`だけでなく`i18n.js`（3言語）と`app.js`の`helpIdMap`の3点セットで行う。
+
+関連: [[project_gallery_psd_export]], [[project_gallery_psd_display]], [[project_gallery_to_image_edit_layers]], [[project_v04x_image_edit_ui_polish]], [[feedback_psd_export_library_choice]], [[feedback_asyncio_blocking_in_aiohttp_routes]]
+
 ## v0.5.8
 
 ### Tagger DBタブに一括削除機能を追加（外部コントリビューターPRのレビュー・検証・修正・マージ）

@@ -88,6 +88,10 @@ def setup_routes(app: web.Application):
     app.router.add_post("/wfm/gallery/images/delete", delete_images_route)
     app.router.add_post("/wfm/gallery/images/move", move_images_route)
     app.router.add_post("/wfm/gallery/images/export-zip", export_images_zip)
+    app.router.add_post("/wfm/gallery/images/export-psd", export_images_psd)
+    app.router.add_post("/wfm/gallery/image/export-psd-layers", export_psd_from_layers)
+    app.router.add_post("/wfm/gallery/image/import-psd-layers", import_psd_layers)
+    app.router.add_get("/wfm/gallery/image/psd-layers", get_psd_layers)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -181,7 +185,10 @@ async def serve_image(request: web.Request) -> web.Response:
     if not path:
         return web.Response(status=400)
 
-    img_path = _service.serve_image(path)
+    # PSDの合成処理はCPU負荷が高く同期実行するとイベントループ全体をブロックする
+    # (他の並行リクエスト、例えば別画像のサムネイル配信も止まってしまう)ためexecutorで実行する
+    loop = asyncio.get_event_loop()
+    img_path = await loop.run_in_executor(None, _service.serve_image, path)
     if img_path is None:
         return web.Response(status=404)
 
@@ -203,7 +210,10 @@ async def serve_thumb(request: web.Request) -> web.Response:
     except ValueError:
         width = 256
 
-    thumb_path = _service.serve_thumbnail(path, width)
+    # PSD/MP4のサムネイル生成はCPU負荷が高く同期実行するとイベントループ全体をブロックするため
+    # executorで実行する（他画像のサムネイル配信が巻き添えで遅延・停止するのを防ぐ）
+    loop = asyncio.get_event_loop()
+    thumb_path = await loop.run_in_executor(None, _service.serve_thumbnail, path, width)
     if thumb_path is None:
         return web.Response(status=404)
 
@@ -573,4 +583,98 @@ async def export_images_zip(request: web.Request) -> web.Response:
         )
     except Exception as e:
         logger.error("Error exporting images to ZIP: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def export_images_psd(request: web.Request) -> web.Response:
+    """POST /wfm/gallery/images/export-psd - 複数画像を1つのPSD(レイヤー分割)にしてダウンロード"""
+    try:
+        body = await request.json()
+        paths = body.get("paths", [])
+        if not paths:
+            return web.json_response({"error": "paths required"}, status=400)
+
+        psd_bytes = _service.build_psd_from_images(paths)
+
+        return web.Response(
+            body=psd_bytes,
+            content_type="image/vnd.adobe.photoshop",
+            headers={"Content-Disposition": "attachment; filename=gallery_export.psd"}
+        )
+    except RuntimeError as e:
+        logger.error("PSD export dependency missing: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error exporting images to PSD: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def export_psd_from_layers(request: web.Request) -> web.Response:
+    """POST /wfm/gallery/image/export-psd-layers - Image Editタブのレイヤー配列を1つのPSDにしてダウンロード"""
+    try:
+        body = await request.json()
+        width = int(body.get("width", 0))
+        height = int(body.get("height", 0))
+        layers = body.get("layers", [])
+        if not layers:
+            return web.json_response({"error": "layers required"}, status=400)
+
+        psd_bytes = _service.build_psd_from_layers(width, height, layers)
+
+        return web.Response(
+            body=psd_bytes,
+            content_type="image/vnd.adobe.photoshop",
+            headers={"Content-Disposition": "attachment; filename=image_edit_export.psd"}
+        )
+    except RuntimeError as e:
+        logger.error("PSD export dependency missing: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error exporting Image Edit layers to PSD: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def import_psd_layers(request: web.Request) -> web.Response:
+    """POST /wfm/gallery/image/import-psd-layers - アップロードされたPSDをレイヤー配列(JSON)に分解して返す"""
+    try:
+        reader = await request.multipart()
+        field = await reader.next()
+        if field is None:
+            return web.json_response({"error": "file required"}, status=400)
+        psd_bytes = await field.read(decode=False)
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _service.import_psd_layers, psd_bytes)
+        return web.json_response(result)
+    except RuntimeError as e:
+        logger.error("PSD import dependency missing: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error importing PSD layers: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def get_psd_layers(request: web.Request) -> web.Response:
+    """GET /wfm/gallery/image/psd-layers - サーバー上のPSDファイルをレイヤー配列(JSON)に分解して返す
+    (Galleryから直接Image Editへ送る際、アップロードの往復を挟まずに済ませるため)"""
+    path = request.rel_url.query.get("path", "")
+    if not path:
+        return web.json_response({"error": "path required"}, status=400)
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _service.get_psd_layers_from_path, path)
+        return web.json_response(result)
+    except RuntimeError as e:
+        logger.error("PSD import dependency missing: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error reading PSD layers: %s", e)
         return web.json_response({"error": str(e)}, status=500)

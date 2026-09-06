@@ -294,10 +294,10 @@
     "semantic_hash": "0144bbe48e21eccc498714404e29e29e"
   },
   "static/js/generate-tab.js": {
-    "mtime": 1787369336.5249329,
-    "seen": 1787380810.3284276,
-    "ast_hash": "14b3ced4743af977596001606be49000",
-    "semantic_hash": "14b3ced4743af977596001606be49000"
+    "mtime": 1787401222.9019487,
+    "seen": 1787401432.6967273,
+    "ast_hash": "dbfc96b6400bd780990725e390f275c9",
+    "semantic_hash": ""
   },
   "static/js/i18n.js": {
     "mtime": 1787377822.448605,
@@ -474,10 +474,10 @@
     "semantic_hash": "3467d4682a8c20a2b209b5db224ce6e2"
   },
   "static/js/prompt-tab.js": {
-    "mtime": 1787373450.5713615,
-    "seen": 1787380810.352496,
-    "ast_hash": "6d2e3cd1bbf2e99a5298cfb502a18d9e",
-    "semantic_hash": "6d2e3cd1bbf2e99a5298cfb502a18d9e"
+    "mtime": 1787399045.1690862,
+    "seen": 1787399276.0028682,
+    "ast_hash": "184961647ceccdf98c8c031c4da96889",
+    "semantic_hash": ""
   },
   "static/js/settings-tab.js": {
     "mtime": 1787227602.6323576,
@@ -624,15 +624,15 @@
     "semantic_hash": "0706c31d93f980b581e0e6eb376c0bcc"
   },
   "DEVLOG.index.md": {
-    "mtime": 1787294395.7691903,
-    "seen": 1787294443.2937605,
-    "ast_hash": "34f4730b81cef4d6393b5867945e41de",
+    "mtime": 1787378424.0888915,
+    "seen": 1787399276.0029197,
+    "ast_hash": "f5e13974b9f8770e6f49bf74fc2c421e",
     "semantic_hash": ""
   },
   "README.index.md": {
-    "mtime": 1787294395.7601545,
-    "seen": 1787294443.293762,
-    "ast_hash": "ccb030b076d60806eaff45744274cdfe",
+    "mtime": 1787378423.9177885,
+    "seen": 1787399276.0029216,
+    "ast_hash": "4eaa4581c6f969c663176b216fde4596",
     "semantic_hash": ""
   },
   "requirements.txt": {
@@ -858,9 +858,33 @@
     "semantic_hash": "639c4691eb3439d1707cd972bbed1402"
   },
   "static/js/prompt-table.js": {
-    "mtime": 1787376568.1601257,
-    "seen": 1787380810.3524997,
-    "ast_hash": "ca7fa878074a6fd12d5a478109c929d9",
-    "semantic_hash": "ca7fa878074a6fd12d5a478109c929d9"
+    "mtime": 1787400288.156035,
+    "seen": 1787400419.0870566,
+    "ast_hash": "bb722a8d63b1a7578f136bf99798f679",
+    "semantic_hash": ""
+  },
+  "static/js/prompt-ai-chat.js": {
+    "mtime": 1787398970.5236483,
+    "seen": 1787399276.0028632,
+    "ast_hash": "cdb87c58d22faa43d64b4f71a8d8e0f7",
+    "semantic_hash": ""
+  },
+  "static/js/prompt-presets.js": {
+    "mtime": 1787398926.1807213,
+    "seen": 1787399276.0028653,
+    "ast_hash": "7fd37f214f881138d21559c267241c5d",
+    "semantic_hash": ""
+  },
+  "static/js/prompt-styles.js": {
+    "mtime": 1787399033.0976152,
+    "seen": 1787399276.0028667,
+    "ast_hash": "800e1d042f6800d057b60801461d80aa",
+    "semantic_hash": ""
+  },
+  "static/js/prompt-wildcards.js": {
+    "mtime": 1787399711.3928645,
+    "seen": 1787399943.1509204,
+    "ast_hash": "0e1312911fa197ab5a1858fa449dfc69",
+    "semantic_hash": ""
   }
 }

@@ -1107,11 +1107,19 @@ class ImageEditTab {
             e.target.value = "";
         });
 
+        document.getElementById("ie-open-psd-input")?.addEventListener("change", e => {
+            const file = e.target.files?.[0];
+            if (file) this._loadPsdFile(file);
+            e.target.value = "";
+        });
+
         document.getElementById("ie-new-btn")?.addEventListener("click", () => this._newCanvas());
+        document.getElementById("ie-close-btn")?.addEventListener("click", () => this._closeDocument());
         document.getElementById("ie-undo-btn")?.addEventListener("click", () => this._undo());
         document.getElementById("ie-redo-btn")?.addEventListener("click", () => this._redo());
         document.getElementById("ie-save-btn")?.addEventListener("click", () => this._fileExport.savePng());
         document.getElementById("ie-save-gallery-btn")?.addEventListener("click", () => this._fileExport.saveToGallery());
+        document.getElementById("ie-save-psd-btn")?.addEventListener("click", () => this._fileExport.saveAsPsd());
         document.getElementById("ie-send-workflow-btn")?.addEventListener("click", () => this._fileExport.sendToWorkflow());
         document.getElementById("ie-zoom-fit")?.addEventListener("click", () => this._fitToView());
         document.getElementById("ie-zoom-100")?.addEventListener("click", () => {
@@ -1399,6 +1407,102 @@ class ImageEditTab {
 
         document.getElementById("ie-placeholder").style.display = "none";
         showToast(`Loaded: ${img.width}×${img.height}`, "success");
+    }
+
+    // PSDファイルをアップロードし、レイヤーを分解して新規ドキュメントとして読み込む。
+    async _loadPsdFile(file) {
+        const form = new FormData();
+        form.append("file", file);
+
+        let data;
+        try {
+            const r = await fetch("/wfm/gallery/image/import-psd-layers", { method: "POST", body: form });
+            if (!r.ok) {
+                const e = await r.json().catch(() => ({}));
+                throw new Error(e.error || r.statusText);
+            }
+            data = await r.json();
+        } catch (err) {
+            showToast(`PSD import failed: ${err.message}`, "error");
+            return;
+        }
+        await this.loadPsdLayersData(data, file.name.replace(/\.[^.]+$/, ""));
+    }
+
+    /** バックエンドの import-psd-layers / psd-layers が返すレイヤー配列(dataURL+メタデータ)を
+     *  新規ドキュメントとして読み込む。グループ・調整レイヤー等はバックエンド側で既にスキップ
+     *  済みのフラットな画像レイヤー配列が渡される想定（ギャラリーからの直接送信でも使う共通経路）。
+     */
+    async loadPsdLayersData(data, baseName = "psd-image") {
+        const { width, height, layers } = data || {};
+        if (!width || !height || !layers?.length) {
+            showToast("No importable layers found in this PSD", "error");
+            return;
+        }
+
+        this._canvasW  = width;
+        this._canvasH  = height;
+        this._baseName = baseName;
+        this._initCanvases();
+
+        // レイヤーはバックエンド側で先頭=最前面の順に並べ替え済み
+        const loaded = await Promise.all(layers.map(ld => new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => {
+                const layer = new Layer(ld.name || "Layer", "image", ld.width, ld.height);
+                layer.x         = ld.x;
+                layer.y         = ld.y;
+                layer.displayW  = ld.width;
+                layer.displayH  = ld.height;
+                layer.opacity   = ld.opacity;
+                layer.blendMode = ld.blendMode;
+                layer.visible   = ld.visible;
+                layer.ctx.drawImage(img, 0, 0);
+                resolve(layer);
+            };
+            img.onerror = () => resolve(null);
+            img.src = ld.imageData;
+        })));
+
+        this._layerMgr.layers      = loaded.filter(Boolean);
+        this._layerMgr.activeIndex = 0;
+
+        this._undoStack = [];
+        this._redoStack = [];
+        this._setActiveTool("select");
+        this._selectTool?.setLayer(this._layerMgr.activeLayer);
+        this._refreshLayerList();
+        this._updateCompositeView();
+        this._fitToView();
+
+        document.getElementById("ie-placeholder").style.display = "none";
+        showToast(`PSD imported: ${this._layerMgr.layers.length} layer(s)`, "success");
+    }
+
+    // 現在のドキュメントを閉じ、未保存の変更を破棄してプレースホルダー表示に戻す
+    _closeDocument() {
+        if (!this._layerMgr) return;
+        if (!confirm("Close the current document? Unsaved changes will be lost.")) return;
+
+        this._layerMgr  = null;
+        this._undoStack = [];
+        this._redoStack = [];
+        this._canvasW   = 512;
+        this._canvasH   = 512;
+        this._baseName  = "image";
+        this._zoom      = 1.0;
+        this._panOffset = { x: 0, y: 0 };
+
+        const drawCanvas    = document.getElementById("ie-canvas-draw");
+        const overlayCanvas = document.getElementById("ie-canvas-overlay");
+        drawCanvas?.getContext("2d").clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        overlayCanvas?.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+        const layerList = document.getElementById("ie-layer-list");
+        if (layerList) layerList.innerHTML = "";
+
+        const placeholder = document.getElementById("ie-placeholder");
+        if (placeholder) placeholder.style.display = "";
     }
 
     _newCanvas() {
@@ -1750,6 +1854,45 @@ class ImageEditTab {
 
     // ── レイヤーパネル ────────────────────────────
 
+    // 指定レイヤーをアクティブ化し、種別・現在のツールに応じてキャンバス/ツールを同期する
+    // (レイヤーリストのクリック選択・複製直後のアクティブ化などで共用)
+    _activateLayerById(id) {
+        if (!this._layerMgr) return;
+        this._syncActiveLayerFromCanvas();
+        this._layerMgr.setActive(id);
+        const layer = this._layerMgr.activeLayer;
+        if (layer?.type === "mask") {
+            if (this._activeTool !== "mask") {
+                this._setActiveTool("mask");
+            } else {
+                // すでにマスクツール選択中 → canvas だけ切り替え
+                this._maskTool?.setCanvas(layer.canvas);
+                this._maskTool?.activate();
+            }
+            // operation に合わせて MaskTool の mode を同期
+            if (this._maskTool) {
+                this._maskTool.mode = layer.operation === "subtract" ? "erase" : "paint";
+                this._renderToolOptions("mask");
+            }
+            this._updateCompositeView();
+        } else if (this._activeTool === "draw" && layer) {
+            this._drawTool?.setCanvas(layer.canvas);
+            this._updateCompositeView();
+        } else if (this._activeTool === "select" && layer) {
+            this._selectTool?.setLayer(layer);
+            this._updateCompositeView();
+        } else {
+            this._updateCompositeView();
+        }
+        this._refreshLayerList();
+        if (layer) {
+            const sl = document.getElementById("ie-layer-opacity");
+            const lb = document.getElementById("ie-layer-opacity-label");
+            if (sl) sl.value = Math.round(layer.opacity * 100);
+            if (lb) lb.textContent = Math.round(layer.opacity * 100) + "%";
+        }
+    }
+
     _setupLayerPanel() {
         document.getElementById("ie-add-layer-btn")?.addEventListener("click", () => {
             if (!this._layerMgr) return;
@@ -1762,6 +1905,24 @@ class ImageEditTab {
             this._loadActiveLayerToCanvas();
             this._updateCompositeView();
             this._activateCurrentTool();
+        });
+
+        document.getElementById("ie-dup-layer-btn")?.addEventListener("click", async () => {
+            if (!this._layerMgr) return;
+            const active = this._layerMgr.activeLayer;
+            if (!active) return;
+            this._syncActiveLayerFromCanvas();
+            this._saveUndo();
+
+            const json = active.toJSON();
+            json.name = `${active.name} copy`;
+            const dup = await Layer.fromJSON(json);
+            dup.id = crypto.randomUUID();
+
+            const idx = this._layerMgr.layers.indexOf(active);
+            this._layerMgr.layers.splice(idx, 0, dup);
+
+            this._activateLayerById(dup.id);
         });
 
         document.getElementById("ie-add-mask-btn")?.addEventListener("click", () => {
@@ -1873,39 +2034,7 @@ class ImageEditTab {
                     if (sel?.id === id) this._selectTool?.setLayer(sel);
                     this._refreshLayerList();
                 } else if (action === "select") {
-                    this._syncActiveLayerFromCanvas();
-                    this._layerMgr.setActive(id);
-                    const layer = this._layerMgr.activeLayer;
-                    if (layer?.type === "mask") {
-                        if (this._activeTool !== "mask") {
-                            this._setActiveTool("mask");
-                        } else {
-                            // すでにマスクツール選択中 → canvas だけ切り替え
-                            this._maskTool?.setCanvas(layer.canvas);
-                            this._maskTool?.activate();
-                        }
-                        // operation に合わせて MaskTool の mode を同期
-                        if (this._maskTool) {
-                            this._maskTool.mode = layer.operation === "subtract" ? "erase" : "paint";
-                            this._renderToolOptions("mask");
-                        }
-                        this._updateCompositeView();
-                    } else if (this._activeTool === "draw" && layer) {
-                        this._drawTool?.setCanvas(layer.canvas);
-                        this._updateCompositeView();
-                    } else if (this._activeTool === "select" && layer) {
-                        this._selectTool?.setLayer(layer);
-                        this._updateCompositeView();
-                    } else {
-                        this._updateCompositeView();
-                    }
-                    this._refreshLayerList();
-                    if (layer) {
-                        const sl = document.getElementById("ie-layer-opacity");
-                        const lb = document.getElementById("ie-layer-opacity-label");
-                        if (sl) sl.value = Math.round(layer.opacity * 100);
-                        if (lb) lb.textContent = Math.round(layer.opacity * 100) + "%";
-                    }
+                    this._activateLayerById(id);
                 }
             });
         });
@@ -1960,6 +2089,60 @@ class ImageEditTab {
         } catch {
             showToast("Failed to load image from URL", "error");
         }
+    }
+
+    /** ギャラリーなど外部から複数画像URLをまとめてレイヤーとして新規ドキュメントに読み込む
+     *  @param {Array<{url: string, name?: string}>} items 先頭=最背面, 末尾=最前面として重ねる
+     */
+    async loadLayersFromUrls(items) {
+        if (!items || items.length === 0) return;
+
+        let imgs;
+        try {
+            imgs = await Promise.all(items.map(({ url }) => new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload  = () => resolve(img);
+                img.onerror = () => reject(new Error(`Failed to load: ${url}`));
+                img.src = url;
+            })));
+        } catch (err) {
+            showToast(err.message || "Failed to load images", "error");
+            return;
+        }
+
+        const w = Math.max(...imgs.map(i => i.width));
+        const h = Math.max(...imgs.map(i => i.height));
+
+        this._canvasW  = w;
+        this._canvasH  = h;
+        this._baseName = "gallery-layers";
+        this._initCanvases();
+
+        const layers = imgs.map((img, i) => {
+            const fit   = fitToCanvas(img.width, img.height, w, h);
+            const layer = new Layer(items[i].name || `Layer ${i + 1}`, "image", img.width, img.height);
+            layer.displayW = fit.w;
+            layer.displayH = fit.h;
+            layer.x = Math.round((w - fit.w) / 2);
+            layer.y = Math.round((h - fit.h) / 2);
+            layer.ctx.drawImage(img, 0, 0);
+            return layer;
+        });
+
+        // items は先頭=最背面の順で渡される想定のため、Layer配列規約(先頭=最前面)に合わせて反転する
+        this._layerMgr.layers      = layers.reverse();
+        this._layerMgr.activeIndex = 0;
+
+        this._undoStack = [];
+        this._redoStack = [];
+        this._setActiveTool("select");
+        this._selectTool?.setLayer(this._layerMgr.activeLayer);
+        this._refreshLayerList();
+        this._updateCompositeView();
+        this._fitToView();
+
+        document.getElementById("ie-placeholder").style.display = "none";
+        showToast(`Loaded ${layers.length} image(s) as layers`, "success");
     }
 
     // ── キーボードショートカット ──────────────────

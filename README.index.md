@@ -26,7 +26,7 @@ A comprehensive workflow, asset management, and generation UI plugin for [ComfyU
 - Built-in AI tools (translation and more)
 
 ![Workflow Studio](https://img.shields.io/badge/ComfyUI-Custom_Node-blue)
-![Version](https://img.shields.io/badge/version-0.5.8-green)
+![Version](https://img.shields.io/badge/version-0.6.0-green)
 
 ## Features (tab -> feature names)
 
@@ -52,7 +52,7 @@ Setting / Results / Plan JSON sub-panels, Per-column keyframes, Model column —
 2-column layout, Collapsible sections, Theme selection, Theme customization, Workflows directory, Gallery output directory, Eagle connection, CivitAI Host, CivitAI API Key, Default workflow, Default Checkpoint, Video Playback Volume, Data Management, Text Size, RAW JSON Colors, GenerateUI Model Tab Highlight, Wildcard Integration, G'MIC-Qt Integration, Language
 
 ### Gallery Tab (v0.3.44)
-Output / ImagePrompt / Style_Catalog / Metadata sub-tabs, Image browser, Folder tree root label, Thumbnail / Table views, Folder management, File operations, Download, MP4 video support, MP4 embedded metadata, Info tab: dimensions & duration, Multi-select, Image Compare, Prompt search, Server-side filtering, Group management, Thumbnail F button, Favorites, Detail panel, Prompt tab, Workflow viewer, GenUI button, Image Edit button, Send GenUI Image button, Send to LI node button, Send CC button, Search clear (✕), Clear all filters (✕ Clear), Workflow auto-save, Output folder configurable, SVG file support, Performance
+Output / ImagePrompt / Style_Catalog / Metadata sub-tabs, Image browser, Folder tree root label, Thumbnail / Table views, Folder management, File operations, Download, MP4 video support, MP4 embedded metadata, Info tab: dimensions & duration, Multi-select, Image Compare, Prompt search, Server-side filtering, Group management, Thumbnail F button, Favorites, Detail panel, Prompt tab, Workflow viewer, GenUI button, Image Edit button, Send GenUI Image button, Send to LI node button, Send CC button, Search clear (✕), Clear all filters (✕ Clear), Workflow auto-save, Output folder configurable, SVG file support, PSD file support, Performance
 
 ### ImagePrompt Gallery subtab (v0.3.94, renamed from Style/Prompt in v0.3.95)
 Visual prompt library, 3-column layout, Prompt builder (right pane), Plain-text prompt storage, ponyxlWildcardsVault format support, Seed data importer
@@ -73,7 +73,7 @@ Model Browser, Thumbnail / Table views, Table column sort, Search & Filter, User
 3 sub-tabs, Model support, Threshold sliders, VLM tagging, Single tab, Single output options, Batch tab, DB tab, Dependencies
 
 ### Image Edit Tab (v0.3.65)
-Layer-based image editor, Loading images, New button, Tools, Layer panel, Layer lock, Text quality, Export, Canvas navigation, Undo / Redo
+Layer-based image editor, Loading images, Open PSD button, Close button, New button, Tools, Layer panel, Duplicate layer (⧉), Layer lock, Text quality, Export, Canvas navigation, Undo / Redo
 
 ### Video Tab (v0.5.0 – v0.5.7)
 Dedicated video generation UI, independent of GenerateUI, Plan / Edit subtabs, Base settings row, Asset / Project subtabs, Two center previews, First Frame / Last Frame are both optional, Semantic node lookup, not hardcoded IDs, Field highlight color, Load in Video, Frame tab, GIF tab, Playback volume
@@ -160,6 +160,7 @@ Click the **camera icon** (next to the W button) in ComfyUI's top bar to capture
 - **[Unsloth](https://unsloth.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API); always requires an API key, set via `UNSLOTH_API_KEY` in a `.env` file — `pip install -r requirements.txt` for `python-dotenv`
 - **[Eagle](https://eagle.cool/)** — for auto-saving generated images with metadata
 - **[comfyui-mask-editor-one](https://github.com/ketle-man/comfyui-mask-editor-one) (v0.1.9+)** — enables BiRefNet background removal, SAM3 text-prompt segmentation, and ABR stamp-brush library in the Image Edit Mask tool; `birefnet.safetensors` must be placed in `ComfyUI/models/background_removal/` for BiRefNet
+- **[psd-tools](https://pypi.org/project/psd-tools/)** (v0.6.0) — enables all PSD (Photoshop) features: Gallery bulk "Create PSD" export, Gallery browsing/thumbnails for `.psd` files, and Image Edit's Save PSD / Open PSD buttons; `pip install -r requirements.txt` (ships prebuilt wheels, no C compiler required); without it, PSD-related actions show an error toast with the install command instead of failing silently
 
 ---
 

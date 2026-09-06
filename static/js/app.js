@@ -245,6 +245,10 @@ function applyI18nToHtml() {
     if (galleryBulkMove) galleryBulkMove.textContent = t("galleryBulkMoveTo");
     const galleryBulkExport = document.getElementById("wfm-gallery-bulk-export");
     if (galleryBulkExport) galleryBulkExport.textContent = t("galleryBulkExport");
+    const galleryBulkPsd = document.getElementById("wfm-gallery-bulk-psd");
+    if (galleryBulkPsd) galleryBulkPsd.textContent = t("galleryBulkPsd");
+    const galleryBulkEditLayers = document.getElementById("wfm-gallery-bulk-edit-layers");
+    if (galleryBulkEditLayers) galleryBulkEditLayers.textContent = t("galleryBulkEditLayers");
     const galleryBulkDelete = document.getElementById("wfm-gallery-bulk-delete");
     if (galleryBulkDelete) galleryBulkDelete.textContent = t("galleryBulkDelete");
     const galleryOpenTaggerBtn = document.getElementById("wfm-gallery-open-tagger-btn");
@@ -574,6 +578,8 @@ function applyI18nToHtml() {
         "wfm-help-gallery-22": "helpGallery22", "wfm-help-gallery-23": "helpGallery23",
         "wfm-help-gallery-24": "helpGallery24", "wfm-help-gallery-25": "helpGallery25",
         "wfm-help-gallery-26": "helpGallery26",
+        "wfm-help-gallery-28": "helpGallery28", "wfm-help-gallery-29": "helpGallery29",
+        "wfm-help-gallery-30": "helpGallery30",
         "wfm-help-gallery-card-styleprompt-title": "helpGalleryCardStyleprompt",
         "wfm-help-gallery-card-stylecatalog-title": "helpGalleryCardStylecatalog",
         "wfm-help-tagger-title": "helpTaggerTitle",
@@ -629,6 +635,8 @@ function applyI18nToHtml() {
         "wfm-help-imageedit-26": "helpImageEdit26", "wfm-help-imageedit-27": "helpImageEdit27",
         "wfm-help-imageedit-28": "helpImageEdit28", "wfm-help-imageedit-29": "helpImageEdit29",
         "wfm-help-imageedit-30": "helpImageEdit30",
+        "wfm-help-imageedit-31": "helpImageEdit31", "wfm-help-imageedit-32": "helpImageEdit32",
+        "wfm-help-imageedit-33": "helpImageEdit33", "wfm-help-imageedit-34": "helpImageEdit34",
         "wfm-help-imageedit-7b": "helpImageEdit7b", "wfm-help-imageedit-7c": "helpImageEdit7c",
         "wfm-help-imageedit-7d": "helpImageEdit7d", "wfm-help-imageedit-7e": "helpImageEdit7e",
         "wfm-help-imageedit-8b": "helpImageEdit8b",
