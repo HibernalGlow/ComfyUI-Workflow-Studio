@@ -233,6 +233,9 @@ window._wfmReceiveGenerateRequest = async (prompt, width, height, negative, work
 const PAGE_SIZE = 50;
 let _renderedCount = 0;
 let _scrollObserver = null;
+let _loadImagesAbortController = null;
+let _searchDebounceTimer = null;
+const SEARCH_DEBOUNCE_MS = 300;
 
 // ── 状態 ─────────────────────────────────────────────────────
 
@@ -523,6 +526,16 @@ function renderTreeNode(node, container, depth, isRoot) {
 async function loadImages() {
     if (!state.currentFolder) return;
 
+    // 前回のリクエストがまだ処理中なら中断する。中断せず並行させると、後から
+    // 返ってきた古いレスポンス（例: クリア直前に打っていた検索文字列の結果）が
+    // 最新の表示を上書きしてしまい、「クリアしても検索結果のまま/読み込み中の
+    // まま」に見える不具合の原因になっていた。
+    if (_loadImagesAbortController) {
+        _loadImagesAbortController.abort();
+    }
+    const controller = new AbortController();
+    _loadImagesAbortController = controller;
+
     const grid = document.getElementById("wfm-gallery-grid");
     grid.innerHTML = `<p class="wfm-placeholder">${t("loading")}</p>`;
 
@@ -544,14 +557,19 @@ async function loadImages() {
     }
 
     try {
-        const images = (await apiFetch(API.images(params))).images || [];
+        const images = (await apiFetch(API.images(params), { signal: controller.signal })).images || [];
         state.images = images;
         state.lastSelectionIndex = -1;
         document.getElementById("wfm-gallery-count").textContent = `${state.images.length} images`;
         renderImages();
         updateTagFilter(state.images);
     } catch (e) {
+        if (e.name === "AbortError") return;
         grid.innerHTML = `<p class="wfm-placeholder">Error: ${escapeHtml(e.message)}</p>`;
+    } finally {
+        if (_loadImagesAbortController === controller) {
+            _loadImagesAbortController = null;
+        }
     }
 }
 
@@ -2012,12 +2030,15 @@ function bindEvents() {
         });
     }
 
-    // 検索
+    // 検索（連続キー入力のたびにリクエストを飛ばすと、50枚程度のフォルダでも
+    // ファイルI/Oの重いサーバー処理が積み重なって読み込みが遅延するためdebounceする）
     document.getElementById("wfm-gallery-search")?.addEventListener("input", (e) => {
         state.search = e.target.value;
-        loadImages();
+        clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(loadImages, SEARCH_DEBOUNCE_MS);
     });
     setupSearchClearBtn("wfm-gallery-search", "wfm-gallery-search-clear-btn", () => {
+        clearTimeout(_searchDebounceTimer);
         state.search = "";
         loadImages();
     });
@@ -2295,6 +2316,7 @@ function bindEvents() {
     if (galleryClearBtn) {
         galleryClearBtn.textContent = t("clearFilters");
         galleryClearBtn.addEventListener("click", () => {
+            clearTimeout(_searchDebounceTimer);
             state.search = "";
             state.favoriteOnly = false;
             state.tagFilter = "";

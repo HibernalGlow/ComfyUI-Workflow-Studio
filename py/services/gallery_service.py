@@ -186,8 +186,14 @@ class GalleryService:
         self._folder_cache = _FolderCache()
         self._bg_cancel = threading.Event()
         self._bg_cancel.set()  # 初期状態: キャンセル済み
-        # ponyxlWildcardsVault形式フォールバック用キャッシュ: category_root文字列 -> (yamlシグネチャ, {leaf: tags})
-        self._vault_leaf_cache: dict[str, tuple[tuple, dict]] = {}
+        # ponyxlWildcardsVault形式フォールバック用キャッシュ: category_root文字列 -> (キャッシュ時刻, {leaf: tags})
+        self._vault_leaf_cache: dict[str, tuple[float, dict]] = {}
+        # 画像の親フォルダ文字列 -> (キャッシュ時刻, category_root or None)。
+        # _find_vault_category_root は祖先ディレクトリを最大8階層×2回stat()するため、
+        # 検索フィルタで全画像に対して毎回呼ぶと（特にVaultでない通常フォルダでも
+        # 無駄に）遅くなる。同一フォルダ内の画像は結果が同じなのでフォルダ単位で
+        # キャッシュする。
+        self._vault_root_cache: dict[str, tuple[float, Path | None]] = {}
 
     def update_output_root(self, root_path: str) -> None:
         """許可するルートパスを更新する（Settings変更時に呼ぶ）"""
@@ -251,13 +257,14 @@ class GalleryService:
                 batch[abs_path] = {"prompt_cache": prompt_cache}
                 processed += 1
                 if len(batch) >= 10:
-                    for p, d in batch.items():
-                        self.metadata_store.save(p, d)
+                    # 1件ずつsave()を呼ぶとバッチ内の枚数分だけJSONシリアライズ+
+                    # ファイルI/Oが発生してしまう（大量画像フォルダのメタデータでは
+                    # 1回あたり数百ms〜になりうる）ため、まとめて1回で保存する。
+                    self.metadata_store.save_batch(batch)
                     batch = {}
                     time.sleep(0.05)  # 50ms 他の処理に譲る
             if batch and not cancel.is_set():
-                for p, d in batch.items():
-                    self.metadata_store.save(p, d)
+                self.metadata_store.save_batch(batch)
             if processed:
                 logger.debug("BG index done: %s (%d indexed)", folder_path, processed)
         except Exception as e:
@@ -437,8 +444,12 @@ class GalleryService:
         # recursive=False（非再帰スキャン）の場合、existing_pathsにはfolder直下の
         # ファイルしか含まれないため、cleanup側にもrecursive=Falseを伝えて対象範囲を
         # 直下のみに限定する（でないとサブフォルダ内ファイルのメタデータを誤削除する）。
-        existing_paths = {abs_path for _, abs_path, _, _ in raw_entries}
-        self.metadata_store.cleanup_stale_images(str(folder), existing_paths, recursive=recursive)
+        # 検索文字列入力中はキー入力のたびに呼ばれるため、ここではスキップする
+        # （全メタデータ走査＋該当時はJSON全体のディスク書き込みを伴い重く、検索の
+        # 度に繰り返す必要はない。通常の検索なしロード時に実行されれば十分）。
+        if not search:
+            existing_paths = {abs_path for _, abs_path, _, _ in raw_entries}
+            self.metadata_store.cleanup_stale_images(str(folder), existing_paths, recursive=recursive)
 
         results = []
         for name, abs_path, size, mtime in raw_entries:
@@ -562,32 +573,45 @@ class GalleryService:
 
     def _find_vault_category_root(self, image_path: Path) -> Path | None:
         """image_path の祖先を辿り、直下に thumbnails(_option2) を持つフォルダ
-        (=ponyxlWildcardsVaultのカテゴリルート) を探す"""
+        (=ponyxlWildcardsVaultのカテゴリルート) を探す。
+        同一フォルダ内の画像は結果が同じなので、フォルダ単位でTTLキャッシュする。"""
+        parent_key = str(image_path.parent)
+        cached = self._vault_root_cache.get(parent_key)
+        if cached is not None and time.monotonic() - cached[0] <= _CACHE_TTL:
+            return cached[1]
+
         cur = image_path.parent
+        result: Path | None = None
         for _ in range(_VAULT_ROOT_SEARCH_DEPTH):
             if any((cur / name).is_dir() for name in _VAULT_THUMB_DIR_NAMES):
-                return cur
+                result = cur
+                break
             if cur.parent == cur:
                 break
             cur = cur.parent
-        return None
+
+        self._vault_root_cache[parent_key] = (time.monotonic(), result)
+        return result
 
     def _load_vault_leaves(self, category_root: Path) -> dict[str, str]:
-        yaml_files = sorted(category_root.glob("*.yaml")) + sorted(category_root.glob("*.yml"))
-        if not yaml_files:
-            return {}
-        try:
-            signature = tuple(sorted((str(f), f.stat().st_mtime) for f in yaml_files))
-        except OSError:
-            signature = ()
+        """category_root直下のyamlをパースしたleaf辞書をTTLキャッシュする。
+        以前はキャッシュの妥当性確認のため毎回 category_root.glob("*.yaml") を実行して
+        いたが、category_root は「thumbnails(_option2)という名前のフォルダを直下に持つ
+        祖先」というゆるい条件で決まるため、Vaultとは無関係な通常の画像出力フォルダ
+        （例: 直下にComfyUIが作る空のthumbnailsキャッシュフォルダがあるだけ）が誤検出
+        されることがある。そのフォルダに数千〜数万枚のファイルがあると、glob自体が
+        1回数十ms〜になり、検索フィルタで画像ごとに呼ばれると数秒単位まで積み上がって
+        いた（実際に発生した不具合: 1万枚超のルート直下に誤検出されたフォルダがあり、
+        53枚のサブフォルダを検索するだけで約3秒かかっていた）。TTL内はglobを省略する。"""
         cache_key = str(category_root)
         cached = self._vault_leaf_cache.get(cache_key)
-        if cached is not None and cached[0] == signature:
+        if cached is not None and time.monotonic() - cached[0] <= _CACHE_TTL:
             return cached[1]
+        yaml_files = sorted(category_root.glob("*.yaml")) + sorted(category_root.glob("*.yml"))
         leaves: dict[str, str] = {}
         for yf in yaml_files:
             leaves.update(_parse_vault_yaml_leaves(yf))
-        self._vault_leaf_cache[cache_key] = (signature, leaves)
+        self._vault_leaf_cache[cache_key] = (time.monotonic(), leaves)
         return leaves
 
     def _read_vault_prompt(self, image_path: Path) -> str | None:

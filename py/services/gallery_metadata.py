@@ -1,6 +1,7 @@
 """
 Gallery Metadata Store - ギャラリー画像のメタデータ永続化
 """
+import copy
 import json
 import logging
 import threading
@@ -38,6 +39,9 @@ class GalleryMetadataStore:
     def __init__(self, file_path: Path):
         self.file_path = file_path
         self._lock = threading.RLock()
+        # ディスクへの実書き込み（JSONシリアライズ+ファイルI/O）を直列化するための
+        # 別ロック。_save_to_disk() を参照。
+        self._write_lock = threading.Lock()
         self._data: dict = {"images": {}, "groups": []}
         self._load()
 
@@ -70,22 +74,39 @@ class GalleryMetadataStore:
 
     def _save_to_disk(self):
         # 呼び出し元（save/create_group等）が既にself._lockを保持している前提の内部メソッド。
-        # 一時ファイルに書き出してから置き換える(os.replace相当のPath.replace)ことで書き込みを
-        # アトミックにする。素朴な open(path, "w") での直接上書きだと、書き込み完了前に他プロセス
-        # が読むと不完全なJSONを掴む(torn read)うえ、書き込み中にComfyUIプロセスが終了すると
-        # ファイルが壊れたまま残る — 大量画像フォルダのBGインデックス処理(10枚ごとに保存)で
-        # 書き込み頻度が高い環境ほど発生しやすく、次回起動時のロード失敗→空データでの
-        # 全上書きという形でユーザーの登録済みグループ/タグ/メモが消失する原因になっていた。
-        try:
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.file_path.with_name(self.file_path.name + ".tmp")
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False, indent=2)
-            tmp_path.replace(self.file_path)
-            return True
-        except Exception as e:
-            logger.error("GalleryMetadataStore: save error: %s", e)
-            return False
+        # ここではself._lock配下でスナップショット(deepcopy)を取るだけに留め、実際のJSON
+        # シリアライズ+ファイルI/Oはロックの外、別途self._write_lockで直列化して行う。
+        # 理由: gallery_metadata.jsonは画像数が多い環境では1MBを超えることがあり、
+        # self._lockを保持したままjson.dump+ファイル書き込みまで行うと、その間
+        # 他スレッドのget()（検索リクエストなど）が丸ごとブロックされてしまう
+        # （実際に発生した不具合: バックグラウンドインデックス処理が10枚ごとに保存する際、
+        # 検索リクエストのget()呼び出しがロック待ちになり、50枚程度のフォルダに対する
+        # 検索でも数秒〜十数秒かかっていた）。deepcopy自体はメモリ内操作でファイルI/Oより
+        # 大幅に軽いため、ロック内に残しても実用上のブロック時間は無視できるレベルになる。
+        snapshot = copy.deepcopy(self._data)
+        return self._write_snapshot(snapshot)
+
+    def _write_snapshot(self, snapshot: dict) -> bool:
+        """self._lockの外から呼ばれる。一時ファイルに書き出してから置き換える
+        (os.replace相当のPath.replace)ことで書き込みをアトミックにする。素朴な
+        open(path, "w") での直接上書きだと、書き込み完了前に他プロセスが読むと
+        不完全なJSONを掴む(torn read)うえ、書き込み中にComfyUIプロセスが終了すると
+        ファイルが壊れたまま残る — 大量画像フォルダのBGインデックス処理で書き込み
+        頻度が高い環境ほど発生しやすく、次回起動時のロード失敗→空データでの全上書き
+        という形でユーザーの登録済みグループ/タグ/メモが消失する原因になっていた。
+        self._write_lockで直列化し、複数スレッドの書き込みが競合して古いスナップショット
+        が新しいものを上書きしないようにする。"""
+        with self._write_lock:
+            try:
+                self.file_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = self.file_path.with_name(self.file_path.name + ".tmp")
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(snapshot, f, ensure_ascii=False, indent=2)
+                tmp_path.replace(self.file_path)
+                return True
+            except Exception as e:
+                logger.error("GalleryMetadataStore: save error: %s", e)
+                return False
 
     def _normalize_path(self, image_path: str) -> str:
         return str(Path(image_path)).replace("\\", "/")
@@ -103,6 +124,24 @@ class GalleryMetadataStore:
             allowed = {"favorite", "tags", "memo", "groups", "workflow"}
             existing = {k: v for k, v in existing.items() if k in allowed}
             self._data["images"][key] = existing
+            return self._save_to_disk()
+
+    def save_batch(self, entries: dict[str, dict]) -> bool:
+        """複数画像のメタデータを1回のディスク書き込みでまとめて保存する。
+        バックグラウンドインデックス処理のように多数の画像を連続して保存する場合、
+        1件ずつsave()を呼ぶと画像の数だけJSONシリアライズ+ファイルI/Oが発生してしまう
+        （実際に発生した不具合: gallery_metadata.jsonが1MBを超える環境で10枚ごとに
+        個別save()していたため、検索リクエストが完了するまで数秒〜十数秒かかっていた）。"""
+        if not entries:
+            return True
+        allowed = {"favorite", "tags", "memo", "groups", "workflow"}
+        with self._lock:
+            for image_path, data in entries.items():
+                key = self._normalize_path(image_path)
+                existing = self._data["images"].get(key, {})
+                existing.update(data)
+                existing = {k: v for k, v in existing.items() if k in allowed}
+                self._data["images"][key] = existing
             return self._save_to_disk()
 
     # ── グループ管理 ──────────────────────────────────────────────
