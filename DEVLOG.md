@@ -2,6 +2,26 @@
 
 ---
 
+## v0.6.2
+
+### Image Editタブにペンタブレット筆圧対応とFillツール（バケツ塗りつぶし）を追加
+
+ユーザーから「Comic CreatorのImageタブ同様にこちらのImage Editタブをペンタブレット対応させたい」という依頼を起点に、Draw/Maskツールの筆圧対応、Fillツール（バケツ塗りつぶし）の移植、そして実機フィードバックを受けた追加のペンタブレット不具合修正まで一連の作業を行った。
+
+**Draw/Maskツールの筆圧対応**: `image-edit-tab.js`のキャンバスイベントを`mousedown/mousemove/mouseup/mouseleave`から`pointerdown/pointermove/pointerup/pointerleave`に変更し、両canvasに`touch-action: none`を設定。`PointerEvent.pressure`（ペン=実際の筆圧、マウス=ボタン押下中は常に0.5）を`DrawTool`/`MaskTool`の`onMouseDown`/`onMouseMove`に伝播させ、両ツールに`pressureEnabled`（既定ON）を追加——筆圧に応じてブラシサイズ（0.3〜1.7倍）とDraw側は不透明度（0.4〜1.6倍）を可変化する。pressure=0.5（マウス）では従来と同じ1.0倍になるため、マウス操作の挙動は変わらない。実装はComic Creator（`eagle_comic_creator_spa`）のImageタブで先行実装済みだった筆圧対応パターンをそのまま移植した。
+
+**Fillツール（バケツ塗りつぶし）を新規追加**: Comic CreatorのImageタブにあった`FillTool.js`（スキャンライン方式のフラッドフィル、Solid/Gradient(線形・放射状)両対応、particle_engine.js由来のグラデーション評価ロジック）をそのまま移植し、`image-edit-tab.js`にツール切り替え・アクティブ化・クリック処理・プロパティパネル（Mode/Color/Ramp/Direction dial/Tolerance/Opacity）を追加、ショートカット`G`を割り当てた。ツールバーのボタンは`templates/index.html`に静的HTMLとして定義されていたため個別追加が必要だった（`TOOL_DEFS`配列だけでは表示されない）。
+
+**追加のペンタブレット不具合修正（ユーザー実機フィードバック）**: Fillツールのグラデーション設定UI——色ストップを並べた「Ramp」（ドラッグでストップ位置を変更）と方向・強度を指定する「Direction」ミニダイヤル——がペンタブレットでスライド操作できないという報告を受けた。原因はこの2つのミニウィジェットのドラッグ処理だけが`mousedown/mousemove/mouseup`のまま残っていたこと（`touch-action`未指定でブラウザのパン/スクロールジェスチャに奪われやすく、`document`に張った`mousemove`はポインタキャプチャが無いため速いペンの動きを取りこぼしやすい）。`_setupFillGradientRamp()`/`_setupFillGradientDir()`を`pointerdown/pointermove/pointerup/pointercancel`に変更し、`canvas.style.touchAction = "none"`と`canvas.setPointerCapture(e.pointerId)`を追加、ドラッグ中のリスナーも`document`ではなく`canvas`自身に張るよう変更した。
+
+**Comic Creator側も同じ不具合を横展開で修正**: Fillツールの移植元であるComic Creator（`image-tab.js`）にも同一パターンの`_setupFillGradientRamp()`/`_setupFillGradientDir()`に加え、Shapeツールの塗りグラデーションランプ`_setupShapeGradRamp()`（同一コードパターンの複製）が存在し、同じ理由でペンタブレット操作ができない状態だった。3箇所とも同じPointer Events化を適用して修正した。
+
+**検証**: Kaptureで実ブラウザ（ComfyUI_5上のWorkflow Studio `/wfm`、Comic Creator `/ccc`）を操作し、Draw/Mask/Fillそれぞれで新規キャンバス作成→クリック描画/塗りつぶし→コンソールエラーなし・レイヤーサムネイル即時更新を確認。Ramp/Directionダイヤルもクリックでのストップ選択・ハイライト表示が正しく動作することを確認した（ペン特有の筆圧・ドラッグ挙動そのものは自動化ツールでは検証できないため、筆圧の効き具合とドラッグ操作は実機ユーザー確認による）。Comic Creator側は開発フォルダがComfyUI custom_nodes配下にシンボリックリンクされているため、コピー不要で編集がそのまま反映される構成だった（Workflow Studio側は開発リポジトリと実行時custom_nodesが別実体のため、変更のたびに手動コピーが必要）。
+
+**How to apply**: キャンバスベースの描画・ドラッグ操作を実装する際は、最初から`mousedown/mousemove/mouseup`ではなく`pointerdown/pointermove/pointerup/pointercancel`（Pointer Events）を使い、`touch-action: none`を設定する——マウス専用に見えるミニウィジェット（カラーランプ、方向ダイヤル等）であっても、後からペンタブレットで使われた際に同じ不具合が起きる。ドラッグ中の`move`/`up`リスナーは`document`ではなく対象の`canvas`自身に張り、`setPointerCapture()`を使うと要素境界を越えた高速な動きでも取りこぼさない。同一パターンのコードが複数箇所（ファイル間・同一ファイル内）に複製されている場合、1箇所の不具合報告を機に全箇所を横展開で確認する。
+
+関連: [[project_v062_fill_tool_pentablet]], [[feedback_realtime_debug_logs_and_kapture]], [[project_comic_creator_deploy_symlink]]
+
 ## v0.6.1
 
 ### Galleryタブの検索が「読み込み中」のまま止まりクリアでも中断できない不具合、および50枚程度のフォルダでも数秒〜十数秒かかる不具合を修正

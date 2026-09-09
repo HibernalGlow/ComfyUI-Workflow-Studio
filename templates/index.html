@@ -1984,6 +1984,7 @@
                                 <li id="wfm-help-imageedit-5">Draw (B): freehand brush drawing onto the active draw layer; Tool Options: color, brush size, blend mode; Properties pane includes a MASK EDITOR ONE (COLOR) section for ABR image brushes — always visible, header text is green when brushes are available, gray when none are imported yet; Select is disabled until at least one brush exists</li>
                                 <li id="wfm-help-imageedit-6">Text (T): click on the canvas to place a text input overlay; configure font family, size, bold/italic, align, color in the Tool Options bar; click OK to place the text as an exact-size Text layer; double-click an existing text layer with the Select tool to re-edit</li>
                                 <li id="wfm-help-imageedit-7">Shape (S): draw geometric shapes onto the canvas; each committed shape becomes an independent draw layer; Tool Options: Shape type (Rect / Ellipse / Line / FreeLine), Rounded checkbox (Rect / Ellipse only), Fill color + None toggle (hidden for Line / FreeLine), Stroke color + width + None toggle (None hidden for Line / FreeLine where stroke is always active), Opacity slider, ↩ Undo button; drag to draw — a blue dashed outline previews the shape; release to commit</li>
+                                <li id="wfm-help-imageedit-7a2">Fill (G): bucket fill — click a contiguous same-color region on the active layer to flood-fill it with a solid color or a linear/radial gradient; Tool Options: Mode (Solid / Gradient), Color (solid) or Shape + Ramp (drag stops to reposition, click a stop then use the color swatch, ＋/－ to add/remove) + Direction dial (drag to set angle/radius, gradient), Tolerance (color-match threshold), Opacity</li>
                                 <li id="wfm-help-imageedit-7b">Blur (≈): apply Gaussian blur or mosaic to the active layer — whole-layer or region-based (drag a rectangle); see the Blur Tool card below for details</li>
                                 <li id="wfm-help-imageedit-7c">BG Remove (⬚): remove the background from the active layer using Lightweight (@imgly, runs in browser) or BiRefNet (requires Mask Editor One + birefnet.safetensors in ComfyUI/models/background_removal/); see the BG Remove Tool card below for details</li>
                                 <li id="wfm-help-imageedit-7d">Mask (🎭): paint masks on a mask layer using 6 sub-tools — Paint (freehand), Color (flood-select by similar color), Alpha (extract from image transparency), Text (stamp text), Vector (Catmull-Rom spline polygon), Shape (rect / ellipse); SAM3 text-prompt segmentation is also available when Mask Editor One is installed; click "Mask" (second row of the Layers header) to add a mask layer; see the Mask Tool card below for details</li>
@@ -2086,6 +2087,7 @@
                                 <li id="wfm-help-imageedit-23">B: Draw tool</li>
                                 <li id="wfm-help-imageedit-24">T: Text tool</li>
                                 <li id="wfm-help-imageedit-25">S: Shape tool</li>
+                                <li id="wfm-help-imageedit-25b">G: Fill tool</li>
                                 <li id="wfm-help-imageedit-26">Delete: Delete selected layer (requires 2+ layers)</li>
                                 <li id="wfm-help-imageedit-27">Ctrl+Z / Ctrl+Y: Undo / Redo</li>
                                 <li id="wfm-help-imageedit-28">Space + drag: Pan canvas</li>
@@ -2135,6 +2137,7 @@
                                 <li id="wfm-help-imageedit-tabkbd-2">B: Draw tool</li>
                                 <li id="wfm-help-imageedit-tabkbd-3">T: Text tool</li>
                                 <li id="wfm-help-imageedit-tabkbd-4">S: Shape tool</li>
+                                <li id="wfm-help-imageedit-tabkbd-4b">G: Fill tool</li>
                                 <li id="wfm-help-imageedit-tabkbd-5">Delete: Delete selected layer (requires 2+ layers)</li>
                                 <li id="wfm-help-imageedit-tabkbd-6">Ctrl+Z / Ctrl+Y: Undo / Redo</li>
                                 <li id="wfm-help-imageedit-tabkbd-7">Space + drag: Pan canvas</li>
@@ -2618,6 +2621,7 @@
                     <button class="ie-tool-btn"        data-tool="draw"     title="Draw (B)">✏</button>
                     <button class="ie-tool-btn"        data-tool="text"     title="Text (T)">T</button>
                     <button class="ie-tool-btn"        data-tool="shape"    title="Shape (S)">□</button>
+                    <button class="ie-tool-btn"        data-tool="fill"     title="Fill (G)">🪣</button>
                     <button class="ie-tool-btn" data-tool="mask" title="Mask">🎭</button>
                     <button class="ie-tool-btn"                    data-tool="blur"     title="Blur">≈</button>
                     <button class="ie-tool-btn"                    data-tool="filter"   title="Filter">★</button>

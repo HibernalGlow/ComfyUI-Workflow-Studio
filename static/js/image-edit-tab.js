@@ -9,6 +9,7 @@ import { DrawTool }            from "./image-edit/DrawTool.js";
 import { TextTool, TEXT_FONTS } from "./image-edit/TextTool.js";
 import { SelectTool }          from "./image-edit/SelectTool.js";
 import { ShapeTool }           from "./image-edit/ShapeTool.js";
+import { FillTool }            from "./image-edit/FillTool.js";
 import { MaskTool }            from "./image-edit/MaskTool.js";
 import { MaskColorTool, MaskAlphaTool, MaskTextTool, MaskVectorTool, MaskShapeTool, MASK_TEXT_FONTS } from "./image-edit/MaskEditorOneTools.js";
 import { GmicIntegration }     from "./image-edit/GmicIntegration.js";
@@ -28,6 +29,7 @@ const TOOL_DEFS = [
     { id: "draw",     icon: "✏",  label: "Draw",      ready: true  },
     { id: "text",     icon: "T",   label: "Text",      ready: true  },
     { id: "shape",    icon: "□",   label: "Shape",     ready: true  },
+    { id: "fill",     icon: "🪣",  label: "Fill",      ready: true  },
     { id: "mask",     icon: "🎭",  label: "Mask",      ready: true  },
     { id: "blur",     icon: "≈",   label: "Blur",      ready: true  },
     { id: "filter",   icon: "★",   label: "Filter",    ready: true },
@@ -63,6 +65,7 @@ class ImageEditTab {
         this._editingTextLayer = null;
         this._initialized      = false;
         this._shapeTool        = new ShapeTool();
+        this._fillTool         = new FillTool();
         // Blur ツール
         this._blurTool = new BlurTool({
             getLayerManager:     () => this._layerMgr,
@@ -241,6 +244,11 @@ class ImageEditTab {
         if (this._activeTool === "text")   this._textTool?.deactivate();
         if (this._activeTool === "select") this._selectTool?.deactivate();
         if (this._activeTool === "shape")  this._shapeTool?.deactivate();
+        if (this._activeTool === "fill") {
+            this._fillTool?.deactivate();
+            const overlay = document.getElementById("ie-canvas-overlay");
+            if (overlay) overlay.style.cursor = "";
+        }
         if (this._activeTool === "mask")   this._deactivateMaskSubtool();
         if (this._activeTool === "filter") {
             this._gmic.abort();
@@ -248,8 +256,8 @@ class ImageEditTab {
         if (this._activeTool === "blur") {
             this._blurTool.deactivate();
         }
-        // Draw/Mask/Inpaint以外に切り替えたらプロパティペインを非表示
-        if (toolId !== "mask" && toolId !== "draw" && toolId !== "inpaint") {
+        // Draw/Mask/Fill/Inpaint以外に切り替えたらプロパティペインを非表示
+        if (toolId !== "mask" && toolId !== "draw" && toolId !== "fill" && toolId !== "inpaint") {
             const pane = document.getElementById("ie-props-pane");
             if (pane) pane.style.display = "none";
         }
@@ -281,6 +289,11 @@ class ImageEditTab {
         } else if (this._activeTool === "shape" && this._shapeTool) {
             this._shapeTool.setCanvas(overlayCanvas);
             this._shapeTool.activate();
+            if (overlayCanvas) overlayCanvas.style.cursor = "crosshair";
+        } else if (this._activeTool === "fill" && this._fillTool) {
+            const activeLayer = this._layerMgr?.activeLayer;
+            if (activeLayer) this._fillTool.setCanvas(activeLayer.canvas);
+            this._fillTool.activate();
             if (overlayCanvas) overlayCanvas.style.cursor = "crosshair";
         } else if (this._activeTool === "mask") {
             this._initMaskEditorOneTools();
@@ -343,6 +356,10 @@ class ImageEditTab {
         } else if (toolId === "draw" && this._drawTool) {
             el.innerHTML = "";
             this._renderDrawProps();
+
+        } else if (toolId === "fill" && this._fillTool) {
+            el.innerHTML = "";
+            this._renderFillProps();
 
         } else if (toolId === "text" && this._textTool) {
             el.innerHTML = `
@@ -968,6 +985,271 @@ class ImageEditTab {
         });
     }
 
+    // ── Fill Tool (bucket fill) props ─────────────────────────────────────
+
+    _renderFillProps() {
+        const pane  = document.getElementById("ie-props-pane");
+        const body  = document.getElementById("ie-props-body");
+        const title = document.getElementById("ie-props-title");
+        if (!pane || !body) return;
+        pane.style.display = "flex";
+        if (title) title.textContent = "Fill";
+
+        const t = this._fillTool;
+        const isGradient = t.fillMode === "gradient";
+        body.innerHTML = `
+            <div class="ie-props-row">
+                <label>Mode</label>
+                <div style="display:flex;gap:4px;">
+                    <button class="wfm-btn wfm-btn-sm${!isGradient ? " ie-opt-active" : ""}" id="ie-fill-mode-solid"    style="flex:1;">Solid</button>
+                    <button class="wfm-btn wfm-btn-sm${isGradient  ? " ie-opt-active" : ""}" id="ie-fill-mode-gradient" style="flex:1;">Gradient</button>
+                </div>
+            </div>
+            ${!isGradient ? `
+            <div class="ie-props-row">
+                <label>Color</label>
+                <input type="color" id="ie-fill-color" value="${t.color}"
+                    style="width:36px;height:24px;padding:0;border:1px solid var(--wfm-border);cursor:pointer;border-radius:3px;flex-shrink:0;">
+            </div>` : `
+            <div class="ie-props-row">
+                <label>Shape</label>
+                <div style="display:flex;gap:4px;">
+                    <button class="wfm-btn wfm-btn-sm${t.gradientShape === "linear" ? " ie-opt-active" : ""}" id="ie-fill-shape-linear" style="flex:1;">Linear</button>
+                    <button class="wfm-btn wfm-btn-sm${t.gradientShape === "radial" ? " ie-opt-active" : ""}" id="ie-fill-shape-radial" style="flex:1;">Radial</button>
+                </div>
+            </div>
+            <div class="ie-props-row" style="align-items:flex-start;">
+                <label>Ramp</label>
+                <div style="display:flex;flex-direction:column;gap:10px;flex:1;min-width:0;">
+                    <canvas id="ie-fill-ramp" width="130" height="24" style="display:block;width:130px;height:24px;border:1px solid var(--wfm-border);border-radius:3px;cursor:pointer;"></canvas>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <input type="color" id="ie-fill-stop-color" value="${t.gradientStops[t.selectedStopIdx]?.color ?? "#ffffff"}"
+                            style="width:28px;height:22px;padding:0;border:1px solid var(--wfm-border);cursor:pointer;border-radius:3px;">
+                        <button class="wfm-btn wfm-btn-sm" id="ie-fill-stop-add" title="Add stop">＋</button>
+                        <button class="wfm-btn wfm-btn-sm" id="ie-fill-stop-remove" title="Remove stop">－</button>
+                    </div>
+                </div>
+            </div>
+            <div class="ie-props-row" style="align-items:flex-start;">
+                <label>Direction</label>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <canvas id="ie-fill-dir" width="70" height="70" style="width:70px;height:70px;border:1px solid var(--wfm-border);border-radius:3px;cursor:crosshair;"></canvas>
+                    <span id="ie-fill-strength-lbl" style="font-size:11px;color:var(--wfm-text-secondary);">${t.gradientStrength.toFixed(1)}</span>
+                </div>
+            </div>`}
+            <div class="ie-props-row">
+                <label>Tolerance</label>
+                <input type="range" id="ie-fill-tolerance" min="0" max="255" value="${t.tolerance}">
+                <span id="ie-fill-tolerance-lbl">${t.tolerance}</span>
+            </div>
+            <div class="ie-props-row">
+                <label>Opacity</label>
+                <input type="range" id="ie-fill-opacity" min="1" max="100" value="${Math.round(t.opacity * 100)}">
+                <span id="ie-fill-opacity-lbl">${Math.round(t.opacity * 100)}%</span>
+            </div>
+        `;
+
+        document.getElementById("ie-fill-mode-solid")?.addEventListener("click", () => {
+            t.fillMode = "solid";
+            this._renderFillProps();
+        });
+        document.getElementById("ie-fill-mode-gradient")?.addEventListener("click", () => {
+            t.fillMode = "gradient";
+            this._renderFillProps();
+        });
+        document.getElementById("ie-fill-color")?.addEventListener("input", e => { t.color = e.target.value; });
+        document.getElementById("ie-fill-tolerance")?.addEventListener("input", e => {
+            t.tolerance = parseInt(e.target.value);
+            document.getElementById("ie-fill-tolerance-lbl").textContent = e.target.value;
+        });
+        document.getElementById("ie-fill-opacity")?.addEventListener("input", e => {
+            t.opacity = parseInt(e.target.value) / 100;
+            document.getElementById("ie-fill-opacity-lbl").textContent = e.target.value + "%";
+        });
+
+        if (isGradient) {
+            document.getElementById("ie-fill-shape-linear")?.addEventListener("click", () => {
+                t.gradientShape = "linear";
+                this._renderFillProps();
+            });
+            document.getElementById("ie-fill-shape-radial")?.addEventListener("click", () => {
+                t.gradientShape = "radial";
+                this._renderFillProps();
+            });
+            document.getElementById("ie-fill-stop-color")?.addEventListener("input", e => {
+                t.gradientStops[t.selectedStopIdx].color = e.target.value;
+                this._drawFillGradientRamp();
+            });
+            document.getElementById("ie-fill-stop-add")?.addEventListener("click", () => {
+                t.addStop();
+                this._renderFillProps();
+            });
+            document.getElementById("ie-fill-stop-remove")?.addEventListener("click", () => {
+                t.removeStop();
+                this._renderFillProps();
+            });
+            this._setupFillGradientRamp();
+            this._setupFillGradientDir();
+        }
+    }
+
+    /** カラーランプ(複数ストップの線形プレビュー)の描画とドラッグ操作。particle_widget.jsのカラーランプUIを移植。 */
+    _drawFillGradientRamp() {
+        const canvas = document.getElementById("ie-fill-ramp");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const w = canvas.width, h = canvas.height;
+        const t = this._fillTool;
+        ctx.clearRect(0, 0, w, h);
+
+        const barH = h - 10; // 下部にハンドル用の余白を確保
+        const grad = ctx.createLinearGradient(0, 0, w, 0);
+        [...t.gradientStops].sort((a, b) => a.pos - b.pos).forEach(s => grad.addColorStop(s.pos, s.color));
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, barH);
+        ctx.strokeStyle = "#666";
+        ctx.strokeRect(0.5, 0.5, w - 1, barH - 1);
+
+        t.gradientStops.forEach((s, i) => {
+            // ハンドル(三角形)がcanvas端で切れて見えなくならないようクランプする
+            const x = Math.max(5, Math.min(w - 5, s.pos * w));
+            ctx.beginPath();
+            ctx.moveTo(x, h);
+            ctx.lineTo(x - 5, barH);
+            ctx.lineTo(x + 5, barH);
+            ctx.closePath();
+            ctx.fillStyle = i === t.selectedStopIdx ? "#0077ff" : "#999";
+            ctx.fill();
+        });
+    }
+
+    _setupFillGradientRamp() {
+        const canvas = document.getElementById("ie-fill-ramp");
+        if (!canvas) return;
+        this._drawFillGradientRamp();
+        canvas.style.touchAction = "none";
+
+        const t = this._fillTool;
+        const hitTestStop = mx => {
+            let best = -1, bestDist = 9;
+            t.gradientStops.forEach((s, i) => {
+                const d = Math.abs(s.pos * canvas.width - mx);
+                if (d < bestDist) { bestDist = d; best = i; }
+            });
+            return best;
+        };
+
+        canvas.addEventListener("pointerdown", e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const idx = hitTestStop(mx);
+            if (idx < 0) return;
+            canvas.setPointerCapture(e.pointerId);
+            t.selectStop(idx);
+            // ドラッグ中onMove/onUpが参照し続けるcanvas要素が入れ替わらないよう、
+            // DOM全体を再構築する_renderFillProps()は使わず、選択状態の見た目だけを部分更新する
+            this._drawFillGradientRamp();
+            const colorInput = document.getElementById("ie-fill-stop-color");
+            if (colorInput) colorInput.value = t.gradientStops[idx].color;
+
+            const onMove = ev => {
+                const r = canvas.getBoundingClientRect();
+                const x = (ev.clientX - r.left) * (canvas.width / r.width);
+                t.gradientStops[t.selectedStopIdx].pos = Math.max(0, Math.min(1, x / canvas.width));
+                this._drawFillGradientRamp();
+            };
+            const onUp = () => {
+                canvas.removeEventListener("pointermove", onMove);
+                canvas.removeEventListener("pointerup", onUp);
+                canvas.removeEventListener("pointercancel", onUp);
+            };
+            canvas.addEventListener("pointermove", onMove);
+            canvas.addEventListener("pointerup", onUp);
+            canvas.addEventListener("pointercancel", onUp);
+        });
+    }
+
+    /** グラデーション方向(linear)／半径(radial)を指定するミニコンパスUI。particle_widget.jsの矢印方向ハンドルを移植。 */
+    _drawFillGradientDir() {
+        const canvas = document.getElementById("ie-fill-dir");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2;
+        const maxR = Math.min(w, h) / 2 - 6;
+        const t = this._fillTool;
+        const distFrac = (Math.max(0.2, Math.min(3.0, t.gradientStrength)) - 0.2) / 2.8;
+        const dist = 6 + distFrac * (maxR - 6);
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.strokeStyle = "#888";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - 4, cy); ctx.lineTo(cx + 4, cy);
+        ctx.moveTo(cx, cy - 4); ctx.lineTo(cx, cy + 4);
+        ctx.stroke();
+
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = "#0077ff";
+        if (t.gradientShape === "radial") {
+            ctx.beginPath();
+            ctx.arc(cx, cy, dist, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            this._fillDirHandlePos = { x: cx + dist, y: cy };
+        } else {
+            const rad = t.gradientAngleDeg * Math.PI / 180;
+            const ex = cx + Math.cos(rad) * dist, ey = cy + Math.sin(rad) * dist;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy); ctx.lineTo(ex, ey);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            this._fillDirHandlePos = { x: ex, y: ey };
+        }
+        ctx.beginPath();
+        ctx.arc(this._fillDirHandlePos.x, this._fillDirHandlePos.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffcc00";
+        ctx.fill();
+    }
+
+    _setupFillGradientDir() {
+        const canvas = document.getElementById("ie-fill-dir");
+        if (!canvas) return;
+        this._drawFillGradientDir();
+        canvas.style.touchAction = "none";
+
+        const t = this._fillTool;
+        const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2;
+        const maxR = Math.min(w, h) / 2 - 6;
+
+        const applyDrag = (mx, my) => {
+            const dx = mx - cx, dy = my - cy;
+            const dist = Math.max(6, Math.min(maxR, Math.hypot(dx, dy)));
+            t.gradientStrength = 0.2 + ((dist - 6) / (maxR - 6)) * 2.8;
+            if (t.gradientShape === "linear") t.gradientAngleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+            this._drawFillGradientDir();
+            const lbl = document.getElementById("ie-fill-strength-lbl");
+            if (lbl) lbl.textContent = t.gradientStrength.toFixed(1);
+        };
+
+        canvas.addEventListener("pointerdown", e => {
+            canvas.setPointerCapture(e.pointerId);
+            const rect = canvas.getBoundingClientRect();
+            applyDrag((e.clientX - rect.left) * (w / rect.width), (e.clientY - rect.top) * (h / rect.height));
+            const onMove = ev => {
+                const r = canvas.getBoundingClientRect();
+                applyDrag((ev.clientX - r.left) * (w / r.width), (ev.clientY - r.top) * (h / r.height));
+            };
+            const onUp = () => {
+                canvas.removeEventListener("pointermove", onMove);
+                canvas.removeEventListener("pointerup", onUp);
+                canvas.removeEventListener("pointercancel", onUp);
+            };
+            canvas.addEventListener("pointermove", onMove);
+            canvas.addEventListener("pointerup", onUp);
+            canvas.addEventListener("pointercancel", onUp);
+        });
+    }
+
     // ── Mask Editor One 追加ツール: 初期化・切り替え ──────────────────────────
 
     _initMaskEditorOneTools() {
@@ -1148,7 +1430,7 @@ class ImageEditTab {
             this._setZoom(this._zoom * (e.deltaY > 0 ? 0.9 : 1.1));
         }, { passive: false });
 
-        wrap.addEventListener("mousedown", e => {
+        wrap.addEventListener("pointerdown", e => {
             if (e.button === 1 || (e.button === 0 && this._spaceDown)) {
                 e.preventDefault();
                 this._panning  = true;
@@ -1167,7 +1449,7 @@ class ImageEditTab {
             if (!this._layerMgr || !drawCanvas) return;
             this._onToolMouseDown(e, drawCanvas);
         });
-        window.addEventListener("mousemove", e => {
+        window.addEventListener("pointermove", e => {
             if (this._panning) {
                 this._panOffset.x = e.clientX - this._panStart.x;
                 this._panOffset.y = e.clientY - this._panStart.y;
@@ -1186,7 +1468,7 @@ class ImageEditTab {
                 }
             }
         });
-        window.addEventListener("mouseup", e => {
+        window.addEventListener("pointerup", e => {
             if (this._panning && (e.button === 1 || e.button === 0)) {
                 this._panning = false;
                 wrap.style.cursor = this._spaceDown ? "grab" : "";
@@ -1199,22 +1481,24 @@ class ImageEditTab {
             }
         });
 
-        // draw / text 用 mousedown
+        // draw / text 用 pointerdown（ペンタブレット筆圧対応のため Pointer Events を使用）
         const drawCanvas = document.getElementById("ie-canvas-draw");
         if (drawCanvas) {
-            drawCanvas.addEventListener("mousedown",  e => this._onToolMouseDown(e, drawCanvas));
-            drawCanvas.addEventListener("mousemove",  e => this._onToolMouseMove(e, drawCanvas));
-            drawCanvas.addEventListener("mouseup",    e => this._onToolMouseUp(e));
-            drawCanvas.addEventListener("mouseleave", () => this._onToolMouseLeave());
+            drawCanvas.style.touchAction = "none";
+            drawCanvas.addEventListener("pointerdown",  e => this._onToolMouseDown(e, drawCanvas));
+            drawCanvas.addEventListener("pointermove",  e => this._onToolMouseMove(e, drawCanvas));
+            drawCanvas.addEventListener("pointerup",    e => this._onToolMouseUp(e));
+            drawCanvas.addEventListener("pointerleave", () => this._onToolMouseLeave());
         }
 
-        // select 用 mousedown（overlayCanvas）
+        // select 用 pointerdown（overlayCanvas）
         const overlay = document.getElementById("ie-canvas-overlay");
         if (overlay) {
-            overlay.addEventListener("mousedown",  e => this._onToolMouseDown(e, overlay));
-            overlay.addEventListener("mousemove",  e => this._onToolMouseMove(e, overlay));
-            overlay.addEventListener("mouseup",    e => this._onToolMouseUp(e));
-            overlay.addEventListener("mouseleave", () => this._onToolMouseLeave());
+            overlay.style.touchAction = "none";
+            overlay.addEventListener("pointerdown",  e => this._onToolMouseDown(e, overlay));
+            overlay.addEventListener("pointermove",  e => this._onToolMouseMove(e, overlay));
+            overlay.addEventListener("pointerup",    e => this._onToolMouseUp(e));
+            overlay.addEventListener("pointerleave", () => this._onToolMouseLeave());
             // テキストオブジェクトのダブルクリックで再編集
             overlay.addEventListener("dblclick", e => this._onOverlayDblClick(e, overlay));
         }
@@ -1222,15 +1506,26 @@ class ImageEditTab {
 
     _onToolMouseDown(e, refCanvas) {
         if (!this._layerMgr || e.button !== 0 || this._spaceDown) return;
-        const pos = DrawTool.getCanvasPos(refCanvas, e);
+        const pos      = DrawTool.getCanvasPos(refCanvas, e);
+        // PointerEvent.pressure: pen -> actual pressure, mouse -> 0.5 while a button is held.
+        const pressure = e.pressure || 0.5;
 
         if (this._activeTool === "draw" && this._drawTool) {
             const activeLayer = this._layerMgr.activeLayer;
             if (!activeLayer) return;
             this._saveUndo();
             this._drawTool.setCanvas(activeLayer.canvas);
-            this._drawTool.onMouseDown(pos.x, pos.y);
+            this._drawTool.onMouseDown(pos.x, pos.y, pressure);
             this._updateCompositeView();
+
+        } else if (this._activeTool === "fill" && this._fillTool) {
+            const activeLayer = this._layerMgr.activeLayer;
+            if (!activeLayer) return;
+            this._saveUndo();
+            this._fillTool.setCanvas(activeLayer.canvas);
+            this._fillTool.onMouseDown(pos.x, pos.y);
+            this._updateCompositeView();
+            this._refreshLayerList();
 
         } else if (this._activeTool === "mask") {
             const activeLayer = this._layerMgr.activeLayer;
@@ -1242,7 +1537,7 @@ class ImageEditTab {
             if (sub === "paint" && this._maskTool) {
                 this._saveUndo();
                 this._maskTool.setCanvas(activeLayer.canvas);
-                this._maskTool.onMouseDown(pos.x, pos.y);
+                this._maskTool.onMouseDown(pos.x, pos.y, pressure);
                 this._updateCompositeView();
             } else if (sub === "color" && this._maskColorTool) {
                 this._saveUndo();
@@ -1287,15 +1582,16 @@ class ImageEditTab {
 
     _onToolMouseMove(e, refCanvas) {
         if (!this._layerMgr) return;
-        const pos = DrawTool.getCanvasPos(refCanvas, e);
+        const pos      = DrawTool.getCanvasPos(refCanvas, e);
+        const pressure = e.pressure || 0.5;
         if (this._activeTool === "draw") {
-            this._drawTool?.onMouseMove(pos.x, pos.y);
+            this._drawTool?.onMouseMove(pos.x, pos.y, pressure);
             if (this._drawTool?._drawing) this._updateCompositeView();
         }
         if (this._activeTool === "mask") {
             const sub = this._maskSubtool;
             if (sub === "paint") {
-                this._maskTool?.onMouseMove(pos.x, pos.y);
+                this._maskTool?.onMouseMove(pos.x, pos.y, pressure);
                 if (this._maskTool?._drawing) this._updateCompositeView();
             } else if (sub === "vector") {
                 this._maskVectorTool?.onMouseMove(pos.x, pos.y);
@@ -1642,6 +1938,8 @@ class ImageEditTab {
             this._updateCompositeView();
             this._refreshLayerList();
         });
+
+        this._fillTool = new FillTool();
 
         this._compositeMode = false;
     }
@@ -2166,6 +2464,7 @@ class ImageEditTab {
                 if (e.key === "b") this._setActiveTool("draw");
                 if (e.key === "t") this._setActiveTool("text");
                 if (e.key === "s") this._setActiveTool("shape");
+                if (e.key === "g") this._setActiveTool("fill");
                 // Delete/Backspaceで選択オブジェクト削除
                 if ((e.key === "Delete" || e.key === "Backspace") && this._activeTool === "select") {
                     const layer = this._selectTool?.getSelectedLayer();
