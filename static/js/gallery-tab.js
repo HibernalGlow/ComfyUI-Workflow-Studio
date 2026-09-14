@@ -1986,6 +1986,7 @@ function bindEvents() {
                 return;
             }
             const url = API.serveImage(state.selectedImage.path);
+            const isVideo = isVideoFile(state.selectedImage);
 
             // I2I送信元がImageタブだった場合はそちらへ画像を読み込ませる（_ccI2ITargetModeはComic Creater側が
             // 「I2Iへ送る」ボタン押下時にセットするフラグ。undefined/'layout'なら従来通りコマ/オーバーレイへ挿入）
@@ -1996,6 +1997,11 @@ function bindEvents() {
                 targetMode = null;
             }
             if (targetMode === "image") {
+                // Imageタブは動画未対応（Comic Creator側の動画ツールはレイアウトタブのみ対応）
+                if (isVideo) {
+                    showToast(t("galleryVideoNotSupportedInImageTab"), "info");
+                    return;
+                }
                 let imageTab = null;
                 try {
                     if (window.parent && window.parent !== window && typeof window.parent._ccImageTab?.loadFromUrl === "function") {
@@ -2009,6 +2015,26 @@ function bindEvents() {
                     return;
                 }
                 imageTab.loadFromUrl(url, (state.selectedImage.filename || "cc-image").replace(/\.[^.]+$/, ""));
+                showToast(t("gallerySentCC"), "success");
+                return;
+            }
+
+            // レイアウトタブのコマ/オーバーレイへ（デフォルト経路）。動画（.mp4）はComic Creator側の
+            // 動画ツール専用の受け口（insertVideoFromUrl）へ、それ以外は従来通り画像として送る
+            if (isVideo) {
+                let insertVideoFn = null;
+                try {
+                    if (window.parent && window.parent !== window && typeof window.parent.insertVideoFromUrl === "function") {
+                        insertVideoFn = window.parent.insertVideoFromUrl;
+                    }
+                } catch (e) {
+                    insertVideoFn = null;
+                }
+                if (!insertVideoFn) {
+                    showToast(t("galleryCCNotAvailable"), "info");
+                    return;
+                }
+                insertVideoFn(url, state.selectedImage.filename || "video.mp4");
                 showToast(t("gallerySentCC"), "success");
                 return;
             }

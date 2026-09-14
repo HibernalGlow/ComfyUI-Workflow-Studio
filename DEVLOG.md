@@ -2,6 +2,20 @@
 
 ---
 
+## v0.6.3
+
+### Send CCボタンでMP4動画をComic Creatorの新設「動画ツール」へ送れるように対応
+
+Comic Creator（`eagle_comic_creator_spa/comfyui-comic-creator`、別リポジトリ）側にレイアウトタブの新機能「動画ツール」（MP4をコマに配置して再生・停止・音量/ミュート調整・指定フレームでの静止画キャプチャができる実験的機能）が追加されたのに伴い、Galleryタブの「Send CC」ボタンをこれに対応させた。
+
+**問題**: 既存の`sendCcBtn`クリックハンドラ（`gallery-tab.js`）は、選択中ファイルのURLを`window.parent.insertImageFromUrl()`（レイアウトタブ宛て）または`window.parent._ccImageTab.loadFromUrl()`（Imageタブ宛て）へ渡すだけで、`.mp4`を判別する分岐が無かった。Comic Creator側の受け口は画像専用ロジックしか持たないため、動画を選んでSend CCを押しても正しく処理されなかった。
+
+**対応**: `gallery-tab.js`に既にあった`isVideoFile()`ヘルパー（拡張子判定、Video Assetsグループのバッジ表示等で使用中）で選択中ファイルが動画かどうかを判定し、レイアウトタブ宛て（デフォルト経路）で動画の場合はComic Creator側が今回新設した受け口`window.parent.insertVideoFromUrl(url, filename)`を呼ぶよう分岐した。Imageタブ宛て（`_ccI2ITargetMode === 'image'`）で動画を選んだ場合は、Comic Creator側が今回Imageタブの動画編集には対応していないため、トースト（新規i18nキー`galleryVideoNotSupportedInImageTab`、英/日/中3言語）で案内して送信を中断するようにした。
+
+**検証**: 双方の変更点を構文チェック（`node --check`）のみで確認。ComfyUI実機でのSend CC往復動作（Gallery側でmp4選択→送信→Comic Creator側でのオーバーレイ表示・再生確認）はユーザー側での実機確認待ち。
+
+**How to apply**: Comic Creator側とWorkflow Studio側は別リポジトリだが、Send CC・Send to LI nodeのような`window.parent`/`window.opener`経由のクロスウィンドウ連携APIは、どちらか一方だけを変更すると壊れる。片方（今回はComic Creator側）に新しい受け口（`insertVideoFromUrl`）を追加したら、呼び出し元であるこちらのGalleryタブ側も同時に更新する必要がある。
+
 ## v0.6.2
 
 ### Image Editタブにペンタブレット筆圧対応とFillツール（バケツ塗りつぶし）を追加
