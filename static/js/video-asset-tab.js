@@ -8,7 +8,7 @@
  * to the real Gallery tab via the "Open in Gallery" button.
  */
 
-import { VIDEO_GROUP, VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
+import { VIDEO_GROUP, VTEMP_GROUP, ensureVideoGroup, isVideoFile } from "./gallery-tab.js";
 import { setSourcePreview } from "./video-preview.js";
 import { showToast } from "./app.js";
 import { t } from "./i18n.js";
@@ -145,20 +145,23 @@ function _selectImage(img) {
     _loadIntoSourcePreview(img);
 }
 
-// Feeds the selected asset's video into the center panel's Asset/Source preview
+// Feeds the selected asset's media into the center panel's Asset/Source preview
 // pane (see video-preview.js) so it's visible without switching tabs, and so the
 // Frame/GIF property tools can operate on it just like a Video Source drop.
 // Fetched as a Blob and wrapped as a "local" source rather than trying to map
 // Gallery's arbitrary absolute path onto ComfyUI's filename/subfolder/type
 // triple — that keeps the GIF tool's existing upload-on-first-use path working
-// unchanged for both cases.
+// unchanged for both cases. Still/animated images (this group isn't exclusively
+// videos — anything tagged into it shows up here) preview via the pane's <img>
+// companion element instead of trying to play them as a <video>.
 async function _loadIntoSourcePreview(img) {
     try {
         const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
-        const file = new File([blob], img.filename, { type: blob.type || "video/mp4" });
-        setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
+        const isVideo = isVideoFile(img);
+        const file = new File([blob], img.filename, { type: blob.type || (isVideo ? "video/mp4" : "image/png") });
+        setSourcePreview(URL.createObjectURL(file), { kind: "local", file }, isVideo ? "video" : "image");
     } catch (err) {
         console.warn("[VideoAsset] failed to load preview:", err);
     }
@@ -214,7 +217,7 @@ function _renderDetail(img) {
             const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
             if (!res.ok) throw new Error(String(res.status));
             const blob = await res.blob();
-            const file = new File([blob], img.filename, { type: blob.type || "video/mp4" });
+            const file = new File([blob], img.filename, { type: blob.type || (isVideoFile(img) ? "video/mp4" : "image/png") });
             addClipFromFile(file, img.filename);
             document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
             showToast(t("videoEditClipSent", img.filename), "success");

@@ -2753,7 +2753,7 @@
                             <div class="wfm-i2i-drop-zone" id="wfm-video-source-drop">
                                 <label class="wfm-i2i-drop-label">
                                     <span id="wfm-video-source-drop-label">Drop video or click to select</span>
-                                    <input type="file" accept="video/*" id="wfm-video-source-file" style="display:none;">
+                                    <input type="file" accept="video/*,image/*" id="wfm-video-source-file" style="display:none;">
                                 </label>
                             </div>
                             <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
@@ -2765,10 +2765,12 @@
                         <div class="wfm-video-preview-frame" id="wfm-video-source-preview-frame">
                             <span class="wfm-placeholder" id="wfm-video-source-preview-placeholder">Asset / Source Preview</span>
                             <video id="wfm-video-source-preview-video" class="wfm-video-preview-el" controls style="display:none;"></video>
+                            <img id="wfm-video-source-preview-img" class="wfm-video-preview-el" style="display:none;">
                         </div>
                         <div class="wfm-video-preview-frame" id="wfm-video-preview-frame">
                             <span class="wfm-placeholder" id="wfm-video-preview-placeholder">Generated Video Preview</span>
                             <video id="wfm-video-preview-video" class="wfm-video-preview-el" controls style="display:none;"></video>
+                            <img id="wfm-video-preview-img" class="wfm-video-preview-el" style="display:none;">
                         </div>
                     </div>
 

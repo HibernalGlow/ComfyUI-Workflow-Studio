@@ -142,9 +142,11 @@ function _applyVideoI18n() {
 
 function _wireVideoSourcePanel() {
     _wireDropZone("wfm-video-source-drop", "wfm-video-source-file", (file) => {
-        if (!file.type.startsWith("video/")) return;
+        const isVideo = file.type.startsWith("video/");
+        const isImage = file.type.startsWith("image/");
+        if (!isVideo && !isImage) return;
         const statusEl = document.getElementById("wfm-video-source-status");
-        setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
+        setSourcePreview(URL.createObjectURL(file), { kind: "local", file }, isVideo ? "video" : "image");
         if (statusEl) { statusEl.textContent = file.name; statusEl.style.color = ""; }
     });
 
@@ -163,7 +165,8 @@ function _wireVideoSourcePanel() {
                 file = ref.file;
             } else {
                 const blob = await comfyUI.getImageBlob(ref);
-                file = new File([blob], ref.filename, { type: blob.type || "video/mp4" });
+                const isVideoExt = /\.(mp4|webm|mkv|mov)$/i.test(ref.filename || "");
+                file = new File([blob], ref.filename, { type: blob.type || (isVideoExt ? "video/mp4" : "image/png") });
             }
             addClipFromFile(file);
             document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();

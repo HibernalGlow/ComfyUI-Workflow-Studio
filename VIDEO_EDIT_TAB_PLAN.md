@@ -261,6 +261,24 @@ UI再設計直後、実機で「空のタイムライン/書き出しパネル�
 
 実機で2クリップ(22.1s+19.1s)の連続プレビュー再生→クリップ境界での自動切替→停止→書き出し(結合後41.2s)→Resultペインへの結果反映、という一連の流れを確認済み。
 
+## 10. 静止画/アニメーション画像クリップ対応（2026-09-16、追加指示）
+
+「Assetの画像（静止画）を動画ソースでプレビュー、Editに追加可能にしたい。静止画、アニメーション画像をタイムラインに追加時間を設定できるようにしたい」という要望に対応。既存のAsset一覧(`__Video Assets__`/`__Video Temp__`グループ、ユーザー選択によりこの2グループのみを対象、Gallery全体には拡張しない)には元々ビデオ専用フィルタが無く、手動でタグ付けされた画像もそのまま一覧に出ていたが、プレビューが常に`<video>`要素前提だったため画像では何も表示されず、Editに追加しても動画として扱われ破綻していた。
+
+**設計判断（ユーザー承認事項）:**
+- 静止画/アニメーション画像は区別せず、どちらも「表示時間（秒）」を指定するhold型クリップとして統一的に扱う。
+- 画像クリップの解像度が他の動画クリップと不一致の場合は、`ImageScale`ノード(`crop="center"`)で自動的に動画側の解像度へフィット（ブロックしない）。
+
+**実装:**
+- `video-preview.js`: Source/Resultの両プレビュー枠に`<img>`コンパニオン要素を追加し、`setSourcePreview()`/`setResultPreview()`に`mediaType`("video"|"image")引数を追加。`getActivePreviewVideoElement()`は画像表示中は`null`を返す（Frame/GIFツールの誤動作防止）。
+- `gallery-tab.js`: `isVideoFile()`をexport。
+- `video-asset-tab.js`/`video-tab.js`: プレビュー読み込み・「Editへ送る」/「Editに追加」の各経路で`isVideoFile()`により`mediaType`を判定して渡すよう修正。Video Sourceドロップゾーンも`image/*`を受け付けるよう拡張。
+- `video-edit-tab.js`: クリップに`kind:"video"|"image"`を追加。画像クリップは`file.type`から自動判定（`addClipFromFile()`）、サーバーへアップロード後、寸法はPyAV probeではなくブラウザの`Image()`で読み取り（`_readImageDimensions()`、PyAVは任意の静止画形式を安定して開けないため）。トリムパネルはStart/Endペアの代わりに単一の「表示時間(秒)」入力に分岐。タイムラインブロックには🖼/🎬の種別アイコンを付与。解像度不一致ガード(`_findResolutionMismatch`)は`kind==="video"`同士のみ比較するよう変更（画像は自動フィットで解決するため対象外）。
+- **書き出しグラフ（画像クリップ）**: `LoadImage` → (解像度不一致時のみ)`ImageScale(crop=center)` → `RepeatImageBatch(amount = 表示秒数 × 24fps)` → `CreateVideo(fps=24, codec="auto")`。実機で48フレーム/24fps→1.998秒の正確な動画生成を確認済み。
+- **【追加発見・修正】音声トラック不整合によるConcatenateVideo失敗**: 動画クリップ（音声あり、例: 32kHz stereo）と画像由来クリップ（音声なし）を結合すると`ConcatenateVideo`が`audio layout: expected None, got 'stereo'`で失敗することを実機で発見。対策として、**2クリップ以上を結合する場合のみ**、動画クリップも`GetVideoComponents`→`CreateVideo`(audio未指定)で無音再構成してから結合するよう統一。単一クリップの書き出し（結合が発生しない）は従来通り音声を保持する。**この結果、複数クリップを結合した書き出しは音声を持たないという制約がMVPの既知の限界として残る**（Phase 2以降で音声トラックの取り扱いを検討する余地あり）。
+
+実機で以下を確認済み: 静止画の`<img>`プレビュー表示、Editへの追加（🖼アイコン・表示時間入力）、単独画像クリップの書き出し（2.998秒の正確な動画化）、動画クリップ+画像クリップ混在時の自動解像度フィット・音声除去による結合成功（5.996秒）。
+
 ---
 
 ### Critical Files for Implementation

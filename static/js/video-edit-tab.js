@@ -30,7 +30,20 @@
  *     "videos.video1", ... (0-indexed) — NOT a nested object and NOT plain
  *     "video0"/"video1" without the "videos." prefix.
  *   - ConcatenateVideo hard-errors at execution time if clip frame dimensions
- *     differ, so mismatched clips are blocked client-side before export.
+ *     differ, so mismatched clips are blocked client-side before export —
+ *     but only between VIDEO clips; an image clip is auto-fit (ImageScale,
+ *     center-crop) to match, since it isn't fixed-resolution source footage.
+ *
+ * Image clips: a still or animated image dropped in has no inherent video
+ * duration, so it gets a user-editable "hold" length instead of in/out trim
+ * points (clip.trimStart stays 0, clip.trimEnd IS the hold length — this
+ * keeps it a drop-in replacement everywhere the code already reads
+ * trimEnd-trimStart as "this clip's length in the timeline", e.g. the block
+ * width calc and the total-duration readout). Export turns it into a real
+ * VIDEO segment via LoadImage -> (ImageScale, only if resolution needs to
+ * match) -> RepeatImageBatch(amount = holdSeconds * fps) -> CreateVideo —
+ * confirmed on a live instance to produce an exact-duration, correctly
+ * concatenation-compatible clip (see VIDEO_EDIT_TAB_PLAN.md "Image clips").
  */
 
 import { showToast } from "./app.js";
@@ -42,7 +55,7 @@ import {
 import { VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 
 const _s = {
-    clips: [], // { id, name, file, serverRef:{filename,subfolder,type}|null, duration, width, height, fps, trimStart, trimEnd, probing, error }
+    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, trimStart, trimEnd, probing, error }
     selectedId: null,
     exporting: false,
     nextId: 1,
@@ -55,6 +68,14 @@ const _s = {
 // fixed-length plan) — Edit's timeline represents actual seconds.
 const _PX_PER_SEC = 20;
 const _MIN_BLOCK_PX = 56;
+
+// Default hold length for a freshly-added image clip; user-adjustable per
+// clip afterward in the trim panel.
+const _DEFAULT_IMAGE_DURATION = 3.0;
+// fps used when turning a held image into a video segment for export/preview
+// concatenation — arbitrary but consistent (doesn't need to match other
+// clips' native fps; ConcatenateVideo works at the container/frame level).
+const _IMAGE_EXPORT_FPS = 24;
 
 let _dragClipId = null; // clip being dragged for timeline reordering
 
@@ -87,17 +108,19 @@ function _selectedClip() {
 // (already fetched as a Blob/File the same way it feeds the Source preview)
 // without either module importing the other's internals.
 export function addClipFromFile(file, displayName) {
+    const kind = file.type.startsWith("video/") ? "video" : "image";
     const clip = {
         id: _s.nextId++,
         name: displayName || file.name,
         file,
+        kind,
         serverRef: null,
-        duration: 0,
+        duration: kind === "image" ? _DEFAULT_IMAGE_DURATION : 0,
         width: 0,
         height: 0,
         fps: 0,
         trimStart: 0,
-        trimEnd: 0,
+        trimEnd: kind === "image" ? _DEFAULT_IMAGE_DURATION : 0,
         probing: true,
         error: null,
     };
@@ -105,8 +128,9 @@ export function addClipFromFile(file, displayName) {
     _s.selectedId = clip.id;
     _renderTimeline();
     _renderTrimPanel();
-    setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
-    _probeClip(clip);
+    setSourcePreview(URL.createObjectURL(file), { kind: "local", file }, kind);
+    if (kind === "image") _probeImageClip(clip);
+    else _probeClip(clip);
 }
 
 async function _probeClip(clip) {
@@ -129,6 +153,39 @@ async function _probeClip(clip) {
         clip.fps = json.fps || 0;
         clip.trimStart = 0;
         clip.trimEnd = clip.duration;
+    } catch (err) {
+        clip.error = err.message;
+        showToast(t("errorWithMsg", err.message), "error");
+    } finally {
+        clip.probing = false;
+        _renderTimeline();
+        if (_s.selectedId === clip.id) _renderTrimPanel();
+    }
+}
+
+// Image dimensions are read client-side (no server round-trip needed — PyAV
+// isn't reliable for opening arbitrary still-image formats as "video" the
+// way it is for real video containers) via a throwaway <img>, revoking its
+// blob URL once read either way.
+function _readImageDimensions(file) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to read image dimensions")); };
+        img.src = url;
+    });
+}
+
+async function _probeImageClip(clip) {
+    try {
+        const uploaded = await comfyUI.uploadImage(clip.file, clip.file.name);
+        clip.serverRef = { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" };
+        const dims = await _readImageDimensions(clip.file);
+        clip.width = dims.width;
+        clip.height = dims.height;
+        // duration/trimEnd already hold the default (or a previously-edited)
+        // hold length — probing an image only needs to fill in serverRef/size.
     } catch (err) {
         clip.error = err.message;
         showToast(t("errorWithMsg", err.message), "error");
@@ -185,17 +242,19 @@ function _selectClip(id) {
     const clip = _selectedClip();
     _renderTimeline();
     _renderTrimPanel();
-    if (clip) setSourcePreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file });
+    if (clip) setSourcePreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file }, clip.kind);
 }
 
 // ============================================
 // Resolution-mismatch guard — ConcatenateVideo hard-errors at execution time
 // on mismatched frame dimensions (confirmed on a live 0.36.0 instance), so
-// this is checked client-side before ever building the export graph.
+// this is checked client-side before ever building the export graph. Only
+// VIDEO clips are compared: an image clip's resolution is auto-fit at export
+// time (see _buildExportWorkflow), so it can never be the thing blocking export.
 // ============================================
 
 function _findResolutionMismatch(clips) {
-    const sized = clips.filter((c) => c.width && c.height);
+    const sized = clips.filter((c) => c.kind === "video" && c.width && c.height);
     if (sized.length < 2) return null;
     const first = sized[0];
     const mismatched = sized.find((c) => c.width !== first.width || c.height !== first.height);
@@ -244,7 +303,7 @@ function _renderTimeline() {
 
         const nameEl = document.createElement("div");
         nameEl.className = "wfm-video-edit-timeline-block-name";
-        nameEl.textContent = clip.name;
+        nameEl.textContent = `${clip.kind === "image" ? "🖼" : "🎬"} ${clip.name}`;
         const metaEl = document.createElement("div");
         metaEl.className = "wfm-video-edit-timeline-block-meta";
         if (clip.probing) metaEl.textContent = t("videoEditProbing");
@@ -337,6 +396,28 @@ function _renderTrimPanel() {
     // clip.name is a user-controlled filename — kept out of the innerHTML string
     // and assigned via textContent afterward (same pattern as video-asset-tab.js's
     // _renderDetail()), so it can never be interpreted as markup.
+    if (clip.kind === "image") {
+        panel.innerHTML = `
+            <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:6px;"></div>
+            <div class="wfm-video-edit-trim-field" style="max-width:160px;">
+                <label>${t("videoEditImageDuration")}</label>
+                <input type="number" id="wfm-video-edit-image-duration" class="wfm-input" step="0.1" min="0.1" value="${clip.trimEnd.toFixed(2)}">
+            </div>
+        `;
+        const nameEl = document.getElementById("wfm-video-edit-trim-clip-name");
+        if (nameEl) { nameEl.textContent = clip.name; nameEl.title = clip.name; }
+
+        const durInput = document.getElementById("wfm-video-edit-image-duration");
+        durInput.addEventListener("change", () => {
+            const val = Math.max(0.1, Number(durInput.value) || _DEFAULT_IMAGE_DURATION);
+            clip.trimEnd = val;
+            clip.duration = val;
+            durInput.value = val.toFixed(2);
+            _renderTimeline();
+        });
+        return;
+    }
+
     panel.innerHTML = `
         <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:6px;"></div>
         <div class="wfm-video-edit-trim-row">
@@ -393,11 +474,12 @@ function _renderTrimPanel() {
 let _previewPlaying = false;
 let _previewClips = [];
 let _previewIndex = 0;
+let _previewImageTimer = null; // holds an image clip on screen for its duration (setTimeout, no video events to hook)
 
 function _onPreviewTimeUpdate() {
     const video = getResultPreviewVideoElement();
     const clip = _previewClips[_previewIndex];
-    if (!video || !clip) return;
+    if (!video || !clip || clip.kind !== "video") return;
     if (video.currentTime >= clip.trimEnd) _advancePreview();
 }
 
@@ -408,10 +490,21 @@ function _advancePreview() {
 }
 
 function _playPreviewClip() {
-    const video = getResultPreviewVideoElement();
     const clip = _previewClips[_previewIndex];
-    if (!video || !clip) { _stopPreview(); return; }
-    setResultPreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file });
+    if (!clip) { _stopPreview(); return; }
+
+    if (clip.kind === "image") {
+        const video = getResultPreviewVideoElement();
+        video?.pause();
+        setResultPreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file }, "image");
+        const holdMs = Math.max(50, (clip.trimEnd - clip.trimStart) * 1000);
+        _previewImageTimer = setTimeout(_advancePreview, holdMs);
+        return;
+    }
+
+    const video = getResultPreviewVideoElement();
+    if (!video) { _stopPreview(); return; }
+    setResultPreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file }, "video");
     // currentTime only reliably applies once the new source has metadata —
     // setting it immediately after swapping src is flaky across browsers.
     const onReady = () => {
@@ -439,6 +532,7 @@ function _startPreview() {
 
 function _stopPreview() {
     _previewPlaying = false;
+    if (_previewImageTimer) { clearTimeout(_previewImageTimer); _previewImageTimer = null; }
     const video = getResultPreviewVideoElement();
     video?.removeEventListener("timeupdate", _onPreviewTimeUpdate);
     video?.removeEventListener("ended", _advancePreview);
@@ -468,11 +562,52 @@ function _buildExportWorkflow(clips) {
     const alloc = () => String(nextId++);
     const trimOutputs = [];
 
+    // Auto-fit target for image clips: the first VIDEO clip's resolution, so
+    // a still dropped alongside real footage doesn't need to be pre-sized by
+    // hand (see _findResolutionMismatch, which only ever compares VIDEO
+    // clips against each other — images are exempt because of this fit step).
+    const videoClip = clips.find((c) => c.kind === "video");
+    const targetW = videoClip ? videoClip.width : clips[0]?.width;
+    const targetH = videoClip ? videoClip.height : clips[0]?.height;
+
+    // Only strip audio when clips will actually be concatenated — a single
+    // video clip never goes through ConcatenateVideo, so there's no mixed-
+    // audio compatibility problem to avoid and its audio can be kept intact.
+    const needsUniformSilence = clips.length > 1;
+
     for (const clip of clips) {
-        const loadId = alloc();
         const file = clip.serverRef.subfolder
             ? `${clip.serverRef.subfolder}/${clip.serverRef.filename}`
             : clip.serverRef.filename;
+
+        if (clip.kind === "image") {
+            const loadId = alloc();
+            prompt[loadId] = { class_type: "LoadImage", inputs: { image: file } };
+            let imageOut = [loadId, 0];
+
+            if (targetW && targetH && (clip.width !== targetW || clip.height !== targetH)) {
+                const scaleId = alloc();
+                prompt[scaleId] = {
+                    class_type: "ImageScale",
+                    inputs: { image: imageOut, upscale_method: "lanczos", width: targetW, height: targetH, crop: "center" },
+                };
+                imageOut = [scaleId, 0];
+            }
+
+            const repeatId = alloc();
+            const amount = Math.max(1, Math.round((clip.trimEnd - clip.trimStart) * _IMAGE_EXPORT_FPS));
+            prompt[repeatId] = { class_type: "RepeatImageBatch", inputs: { image: imageOut, amount } };
+
+            const createId = alloc();
+            prompt[createId] = {
+                class_type: "CreateVideo",
+                inputs: { images: [repeatId, 0], fps: _IMAGE_EXPORT_FPS, codec: "auto" },
+            };
+            trimOutputs.push(createId);
+            continue;
+        }
+
+        const loadId = alloc();
         prompt[loadId] = { class_type: "LoadVideo", inputs: { file } };
 
         const trimId = alloc();
@@ -485,7 +620,29 @@ function _buildExportWorkflow(clips) {
                 strict_duration: false,
             },
         };
-        trimOutputs.push(trimId);
+
+        if (!needsUniformSilence) {
+            trimOutputs.push(trimId);
+            continue;
+        }
+
+        // Strip audio by decomposing/recomposing through GetVideoComponents ->
+        // CreateVideo (audio input left unset). Verified on a live instance:
+        // ConcatenateVideo hard-errors mixing a clip with stereo/32kHz audio
+        // next to a silent image-derived clip ("audio layout: expected None,
+        // got 'stereo'"), so every clip is made silent whenever more than one
+        // clip is being concatenated. This means a multi-clip export never
+        // carries audio — a known MVP limitation, not handled per-clip
+        // because ConcatenateVideo needs uniform audio across all inputs. A
+        // lone clip (see needsUniformSilence above) keeps its original audio.
+        const componentsId = alloc();
+        prompt[componentsId] = { class_type: "GetVideoComponents", inputs: { video: [trimId, 0] } };
+        const silentId = alloc();
+        prompt[silentId] = {
+            class_type: "CreateVideo",
+            inputs: { images: [componentsId, 0], fps: [componentsId, 2], codec: "auto" },
+        };
+        trimOutputs.push(silentId);
     }
 
     let finalOutput;
