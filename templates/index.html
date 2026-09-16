@@ -2758,6 +2758,7 @@
                             </div>
                             <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
                                 <span class="wfm-i2i-status" id="wfm-video-source-status" style="flex:1;"></span>
+                                <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-source-add-to-edit">Add to Edit</button>
                                 <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-source-clear">Clear</button>
                             </div>
                         </div>
@@ -2892,7 +2893,9 @@
                     </div>
 
                     <!-- Edit: 簡易動画編集(クリップのタイムライン配置・トリム・結合書き出し)。
-                         プレビューは上部のSource/Resultペインを再利用する(専用videoは持たない)。 -->
+                         プレビューは上部のSource/Resultペインを再利用する(専用videoは持たない)。
+                         タイムライン+下の共有ツールバーはPlan subtabの.wfm-video-timeline-*と同じ構造
+                         (個別行ボタンではなく「選択中クリップに対して働く」共通ボタン方式)。 -->
                     <div id="wfm-video-subtab-edit" class="wfm-video-subtab-panel wfm-video-edit-panel" data-video-subtab-panel="edit" style="display:none;">
                         <div class="wfm-i2i-drop-zone" id="wfm-video-edit-drop-zone">
                             <label class="wfm-i2i-drop-label">
@@ -2901,7 +2904,16 @@
                             </label>
                         </div>
 
-                        <div class="wfm-video-edit-clip-list" id="wfm-video-edit-clip-list"></div>
+                        <div class="wfm-video-timeline-wrap">
+                            <div class="wfm-video-edit-timeline-track" id="wfm-video-edit-timeline-track"></div>
+                            <div class="wfm-video-timeline-toolbar">
+                                <button type="button" id="wfm-video-edit-move-left-btn" class="wfm-btn wfm-btn-xs" title="Move left">◀</button>
+                                <button type="button" id="wfm-video-edit-move-right-btn" class="wfm-btn wfm-btn-xs" title="Move right">▶</button>
+                                <button type="button" id="wfm-video-edit-duplicate-btn" class="wfm-btn wfm-btn-xs">Duplicate</button>
+                                <button type="button" id="wfm-video-edit-delete-btn" class="wfm-btn wfm-btn-xs">Delete</button>
+                                <button type="button" id="wfm-video-edit-clear-btn" class="wfm-btn wfm-btn-xs wfm-btn-danger" style="margin-left:auto;">Clear</button>
+                            </div>
+                        </div>
 
                         <div class="wfm-video-edit-main-row">
                             <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>

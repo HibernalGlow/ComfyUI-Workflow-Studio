@@ -17,7 +17,7 @@ import { applyStoredVideoVolume } from "./settings-tab.js";
 import { initVideoPlanTab, loadWorkflowIntoVideoEditor } from "./video-plan-tab.js";
 import { initVideoAssetTab, refreshVideoAssetTab } from "./video-asset-tab.js";
 import { initVideoProjectTab, refreshVideoProjectTab } from "./video-project-tab.js";
-import { initVideoEditTab } from "./video-edit-tab.js";
+import { initVideoEditTab, addClipFromFile } from "./video-edit-tab.js";
 import {
     setSourcePreview, getActivePreviewSource, updateActivePreviewSourceRef,
     getActivePreviewVideoElement, getAllPreviewVideoElements,
@@ -104,8 +104,18 @@ function _applyVideoI18n() {
         const el = document.getElementById(id);
         if (el) el.textContent = t(key);
     };
+    const setTitle = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.title = t(key);
+    };
     setText("wfm-video-edit-drop-label", "videoEditDropLabel");
     setText("wfm-video-edit-export-btn", "videoEditExportBtn");
+    setTitle("wfm-video-edit-move-left-btn", "videoEditMoveLeft");
+    setTitle("wfm-video-edit-move-right-btn", "videoEditMoveRight");
+    setText("wfm-video-edit-duplicate-btn", "videoEditDuplicate");
+    setText("wfm-video-edit-delete-btn", "videoEditDelete");
+    setText("wfm-video-edit-clear-btn", "videoEditClearBtn");
+    setText("wfm-video-source-add-to-edit", "videoSourceAddToEdit");
     setText("wfm-video-source-label", "videoSourceLabel");
     setText("wfm-video-source-hint", "videoSourceHint");
     setText("wfm-video-source-drop-label", "videoSourceDropLabel");
@@ -137,6 +147,31 @@ function _wireVideoSourcePanel() {
         const statusEl = document.getElementById("wfm-video-source-status");
         setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
         if (statusEl) { statusEl.textContent = file.name; statusEl.style.color = ""; }
+    });
+
+    // "Add to Edit" — explicit, user-triggered handoff from whatever is loaded
+    // in the Source pane (a plain drop, an Asset selection, a Frame/GIF-tool
+    // source) into the Edit subtab's clip timeline. Deliberately NOT automatic
+    // on every Source drop — Frame/GIF is a single-video tool the user reaches
+    // for far more often than multi-clip editing, so auto-adding would clutter
+    // the Edit timeline with videos the user never meant to combine.
+    document.getElementById("wfm-video-source-add-to-edit")?.addEventListener("click", async () => {
+        const ref = getActivePreviewSource();
+        if (!ref) { showToast(t("videoNoSourceLoaded"), "error"); return; }
+        try {
+            let file;
+            if (ref.kind === "local") {
+                file = ref.file;
+            } else {
+                const blob = await comfyUI.getImageBlob(ref);
+                file = new File([blob], ref.filename, { type: blob.type || "video/mp4" });
+            }
+            addClipFromFile(file);
+            document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+            showToast(t("videoEditClipSent", file.name), "success");
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
     });
 
     document.getElementById("wfm-video-source-clear")?.addEventListener("click", () => {

@@ -319,48 +319,57 @@
     padding-top: 10px;
 }
 
-/* ── Edit: クリップタイムライン(縦リスト、▲▼で並べ替え)・トリムパネル・書き出しパネル ── */
+/* ── Edit: クリップタイムライン(Planタブと同じ横トラック+共有ツールバー方式)・
+   トリムパネル・書き出しパネル ──
+   Planの.wfm-video-timeline-trackはブロックをflex-grow(duration比率)で幅一杯に
+   引き伸ばすのに対し、Editのブロックは実秒数×px/秒の固定幅で「左詰め」に並べる
+   (空きトラックはそのまま空く)ため、専用クラスに分けている。 */
 .wfm-video-edit-panel { padding: 0 16px 16px; }
 
-.wfm-video-edit-clip-list {
+.wfm-video-edit-timeline-track {
     display: flex;
-    flex-direction: column;
+    align-items: stretch;
     gap: 4px;
-    max-height: 220px;
-    overflow-y: auto;
+    height: 48px;
+    padding: 4px;
+    border-radius: 4px;
+    border: 1px solid var(--wfm-border);
+    overflow-x: auto;
+    position: relative;
 }
 
-.wfm-video-edit-clip-row {
+.wfm-video-edit-timeline-placeholder {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
+}
+
+.wfm-video-edit-timeline-block {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 2px 6px;
     border: 1px solid var(--wfm-border);
-    border-radius: 4px;
-    cursor: pointer;
+    border-radius: 3px;
+    background: var(--wfm-bg-hover, rgba(255, 255, 255, 0.04));
+    cursor: grab;
+    overflow: hidden;
     transition: outline 0.1s;
 }
 
-.wfm-video-edit-clip-row.selected { outline: 2px solid var(--wfm-primary); outline-offset: -2px; }
+.wfm-video-edit-timeline-block:active { cursor: grabbing; }
+.wfm-video-edit-timeline-block.selected { outline: 2px solid var(--wfm-primary); outline-offset: -2px; }
 
-.wfm-video-edit-clip-info { flex: 1; min-width: 0; }
-
-.wfm-video-edit-clip-name {
-    font-size: 13px;
+.wfm-video-edit-timeline-block-name {
+    font-size: 11px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.wfm-video-edit-clip-meta {
-    font-size: 11px;
+.wfm-video-edit-timeline-block-meta {
+    font-size: 10px;
     color: var(--wfm-text-secondary);
-}
-
-.wfm-video-edit-clip-actions {
-    display: flex;
-    gap: 4px;
-    flex: none;
 }
 
 .wfm-video-edit-main-row {

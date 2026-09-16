@@ -47,6 +47,15 @@ const _s = {
     outputDir: "",
 };
 
+// Pixel-per-second scale for the timeline track — clips are laid out at their
+// real (trimmed) duration and left-aligned, NOT stretched to fill the track
+// width like the Plan tab's blocks (whose widths are relative shares of a
+// fixed-length plan) — Edit's timeline represents actual seconds.
+const _PX_PER_SEC = 20;
+const _MIN_BLOCK_PX = 56;
+
+let _dragClipId = null; // clip being dragged for timeline reordering
+
 // ============================================
 // Output-dir lookup (same small helper video-asset-tab.js / video-plan-tab.js
 // each keep their own copy of — needed to build the absolute path Gallery's
@@ -92,7 +101,7 @@ export function addClipFromFile(file, displayName) {
     };
     _s.clips.push(clip);
     _s.selectedId = clip.id;
-    _renderList();
+    _renderTimeline();
     _renderTrimPanel();
     setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
     _probeClip(clip);
@@ -123,7 +132,7 @@ async function _probeClip(clip) {
         showToast(t("errorWithMsg", err.message), "error");
     } finally {
         clip.probing = false;
-        _renderList();
+        _renderTimeline();
         if (_s.selectedId === clip.id) _renderTrimPanel();
     }
 }
@@ -133,7 +142,7 @@ function _moveClip(id, delta) {
     const target = idx + delta;
     if (idx < 0 || target < 0 || target >= _s.clips.length) return;
     [_s.clips[idx], _s.clips[target]] = [_s.clips[target], _s.clips[idx]];
-    _renderList();
+    _renderTimeline();
 }
 
 function _duplicateClip(id) {
@@ -141,7 +150,9 @@ function _duplicateClip(id) {
     if (idx < 0) return;
     const clone = { ..._s.clips[idx], id: _s.nextId++ };
     _s.clips.splice(idx + 1, 0, clone);
-    _renderList();
+    _s.selectedId = clone.id;
+    _renderTimeline();
+    _renderTrimPanel();
 }
 
 function _deleteClip(id) {
@@ -151,14 +162,24 @@ function _deleteClip(id) {
         if (_s.selectedId) _selectClip(_s.selectedId);
         else setSourcePreview(null, null);
     }
-    _renderList();
+    _renderTimeline();
+    _renderTrimPanel();
+}
+
+function _clearTimeline() {
+    if (_s.clips.length === 0) return;
+    if (!confirm(t("videoEditConfirmClear"))) return;
+    _s.clips = [];
+    _s.selectedId = null;
+    setSourcePreview(null, null);
+    _renderTimeline();
     _renderTrimPanel();
 }
 
 function _selectClip(id) {
     _s.selectedId = id;
     const clip = _selectedClip();
-    _renderList();
+    _renderTimeline();
     _renderTrimPanel();
     if (clip) setSourcePreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file });
 }
@@ -187,62 +208,97 @@ function _fmtTime(s) {
     return `${s.toFixed(1)}s`;
 }
 
-function _renderList() {
-    const list = document.getElementById("wfm-video-edit-clip-list");
-    if (!list) return;
+// Horizontal timeline track (see VIDEO_EDIT_TAB_PLAN.md's UI redesign note):
+// clips are laid out left-to-right at their real (trimmed) duration on a
+// fixed px/sec scale and left-aligned — an empty track stays empty on the
+// right rather than stretching clips to fill it. Reordering is done either
+// by dragging a block onto another (native HTML5 DnD) or via the shared
+// toolbar buttons below the track, which act on whichever clip is selected
+// (mirrors the Plan subtab's "+Split/+Block/Delete" toolbar pattern instead
+// of giving every row its own set of buttons).
+function _renderTimeline() {
+    const track = document.getElementById("wfm-video-edit-timeline-track");
+    if (!track) return;
+    track.innerHTML = "";
+
     if (_s.clips.length === 0) {
-        list.innerHTML = `<span class="wfm-placeholder" id="wfm-video-edit-clip-list-placeholder">${t("videoEditNoClipsHint")}</span>`;
+        const placeholder = document.createElement("span");
+        placeholder.className = "wfm-placeholder wfm-video-edit-timeline-placeholder";
+        placeholder.textContent = t("videoEditNoClipsHint");
+        track.appendChild(placeholder);
+        _updateToolbarState();
         return;
     }
-    list.innerHTML = "";
-    _s.clips.forEach((clip, idx) => {
-        const row = document.createElement("div");
-        row.className = "wfm-video-edit-clip-row" + (clip.id === _s.selectedId ? " selected" : "");
 
-        const info = document.createElement("div");
-        info.className = "wfm-video-edit-clip-info";
+    _s.clips.forEach((clip) => {
+        const block = document.createElement("div");
+        block.className = "wfm-video-edit-timeline-block" + (clip.id === _s.selectedId ? " selected" : "");
+        const seconds = clip.probing || clip.error ? 0 : Math.max(0.1, clip.trimEnd - clip.trimStart);
+        block.style.width = `${Math.max(_MIN_BLOCK_PX, Math.round(seconds * _PX_PER_SEC))}px`;
+        block.title = clip.name;
+        block.draggable = true;
+
         const nameEl = document.createElement("div");
-        nameEl.className = "wfm-video-edit-clip-name";
+        nameEl.className = "wfm-video-edit-timeline-block-name";
         nameEl.textContent = clip.name;
-        nameEl.title = clip.name;
         const metaEl = document.createElement("div");
-        metaEl.className = "wfm-video-edit-clip-meta";
-        if (clip.probing) {
-            metaEl.textContent = t("videoEditProbing");
-        } else if (clip.error) {
-            metaEl.textContent = `✗ ${clip.error}`;
-            metaEl.style.color = "var(--wfm-danger)";
-        } else {
-            metaEl.textContent = `${_fmtTime(clip.trimStart)} – ${_fmtTime(clip.trimEnd)} / ${_fmtTime(clip.duration)} · ${clip.width}×${clip.height}`;
-        }
-        info.append(nameEl, metaEl);
-        row.appendChild(info);
-        row.addEventListener("click", (e) => {
-            if (e.target.closest("button")) return;
-            _selectClip(clip.id);
+        metaEl.className = "wfm-video-edit-timeline-block-meta";
+        if (clip.probing) metaEl.textContent = t("videoEditProbing");
+        else if (clip.error) metaEl.textContent = "✗";
+        else metaEl.textContent = _fmtTime(clip.trimEnd - clip.trimStart);
+        block.append(nameEl, metaEl);
+
+        block.addEventListener("click", () => _selectClip(clip.id));
+
+        block.addEventListener("dragstart", (e) => {
+            _dragClipId = clip.id;
+            e.dataTransfer.effectAllowed = "move";
+        });
+        block.addEventListener("dragover", (e) => e.preventDefault());
+        block.addEventListener("drop", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            _reorderByDrop(clip.id);
         });
 
-        const actions = document.createElement("div");
-        actions.className = "wfm-video-edit-clip-actions";
-        const mkBtn = (label, title, onClick, disabled) => {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.className = "wfm-btn wfm-btn-xs";
-            b.textContent = label;
-            b.title = title;
-            b.disabled = !!disabled;
-            b.addEventListener("click", onClick);
-            return b;
-        };
-        actions.append(
-            mkBtn("▲", t("videoEditMoveUp"), () => _moveClip(clip.id, -1), idx === 0),
-            mkBtn("▼", t("videoEditMoveDown"), () => _moveClip(clip.id, 1), idx === _s.clips.length - 1),
-            mkBtn("⧉", t("videoEditDuplicate"), () => _duplicateClip(clip.id)),
-            mkBtn("✕", t("videoEditDelete"), () => _deleteClip(clip.id)),
-        );
-        row.appendChild(actions);
-        list.appendChild(row);
+        track.appendChild(block);
     });
+
+    _updateToolbarState();
+}
+
+function _reorderByDrop(targetId) {
+    if (_dragClipId == null || _dragClipId === targetId) { _dragClipId = null; return; }
+    const fromIdx = _s.clips.findIndex((c) => c.id === _dragClipId);
+    _dragClipId = null;
+    if (fromIdx < 0) return;
+    // Remove first, then look up the target's index in the now-shortened array —
+    // sidesteps the off-by-one from a naive "look up both indices, then splice
+    // twice" approach when fromIdx < toIdx. Dropping onto a block inserts the
+    // dragged clip right before it; dropping past the last block (targetId
+    // null, from the track's own drop handler) appends to the end.
+    const [moved] = _s.clips.splice(fromIdx, 1);
+    if (targetId == null) {
+        _s.clips.push(moved);
+    } else {
+        const toIdx = _s.clips.findIndex((c) => c.id === targetId);
+        _s.clips.splice(toIdx < 0 ? _s.clips.length : toIdx, 0, moved);
+    }
+    _renderTimeline();
+}
+
+function _updateToolbarState() {
+    const idx = _s.clips.findIndex((c) => c.id === _s.selectedId);
+    const hasSelection = idx >= 0;
+    const setDisabled = (id, disabled) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+    };
+    setDisabled("wfm-video-edit-move-left-btn", !hasSelection || idx === 0);
+    setDisabled("wfm-video-edit-move-right-btn", !hasSelection || idx === _s.clips.length - 1);
+    setDisabled("wfm-video-edit-duplicate-btn", !hasSelection);
+    setDisabled("wfm-video-edit-delete-btn", !hasSelection);
+    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0);
 }
 
 function _renderTrimPanel() {
@@ -298,7 +354,7 @@ function _renderTrimPanel() {
         clip.trimEnd = end;
         startInput.value = start.toFixed(2);
         endInput.value = end.toFixed(2);
-        _renderList();
+        _renderTimeline();
     };
     startInput.addEventListener("change", commit);
     endInput.addEventListener("change", commit);
@@ -466,9 +522,36 @@ function _wireAddClipDropZone() {
     });
 }
 
+function _wireToolbar() {
+    document.getElementById("wfm-video-edit-move-left-btn")?.addEventListener("click", () => {
+        if (_s.selectedId != null) _moveClip(_s.selectedId, -1);
+    });
+    document.getElementById("wfm-video-edit-move-right-btn")?.addEventListener("click", () => {
+        if (_s.selectedId != null) _moveClip(_s.selectedId, 1);
+    });
+    document.getElementById("wfm-video-edit-duplicate-btn")?.addEventListener("click", () => {
+        if (_s.selectedId != null) _duplicateClip(_s.selectedId);
+    });
+    document.getElementById("wfm-video-edit-delete-btn")?.addEventListener("click", () => {
+        if (_s.selectedId != null) _deleteClip(_s.selectedId);
+    });
+    document.getElementById("wfm-video-edit-clear-btn")?.addEventListener("click", _clearTimeline);
+
+    // Dropping a dragged block past the last one (onto empty track space)
+    // moves it to the end — block-level drop handlers stopPropagation() so
+    // this only fires for drops that miss every block.
+    const track = document.getElementById("wfm-video-edit-timeline-track");
+    track?.addEventListener("dragover", (e) => e.preventDefault());
+    track?.addEventListener("drop", (e) => {
+        e.preventDefault();
+        _reorderByDrop(null);
+    });
+}
+
 export function initVideoEditTab() {
     _wireAddClipDropZone();
+    _wireToolbar();
     document.getElementById("wfm-video-edit-export-btn")?.addEventListener("click", _exportTimeline);
-    _renderList();
+    _renderTimeline();
     _renderTrimPanel();
 }
