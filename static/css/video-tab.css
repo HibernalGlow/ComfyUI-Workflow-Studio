@@ -319,6 +319,80 @@
     padding-top: 10px;
 }
 
+/* ── Edit: クリップタイムライン(縦リスト、▲▼で並べ替え)・トリムパネル・書き出しパネル ── */
+.wfm-video-edit-panel { padding: 0 16px 16px; }
+
+.wfm-video-edit-clip-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.wfm-video-edit-clip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--wfm-border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: outline 0.1s;
+}
+
+.wfm-video-edit-clip-row.selected { outline: 2px solid var(--wfm-primary); outline-offset: -2px; }
+
+.wfm-video-edit-clip-info { flex: 1; min-width: 0; }
+
+.wfm-video-edit-clip-name {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wfm-video-edit-clip-meta {
+    font-size: 11px;
+    color: var(--wfm-text-secondary);
+}
+
+.wfm-video-edit-clip-actions {
+    display: flex;
+    gap: 4px;
+    flex: none;
+}
+
+.wfm-video-edit-main-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-top: 10px;
+}
+
+.wfm-video-edit-trim-panel {
+    flex: 1;
+    min-width: 0;
+}
+
+.wfm-video-edit-trim-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.wfm-video-edit-trim-row label {
+    display: block;
+    font-size: 12px;
+    color: var(--wfm-text-secondary);
+    margin-bottom: 4px;
+}
+
+.wfm-video-edit-export-panel {
+    width: 220px;
+    flex: none;
+}
+
 .wfm-video-asset-detail label {
     font-size: 12px;
     color: var(--wfm-text-secondary);

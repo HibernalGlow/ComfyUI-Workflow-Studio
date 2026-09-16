@@ -19,6 +19,7 @@ _plan_service = VideoPlanService(VIDEO_PLAN_DIR)
 def setup_routes(app: web.Application):
     app.router.add_post("/api/wfm/video/frame/save-to-output", handle_save_frame)
     app.router.add_post("/api/wfm/video/to-gif", handle_to_gif)
+    app.router.add_get("/api/wfm/video/edit/probe", handle_probe_video)
 
     app.router.add_get("/api/wfm/video/plans", handle_list_plans)
     app.router.add_get("/api/wfm/video/plans/content", handle_get_plan_content)
@@ -66,6 +67,24 @@ async def handle_to_gif(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=400)
     except Exception as e:
         logger.error("Error converting video to GIF: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_probe_video(request: web.Request) -> web.Response:
+    filename = request.rel_url.query.get("filename", "")
+    subfolder = request.rel_url.query.get("subfolder", "")
+    type_ = request.rel_url.query.get("type", "input")
+    if not filename:
+        return web.json_response({"error": "filename required"}, status=400)
+    try:
+        result = await asyncio.to_thread(_service.probe_video, filename, subfolder, type_)
+        return web.json_response(result)
+    except FileNotFoundError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error probing video: %s", e)
         return web.json_response({"error": str(e)}, status=500)
 
 

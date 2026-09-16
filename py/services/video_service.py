@@ -57,6 +57,38 @@ class VideoService:
         save_path.write_bytes(image_bytes)
         return {"filename": save_name, "subfolder": subfolder}
 
+    def probe_video(self, filename: str, subfolder: str, type_: str) -> dict:
+        """Reads duration/dimensions/fps/audio presence via PyAV only (no ffmpeg
+        subprocess) — used by the Video Edit tab right after a clip is added, so
+        the timeline UI can show its length and the export-time resolution-match
+        check has real numbers to compare against."""
+        import av  # type: ignore
+
+        src_path = self._resolve_media_path(filename, subfolder, type_)
+        container = av.open(str(src_path))
+        try:
+            stream = container.streams.video[0]
+            fps = float(stream.average_rate) if stream.average_rate else 0.0
+            if stream.duration is not None and stream.time_base is not None:
+                duration = float(stream.duration * stream.time_base)
+            elif container.duration is not None:
+                duration = float(container.duration) / 1_000_000
+            else:
+                duration = 0.0
+            width = stream.codec_context.width
+            height = stream.codec_context.height
+            has_audio = len(container.streams.audio) > 0
+        finally:
+            container.close()
+
+        return {
+            "duration": duration,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "has_audio": has_audio,
+        }
+
     def convert_to_gif(
         self,
         filename: str,

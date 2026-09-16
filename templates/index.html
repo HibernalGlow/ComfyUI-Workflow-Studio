@@ -2891,9 +2891,31 @@
                         </div>
                     </div>
 
-                    <!-- Edit: 将来の動画編集機能用プレースホルダー -->
+                    <!-- Edit: 簡易動画編集(クリップのタイムライン配置・トリム・結合書き出し)。
+                         プレビューは上部のSource/Resultペインを再利用する(専用videoは持たない)。 -->
                     <div id="wfm-video-subtab-edit" class="wfm-video-subtab-panel wfm-video-edit-panel" data-video-subtab-panel="edit" style="display:none;">
-                        <span id="wfm-video-edit-placeholder-label" class="wfm-placeholder">Editing tools coming soon</span>
+                        <div class="wfm-i2i-drop-zone" id="wfm-video-edit-drop-zone">
+                            <label class="wfm-i2i-drop-label">
+                                <span id="wfm-video-edit-drop-label">Drop videos or click to add clips</span>
+                                <input type="file" accept="video/*" id="wfm-video-edit-file-input" multiple style="display:none;">
+                            </label>
+                        </div>
+
+                        <div class="wfm-video-edit-clip-list" id="wfm-video-edit-clip-list"></div>
+
+                        <div class="wfm-video-edit-main-row">
+                            <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
+
+                            <div class="wfm-video-edit-export-panel">
+                                <button type="button" id="wfm-video-edit-export-btn" class="wfm-btn wfm-btn-primary" style="width:100%;">Export</button>
+                                <div class="wfm-gen-progress-container" style="margin-top:8px;">
+                                    <div class="wfm-gen-progress-track">
+                                        <div id="wfm-video-edit-progress-bar" class="wfm-gen-progress-bar"></div>
+                                    </div>
+                                    <span id="wfm-video-edit-progress-text" class="wfm-gen-progress-text">Ready</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <!-- 右ペイン: プロパティ(Frame抽出 / GIF変換の2タブ)。中央ペインと同様に常時表示 -->

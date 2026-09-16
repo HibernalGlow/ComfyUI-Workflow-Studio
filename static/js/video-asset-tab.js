@@ -10,6 +10,9 @@
 
 import { VIDEO_GROUP, VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 import { setSourcePreview } from "./video-preview.js";
+import { showToast } from "./app.js";
+import { t } from "./i18n.js";
+import { addClipFromFile } from "./video-edit-tab.js";
 
 // Sentinel for the "All Video Assets" option — not a real backend group, since
 // Gallery's group filter only ever matches one group at a time. Selecting it
@@ -178,7 +181,8 @@ function _renderDetail(img) {
         <label style="margin-top:10px;">Memo</label>
         <textarea id="wfm-video-asset-memo" class="wfm-textarea" rows="3"></textarea>
         <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-memo-save" style="margin-top:6px;">Save Memo</button>
-        <button type="button" class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-video-asset-open-gallery" style="width:100%;margin-top:12px;">Open in Gallery</button>
+        <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-send-to-edit" style="width:100%;margin-top:12px;">${t("videoEditSendToEdit")}</button>
+        <button type="button" class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-video-asset-open-gallery" style="width:100%;margin-top:6px;">Open in Gallery</button>
     `;
 
     const nameEl = document.getElementById("wfm-video-asset-name");
@@ -203,6 +207,20 @@ function _renderDetail(img) {
         const memo = panel.querySelector("#wfm-video-asset-memo")?.value || "";
         await _saveMeta(img.path, { memo });
         img.memo = memo;
+    });
+
+    panel.querySelector("#wfm-video-asset-send-to-edit")?.addEventListener("click", async () => {
+        try {
+            const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
+            if (!res.ok) throw new Error(String(res.status));
+            const blob = await res.blob();
+            const file = new File([blob], img.filename, { type: blob.type || "video/mp4" });
+            addClipFromFile(file, img.filename);
+            document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+            showToast(t("videoEditClipSent", img.filename), "success");
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
     });
 
     panel.querySelector("#wfm-video-asset-open-gallery")?.addEventListener("click", () => {

@@ -17,6 +17,7 @@ import { applyStoredVideoVolume } from "./settings-tab.js";
 import { initVideoPlanTab, loadWorkflowIntoVideoEditor } from "./video-plan-tab.js";
 import { initVideoAssetTab, refreshVideoAssetTab } from "./video-asset-tab.js";
 import { initVideoProjectTab, refreshVideoProjectTab } from "./video-project-tab.js";
+import { initVideoEditTab } from "./video-edit-tab.js";
 import {
     setSourcePreview, getActivePreviewSource, updateActivePreviewSourceRef,
     getActivePreviewVideoElement, getAllPreviewVideoElements,
@@ -103,7 +104,8 @@ function _applyVideoI18n() {
         const el = document.getElementById(id);
         if (el) el.textContent = t(key);
     };
-    setText("wfm-video-edit-placeholder-label", "videoEditPlaceholder");
+    setText("wfm-video-edit-drop-label", "videoEditDropLabel");
+    setText("wfm-video-edit-export-btn", "videoEditExportBtn");
     setText("wfm-video-source-label", "videoSourceLabel");
     setText("wfm-video-source-hint", "videoSourceHint");
     setText("wfm-video-source-drop-label", "videoSourceDropLabel");
@@ -321,6 +323,7 @@ export function initVideoTab() {
     initVideoPlanTab();
     initVideoAssetTab();
     initVideoProjectTab();
+    initVideoEditTab();
 
     _wireVideoSourcePanel();
     _initPropTabs();
