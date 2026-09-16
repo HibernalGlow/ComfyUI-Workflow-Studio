@@ -497,31 +497,6 @@ async function _exportTimeline() {
 // Init
 // ============================================
 
-function _wireAddClipDropZone() {
-    const dropZone = document.getElementById("wfm-video-edit-drop-zone");
-    const fileInput = document.getElementById("wfm-video-edit-file-input");
-    if (!dropZone || !fileInput) return;
-
-    const addFiles = (files) => {
-        for (const file of files) {
-            if (!file.type.startsWith("video/")) continue;
-            addClipFromFile(file);
-        }
-    };
-
-    fileInput.addEventListener("change", () => {
-        if (fileInput.files.length > 0) addFiles(Array.from(fileInput.files));
-        fileInput.value = "";
-    });
-    dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("drag-over"); });
-    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
-    dropZone.addEventListener("drop", (e) => {
-        e.preventDefault();
-        dropZone.classList.remove("drag-over");
-        if (e.dataTransfer.files.length > 0) addFiles(Array.from(e.dataTransfer.files));
-    });
-}
-
 function _wireToolbar() {
     document.getElementById("wfm-video-edit-move-left-btn")?.addEventListener("click", () => {
         if (_s.selectedId != null) _moveClip(_s.selectedId, -1);
@@ -549,7 +524,6 @@ function _wireToolbar() {
 }
 
 export function initVideoEditTab() {
-    _wireAddClipDropZone();
     _wireToolbar();
     document.getElementById("wfm-video-edit-export-btn")?.addEventListener("click", _exportTimeline);
     _renderTimeline();

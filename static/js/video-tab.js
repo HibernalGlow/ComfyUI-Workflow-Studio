@@ -108,7 +108,6 @@ function _applyVideoI18n() {
         const el = document.getElementById(id);
         if (el) el.title = t(key);
     };
-    setText("wfm-video-edit-drop-label", "videoEditDropLabel");
     setText("wfm-video-edit-export-btn", "videoEditExportBtn");
     setTitle("wfm-video-edit-move-left-btn", "videoEditMoveLeft");
     setTitle("wfm-video-edit-move-right-btn", "videoEditMoveRight");

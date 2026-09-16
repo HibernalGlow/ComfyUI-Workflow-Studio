@@ -1345,8 +1345,7 @@ const LANGUAGES = {
         // -- Video Tab (MiniMax H3 / LTX-2.5 / Wan2.2, independent of GenerateUI) --
         tabVideo: "Video",
         loadInVideo: "Load in Video",
-        videoEditDropLabel: "Drop videos or click to add clips",
-        videoEditNoClipsHint: "No clips yet — add one above",
+        videoEditNoClipsHint: "No clips yet — select an Asset or drop a video into Video Source above, then \"Add to Edit\"",
         videoEditNoClips: "Add at least one clip first",
         videoEditStillProbing: "Please wait for clip analysis to finish",
         videoEditResolutionMismatch: (a, b) => `Clip resolutions don't match (${a} vs ${b}). Trim/crop to the same size before exporting.`,
@@ -2763,8 +2762,7 @@ const LANGUAGES = {
         // -- Video タブ（MiniMax H3 / LTX-2.5 / Wan2.2対応、GenerateUIタブとは独立） --
         tabVideo: "Video",
         loadInVideo: "Videoに読み込み",
-        videoEditDropLabel: "動画をドロップ、またはクリックしてクリップを追加",
-        videoEditNoClipsHint: "クリップがありません — 上のドロップゾーンから追加してください",
+        videoEditNoClipsHint: "クリップがありません — 上の動画ソースでAssetを選択/動画をドロップし「Editに追加」してください",
         videoEditNoClips: "まずクリップを1つ以上追加してください",
         videoEditStillProbing: "クリップの解析が完了するまでお待ちください",
         videoEditResolutionMismatch: (a, b) => `クリップの解像度が一致しません(${a} と ${b})。書き出し前に同じサイズにトリム/クロップしてください。`,
@@ -4181,8 +4179,7 @@ const LANGUAGES = {
         // -- Video 标签页（支持 MiniMax H3 / LTX-2.5 / Wan2.2，独立于 GenerateUI） --
         tabVideo: "Video",
         loadInVideo: "加载到Video",
-        videoEditDropLabel: "拖放视频，或点击添加片段",
-        videoEditNoClipsHint: "暂无片段 — 请在上方添加",
+        videoEditNoClipsHint: "暂无片段 — 请在上方选择素材或拖放视频后点击“添加到Edit”",
         videoEditNoClips: "请先添加至少一个片段",
         videoEditStillProbing: "请等待片段分析完成",
         videoEditResolutionMismatch: (a, b) => `片段分辨率不一致(${a} 与 ${b})。导出前请裁剪为相同尺寸。`,

@@ -330,12 +330,15 @@
     display: flex;
     align-items: stretch;
     gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
     height: 48px;
     padding: 4px;
     border-radius: 4px;
     border: 1px solid var(--wfm-border);
     overflow-x: auto;
     position: relative;
+    flex: none; /* stay a fixed-height full-width bar; never shrink/stretch with clip content */
 }
 
 .wfm-video-edit-timeline-placeholder {
@@ -500,18 +503,6 @@
     margin: 0 0 8px 0;
 }
 
-/* 将来の動画編集機能(トリミング等)用のプレースホルダー領域 */
-.wfm-video-edit-panel {
-    flex: 1;
-    min-height: 160px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px dashed var(--wfm-border);
-    border-radius: 6px;
-    color: var(--wfm-text-secondary);
-    font-size: 13px;
-}
 
 /* ── 右ペイン: プロパティ (Frame抽出 / GIF変換タブ) ── */
 .wfm-video-properties-panel {

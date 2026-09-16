@@ -235,6 +235,16 @@ Video Edit実装の設計判断を補強するため、既に「フルスクリ�
 
 実機（ComfyUI_5・ポート8189、Kapture）で以下を確認済み: 左詰めタイムライン描画、Asset選択→「Editに追加」経路、2クリップの◀移動での順序入れ替え、複製、削除、クリア（確認ダイアログのi18n適用含む）、クリア後の単一クリップ書き出し（22.13秒で正常出力）。
 
+## 7. レイアウト修正（2026-09-16、追加指示）
+
+UI再設計直後、実機で「空のタイムライン/書き出しパネルが中央に縮んで表示され、Planタブのように横幅いっぱい・右端固定にならない」という不具合をユーザーが発見。原因はCSSのバグで、修正内容は以下の3点。
+
+1. **Editタブ自身のドロップゾーンを削除**: `#wfm-video-edit-drop-zone`をtemplates/index.htmlから削除し、`video-edit-tab.js`の`_wireAddClipDropZone()`も削除。クリップ追加は Asset タブの「Editへ送る」ボタンと、Video Sourceパネルの「Editに追加」ボタン（第4節参照）の2経路に一本化。
+2. **【根本原因】`static/css/video-tab.css`に旧プレースホルダー時代の重複`.wfm-video-edit-panel`ルールが残存していた。** Edit サブタブが「Editing tools coming soon」という1行プレースホルダーだった頃の`display:flex; align-items:center; justify-content:center; border:1px dashed ...`というルール（中央に1行だけ表示するための定義）が、実装を追加した後も削除されておらず、CSSカスケード順（後勝ち）で新しい`.wfm-video-edit-panel { padding: 0 16px 16px; }`の直後に来て`align-items:center`等を上書きし続けていた。これによりタイムライン・トリムパネル・書き出しパネルの全てが横方向に縮んで中央寄せされていた。該当ルールを完全に削除して解消。
+3. `.wfm-video-edit-timeline-track`に`width:100%; box-sizing:border-box; flex:none;`を明示し、クリップの有無に関わらずトラック自体がPlanの`.wfm-video-timeline-track`と同様に横幅いっぱい・高さ固定のバーであり続けるようにした（今回のバグの根本原因はCSSの重複ルールだったが、将来の再発防止として明示指定を追加）。
+
+修正後、実機で「空のタイムラインが横幅いっぱいに固定表示される」「クリップ追加後もトラックがフル幅を保ち、クリップは左詰め」「書き出しパネルがPlanのRun/Planパネルと同じ右端固定位置に表示される」ことをスクリーンショットで確認済み。
+
 ---
 
 ### Critical Files for Implementation
