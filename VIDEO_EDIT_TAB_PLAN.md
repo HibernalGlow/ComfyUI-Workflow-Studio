@@ -245,6 +245,11 @@ UI再設計直後、実機で「空のタイムライン/書き出しパネル�
 
 修正後、実機で「空のタイムラインが横幅いっぱいに固定表示される」「クリップ追加後もトラックがフル幅を保ち、クリップは左詰め」「書き出しパネルがPlanのRun/Planパネルと同じ右端固定位置に表示される」ことをスクリーンショットで確認済み。
 
+## 8. トリムパネル・ツールバーの細部調整（2026-09-16、追加指示）
+
+- **開始/終了(秒)入力欄+「現在位置を使用」ボタン**: 従来は横並び(`display:flex`)で、ボタンのテキストが枠からはみ出しコンテナ幅を超えていた。入力欄とボタンを縦積み(`.wfm-video-edit-trim-field { flex-direction:column }`)にし、`.wfm-video-edit-trim-row`のグリッド列幅を`minmax(0,160px)`に縮小。ボタンは`.wfm-video-edit-playhead-btn`（font-size:10px、padding:2px 6px）で一回り小さくし、入力欄との見分けを明確化。
+- **タイムライン総合時間の表示**: ツールバーのClearボタン左隣に、全クリップのトリム後長さ合計を表示する`#wfm-video-edit-total-duration`(`合計: 22.1s`のような表示)を追加。`_updateTotalDuration()`が`_updateToolbarState()`（タイムライン再描画のたびに呼ばれる）から自動更新される。
+
 ---
 
 ### Critical Files for Implementation

@@ -299,6 +299,17 @@ function _updateToolbarState() {
     setDisabled("wfm-video-edit-duplicate-btn", !hasSelection);
     setDisabled("wfm-video-edit-delete-btn", !hasSelection);
     setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0);
+    _updateTotalDuration();
+}
+
+function _updateTotalDuration() {
+    const el = document.getElementById("wfm-video-edit-total-duration");
+    if (!el) return;
+    const total = _s.clips.reduce((sum, c) => {
+        if (c.probing || c.error) return sum;
+        return sum + Math.max(0, c.trimEnd - c.trimStart);
+    }, 0);
+    el.textContent = _s.clips.length === 0 ? "" : t("videoEditTotalDuration", _fmtTime(total));
 }
 
 function _renderTrimPanel() {
@@ -324,19 +335,15 @@ function _renderTrimPanel() {
     panel.innerHTML = `
         <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:6px;"></div>
         <div class="wfm-video-edit-trim-row">
-            <div>
+            <div class="wfm-video-edit-trim-field">
                 <label>${t("videoEditTrimStart")}</label>
-                <div style="display:flex;gap:4px;">
-                    <input type="number" id="wfm-video-edit-trim-start" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimStart.toFixed(2)}">
-                    <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-trim-start-set">${t("videoEditSetFromPlayhead")}</button>
-                </div>
+                <input type="number" id="wfm-video-edit-trim-start" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimStart.toFixed(2)}">
+                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-playhead-btn" id="wfm-video-edit-trim-start-set">${t("videoEditSetFromPlayhead")}</button>
             </div>
-            <div>
+            <div class="wfm-video-edit-trim-field">
                 <label>${t("videoEditTrimEnd")}</label>
-                <div style="display:flex;gap:4px;">
-                    <input type="number" id="wfm-video-edit-trim-end" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimEnd.toFixed(2)}">
-                    <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-trim-end-set">${t("videoEditSetFromPlayhead")}</button>
-                </div>
+                <input type="number" id="wfm-video-edit-trim-end" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimEnd.toFixed(2)}">
+                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-playhead-btn" id="wfm-video-edit-trim-end-set">${t("videoEditSetFromPlayhead")}</button>
             </div>
         </div>
     `;

@@ -389,7 +389,7 @@
 
 .wfm-video-edit-trim-row {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 160px));
     gap: 10px;
 }
 
@@ -398,6 +398,28 @@
     font-size: 12px;
     color: var(--wfm-text-secondary);
     margin-bottom: 4px;
+}
+
+/* 開始/終了の入力欄+「現在位置を使用」ボタンを縦積みにする。以前は横並びで
+   ボタンのラベルがはみ出し、かつ入力欄とボタンの見分けがつきにくかった。 */
+.wfm-video-edit-trim-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wfm-video-edit-trim-field input { width: 100%; box-sizing: border-box; }
+
+.wfm-video-edit-playhead-btn {
+    align-self: flex-start;
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.wfm-video-edit-total-duration {
+    font-size: 12px;
+    color: var(--wfm-text-secondary);
+    white-space: nowrap;
 }
 
 .wfm-video-edit-export-panel {
