@@ -250,6 +250,17 @@ UI再設計直後、実機で「空のタイムライン/書き出しパネル�
 - **開始/終了(秒)入力欄+「現在位置を使用」ボタン**: 従来は横並び(`display:flex`)で、ボタンのテキストが枠からはみ出しコンテナ幅を超えていた。入力欄とボタンを縦積み(`.wfm-video-edit-trim-field { flex-direction:column }`)にし、`.wfm-video-edit-trim-row`のグリッド列幅を`minmax(0,160px)`に縮小。ボタンは`.wfm-video-edit-playhead-btn`（font-size:10px、padding:2px 6px）で一回り小さくし、入力欄との見分けを明確化。
 - **タイムライン総合時間の表示**: ツールバーのClearボタン左隣に、全クリップのトリム後長さ合計を表示する`#wfm-video-edit-total-duration`(`合計: 22.1s`のような表示)を追加。`_updateTotalDuration()`が`_updateToolbarState()`（タイムライン再描画のたびに呼ばれる）から自動更新される。
 
+## 9. タイムライン連続プレビュー（2026-09-16、追加指示）
+
+「タイムラインの動画を上部の『生成された動画』プレビューで表示したい。このプレビューの動画＝書き出しされる動画としたい」という要望に対応。新規に`<video>`要素を追加するのではなく、Exportの結果が最終的に書き出される**同じ「Result」プレビュー枠**(`#wfm-video-preview-video`、`video-preview.js`の`setResultPreview()`が使う枠)を共有し、タイムライン上の全クリップ（トリム区間反映済み）を順番に連続再生する「疑似合成プレビュー」を実装した。当初計画のMVP項目4「各クリップを順番に`<video>`要素で連続再生する疑似プレビュー」を正式に実装したものにあたる。
+
+- **UI**: タイムラインツールバーに「▶ プレビュー / ■ 停止」トグルボタンを追加（Delete と 合計時間表示の間）。クリップが0件のときは無効化。
+- **実装**（`video-edit-tab.js`）: `_startPreview()`が`serverRef`ありかつエラー無しのクリップを`_previewClips`として捕捉し先頭から`setResultPreview()`で読み込み・`trimStart`へシーク・再生。`timeupdate`イベントで`currentTime >= trimEnd`を検知した時点、または`ended`イベントで次クリップへ自動遷移（`_advancePreview()`）。全クリップ終了で自動停止。
+- `video-preview.js`に`getResultPreviewVideoElement()`を新規export（Resultペインの`<video>`要素へ直接アクセスし、`timeupdate`/`ended`購読や`currentTime`制御を行うため。`setResultPreview()`自体はsrc差し替えのみで再生制御はできないため）。
+- クリップ削除・クリア・書き出し開始時には`_stopPreview()`を呼び、再生中の疑似プレビューを確実に停止する（書き出し完了後は同じ枠に実際の書き出し結果が上書き表示される——「プレビューの動画＝書き出しされる動画」という要望通り、同一枠が編集中プレビューと最終結果の両方を担う）。
+
+実機で2クリップ(22.1s+19.1s)の連続プレビュー再生→クリップ境界での自動切替→停止→書き出し(結合後41.2s)→Resultペインへの結果反映、という一連の流れを確認済み。
+
 ---
 
 ### Critical Files for Implementation

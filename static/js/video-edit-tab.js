@@ -36,7 +36,9 @@
 import { showToast } from "./app.js";
 import { t } from "./i18n.js";
 import { comfyUI } from "./comfyui-client.js";
-import { setSourcePreview, setResultPreview, getActivePreviewVideoElement } from "./video-preview.js";
+import {
+    setSourcePreview, setResultPreview, getActivePreviewVideoElement, getResultPreviewVideoElement,
+} from "./video-preview.js";
 import { VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 
 const _s = {
@@ -156,6 +158,7 @@ function _duplicateClip(id) {
 }
 
 function _deleteClip(id) {
+    _stopPreview();
     _s.clips = _s.clips.filter((c) => c.id !== id);
     if (_s.selectedId === id) {
         _s.selectedId = _s.clips.length ? _s.clips[0].id : null;
@@ -169,6 +172,7 @@ function _deleteClip(id) {
 function _clearTimeline() {
     if (_s.clips.length === 0) return;
     if (!confirm(t("videoEditConfirmClear"))) return;
+    _stopPreview();
     _s.clips = [];
     _s.selectedId = null;
     setSourcePreview(null, null);
@@ -299,6 +303,7 @@ function _updateToolbarState() {
     setDisabled("wfm-video-edit-duplicate-btn", !hasSelection);
     setDisabled("wfm-video-edit-delete-btn", !hasSelection);
     setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0);
+    setDisabled("wfm-video-edit-preview-btn", _s.clips.length === 0);
     _updateTotalDuration();
 }
 
@@ -374,6 +379,81 @@ function _renderTrimPanel() {
         const video = getActivePreviewVideoElement();
         if (video) { endInput.value = video.currentTime.toFixed(2); commit(); }
     });
+}
+
+// ============================================
+// Sequential timeline preview — plays every ready clip back-to-back (each
+// trimmed to its in/out point) in the shared "Result" pane (the same one
+// Export writes its finished output into), so what plays there is always
+// exactly what Export would currently produce. Deliberately reuses that pane
+// rather than a third <video> element: the user asked for it to be the same
+// slot the exported video lands in, not a separate preview area.
+// ============================================
+
+let _previewPlaying = false;
+let _previewClips = [];
+let _previewIndex = 0;
+
+function _onPreviewTimeUpdate() {
+    const video = getResultPreviewVideoElement();
+    const clip = _previewClips[_previewIndex];
+    if (!video || !clip) return;
+    if (video.currentTime >= clip.trimEnd) _advancePreview();
+}
+
+function _advancePreview() {
+    _previewIndex += 1;
+    if (_previewIndex >= _previewClips.length) { _stopPreview(); return; }
+    _playPreviewClip();
+}
+
+function _playPreviewClip() {
+    const video = getResultPreviewVideoElement();
+    const clip = _previewClips[_previewIndex];
+    if (!video || !clip) { _stopPreview(); return; }
+    setResultPreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file });
+    // currentTime only reliably applies once the new source has metadata —
+    // setting it immediately after swapping src is flaky across browsers.
+    const onReady = () => {
+        video.removeEventListener("loadedmetadata", onReady);
+        video.currentTime = clip.trimStart;
+        video.play().catch(() => {});
+    };
+    video.addEventListener("loadedmetadata", onReady);
+}
+
+function _startPreview() {
+    _previewClips = _s.clips.filter((c) => !c.probing && !c.error);
+    if (_previewClips.length === 0) {
+        showToast(t("videoEditNoClips"), "error");
+        return;
+    }
+    _previewIndex = 0;
+    _previewPlaying = true;
+    const video = getResultPreviewVideoElement();
+    video?.addEventListener("timeupdate", _onPreviewTimeUpdate);
+    video?.addEventListener("ended", _advancePreview);
+    _playPreviewClip();
+    _updatePreviewBtn();
+}
+
+function _stopPreview() {
+    _previewPlaying = false;
+    const video = getResultPreviewVideoElement();
+    video?.removeEventListener("timeupdate", _onPreviewTimeUpdate);
+    video?.removeEventListener("ended", _advancePreview);
+    video?.pause();
+    _updatePreviewBtn();
+}
+
+function _togglePreview() {
+    if (_previewPlaying) _stopPreview();
+    else _startPreview();
+}
+
+function _updatePreviewBtn() {
+    const btn = document.getElementById("wfm-video-edit-preview-btn");
+    if (btn) btn.textContent = _previewPlaying ? t("videoEditPreviewStop") : t("videoEditPreviewPlay");
 }
 
 // ============================================
@@ -458,6 +538,7 @@ async function _addOutputToVideoTemp(filename, subfolder) {
 
 async function _exportTimeline() {
     if (_s.exporting) return;
+    _stopPreview();
 
     const readyClips = _s.clips.filter((c) => c.serverRef && !c.error);
     if (readyClips.length === 0) {
@@ -517,6 +598,7 @@ function _wireToolbar() {
     document.getElementById("wfm-video-edit-delete-btn")?.addEventListener("click", () => {
         if (_s.selectedId != null) _deleteClip(_s.selectedId);
     });
+    document.getElementById("wfm-video-edit-preview-btn")?.addEventListener("click", _togglePreview);
     document.getElementById("wfm-video-edit-clear-btn")?.addEventListener("click", _clearTimeline);
 
     // Dropping a dragged block past the last one (onto empty track space)
@@ -535,4 +617,5 @@ export function initVideoEditTab() {
     document.getElementById("wfm-video-edit-export-btn")?.addEventListener("click", _exportTimeline);
     _renderTimeline();
     _renderTrimPanel();
+    _updatePreviewBtn();
 }

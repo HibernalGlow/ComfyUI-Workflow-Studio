@@ -80,3 +80,11 @@ export function getActivePreviewVideoElement() {
 export function getAllPreviewVideoElements() {
     return Object.values(_PANES).map((ids) => document.getElementById(ids.video)).filter(Boolean);
 }
+
+// Direct access to the "result" pane's <video> element — used by
+// video-edit-tab.js's timeline preview, which needs to drive playback
+// (seek to a clip's trim-in, listen for the trim-out point, swap to the
+// next clip) rather than just set a src via setResultPreview().
+export function getResultPreviewVideoElement() {
+    return document.getElementById(_PANES.result.video);
+}
