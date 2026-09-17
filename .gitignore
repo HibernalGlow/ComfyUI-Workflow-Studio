@@ -9,6 +9,6 @@ data/
 # graphify: local-only knowledge graph output, not shared with other clones
 graphify-out/
 
-# Working-notes plan doc for the video-edit-tab feature — local scratch, not
-# meant to ship with the repo
+# Working-notes plan docs — local scratch, not meant to ship with the repo
 VIDEO_EDIT_TAB_PLAN.md
+QWEN_CHAT_INTEGRATION_PLAN.md
