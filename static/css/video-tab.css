@@ -490,6 +490,103 @@
     white-space: nowrap;
 }
 
+/* ── トリムスクラバー: clipchamp風の時間目盛り+シークバー+トリムハンドル。
+   すべて%位置指定(clip.duration基準)にすることでpx/秒換算を持たずに済ませている。 */
+.wfm-video-trim-scrubber {
+    margin-top: 10px;
+    user-select: none;
+}
+
+.wfm-video-trim-ruler {
+    position: relative;
+    height: 16px;
+    font-size: 10px;
+    color: var(--wfm-text-secondary);
+}
+
+.wfm-video-trim-ruler-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.wfm-video-trim-track {
+    position: relative;
+    height: 36px;
+    margin-top: 4px;
+    background: var(--wfm-bg-hover, #111);
+    border: 1px solid var(--wfm-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.wfm-video-trim-range {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(70, 130, 230, 0.3);
+    border-top: 2px solid var(--wfm-primary);
+    border-bottom: 2px solid var(--wfm-primary);
+    pointer-events: none;
+}
+
+.wfm-video-trim-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    margin-left: -5px;
+    background: var(--wfm-primary);
+    border-radius: 2px;
+    cursor: ew-resize;
+    z-index: 3;
+}
+
+.wfm-video-trim-playhead {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    margin-left: -1px;
+    background: #fff;
+    /* Below the trim handles (z-index:3) so a handle sitting at the same
+       position (e.g. right after "Set from playhead") stays grabbable instead
+       of the playhead's hit area stealing the pointer. */
+    z-index: 2;
+    cursor: ew-resize;
+}
+
+.wfm-video-trim-playhead::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.wfm-video-trim-badge {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111;
+    color: #fff;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.wfm-video-trim-badge-playhead {
+    background: #000;
+}
+
 .wfm-video-edit-export-panel {
     width: 220px;
     flex: none;

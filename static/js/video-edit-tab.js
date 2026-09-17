@@ -271,6 +271,16 @@ function _fmtTime(s) {
     return `${s.toFixed(1)}s`;
 }
 
+// M:SS.ds timecode for the trim scrubber's ruler ticks and badges (mirrors
+// the "0:01.70" style Clipchamp-like editors use) — distinct from _fmtTime's
+// coarser "1.7s" used elsewhere (timeline block meta, total-duration readout).
+function _fmtTimecode(s) {
+    const clamped = Math.max(0, s || 0);
+    const m = Math.floor(clamped / 60);
+    const sec = clamped - m * 60;
+    return `${m}:${sec.toFixed(2).padStart(5, "0")}`;
+}
+
 // Horizontal timeline track (see VIDEO_EDIT_TAB_PLAN.md's UI redesign note):
 // clips are laid out left-to-right at their real (trimmed) duration on a
 // fixed px/sec scale and left-aligned — an empty track stays empty on the
@@ -376,9 +386,158 @@ function _updateTotalDuration() {
     el.textContent = _s.clips.length === 0 ? "" : t("videoEditTotalDuration", _fmtTime(total));
 }
 
+// ============================================
+// Trim scrubber — Clipchamp-style visual timeline for the selected video
+// clip's trim panel: a time ruler, a draggable in/out range, and a playhead
+// synced to the Source preview's <video> element. All positions are computed
+// as percentages of clip.duration (not px/sec) so no separate zoom/scale
+// bookkeeping is needed — the track just fills whatever width the panel gives it.
+// ============================================
+
+// Tracks the (element, listener) pair currently wired to a <video>'s
+// "timeupdate" so it can be torn down before the next clip selection reuses
+// the same persistent preview element (see video-preview.js) — otherwise
+// listeners would pile up across every clip switch.
+let _scrubVideoEl = null;
+let _scrubVideoListener = null;
+
+function _teardownTrimScrubber() {
+    if (_scrubVideoEl && _scrubVideoListener) {
+        _scrubVideoEl.removeEventListener("timeupdate", _scrubVideoListener);
+    }
+    _scrubVideoEl = null;
+    _scrubVideoListener = null;
+}
+
+// "Nice" tick spacing so the ruler shows roughly 5-8 labeled ticks regardless
+// of clip length (a 3s clip gets 0.5s ticks, a 5min clip gets 60s ticks).
+function _niceRulerStep(duration) {
+    const rough = duration / 6;
+    const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+    return candidates.find((c) => c >= rough) || candidates[candidates.length - 1];
+}
+
+function _renderRuler(ruler, duration) {
+    ruler.innerHTML = "";
+    if (!duration) return;
+    const step = _niceRulerStep(duration);
+    for (let time = 0; time <= duration + 0.001; time += step) {
+        const tick = document.createElement("span");
+        tick.className = "wfm-video-trim-ruler-tick";
+        tick.style.left = `${Math.min(100, (time / duration) * 100)}%`;
+        tick.textContent = _fmtTimecode(time).replace(/\.\d+$/, "");
+        ruler.appendChild(tick);
+    }
+}
+
+// Wires the scrubber DOM (already inserted into the trim panel by
+// _renderTrimPanel) for one video clip. `commit` is the trim-panel's own
+// start/end-input commit function — the scrubber drives it via the same
+// inputs rather than writing clip.trimStart/trimEnd directly, so both paths
+// (typed numbers, dragged handles) stay in sync through one code path.
+function _wireTrimScrubber(clip, startInput, endInput, commit) {
+    const track = document.getElementById("wfm-video-trim-track");
+    const ruler = document.getElementById("wfm-video-trim-ruler");
+    const rangeEl = document.getElementById("wfm-video-trim-range");
+    const handleStart = document.getElementById("wfm-video-trim-handle-start");
+    const handleEnd = document.getElementById("wfm-video-trim-handle-end");
+    const playhead = document.getElementById("wfm-video-trim-playhead");
+    const badgeStart = document.getElementById("wfm-video-trim-badge-start");
+    const badgeEnd = document.getElementById("wfm-video-trim-badge-end");
+    const badgePlayhead = document.getElementById("wfm-video-trim-badge-playhead");
+    if (!track || !clip.duration) return;
+
+    _renderRuler(ruler, clip.duration);
+
+    const pct = (t) => `${Math.min(100, Math.max(0, (t / clip.duration) * 100))}%`;
+
+    function updateRange() {
+        rangeEl.style.left = pct(clip.trimStart);
+        rangeEl.style.width = `${Math.max(0, ((Math.min(clip.trimEnd, clip.duration) - clip.trimStart) / clip.duration) * 100)}%`;
+        handleStart.style.left = pct(clip.trimStart);
+        handleEnd.style.left = pct(clip.trimEnd);
+        badgeStart.textContent = _fmtTimecode(clip.trimStart);
+        badgeEnd.textContent = _fmtTimecode(clip.trimEnd);
+    }
+    updateRange();
+
+    function updatePlayhead(t) {
+        playhead.style.left = pct(t);
+        badgePlayhead.textContent = _fmtTimecode(t);
+    }
+
+    const video = getActivePreviewVideoElement();
+    if (video) {
+        _scrubVideoEl = video;
+        _scrubVideoListener = () => updatePlayhead(video.currentTime);
+        video.addEventListener("timeupdate", _scrubVideoListener);
+        updatePlayhead(video.currentTime);
+    } else {
+        updatePlayhead(0);
+    }
+
+    function seekTo(clientX) {
+        const rect = track.getBoundingClientRect();
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        const t = ratio * clip.duration;
+        const v = getActivePreviewVideoElement();
+        if (v) v.currentTime = t;
+        updatePlayhead(t);
+    }
+
+    // Drags a trim handle: while pointer is down, only the scrubber's own
+    // visuals (range/handle position, badge text) update — clip.trimStart/End
+    // and the timeline block widths commit once on pointerup, so dragging
+    // doesn't thrash _renderTimeline() on every mousemove.
+    function wireHandleDrag(handleEl, isStart) {
+        handleEl.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleEl.setPointerCapture(e.pointerId);
+            const onMove = (ev) => {
+                const rect = track.getBoundingClientRect();
+                const ratio = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+                const t = ratio * clip.duration;
+                if (isStart) startInput.value = Math.min(t, clip.trimEnd - 0.05).toFixed(2);
+                else endInput.value = Math.max(t, clip.trimStart + 0.05).toFixed(2);
+                commit({ skipTimelineRerender: true });
+                updateRange();
+            };
+            const onUp = () => {
+                handleEl.removeEventListener("pointermove", onMove);
+                handleEl.removeEventListener("pointerup", onUp);
+                _renderTimeline();
+            };
+            handleEl.addEventListener("pointermove", onMove);
+            handleEl.addEventListener("pointerup", onUp);
+        });
+    }
+    wireHandleDrag(handleStart, true);
+    wireHandleDrag(handleEnd, false);
+
+    track.addEventListener("pointerdown", (e) => {
+        if (e.target === handleStart || e.target === handleEnd || e.target === playhead) return;
+        seekTo(e.clientX);
+    });
+
+    playhead.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        playhead.setPointerCapture(e.pointerId);
+        const onMove = (ev) => seekTo(ev.clientX);
+        const onUp = () => {
+            playhead.removeEventListener("pointermove", onMove);
+            playhead.removeEventListener("pointerup", onUp);
+        };
+        playhead.addEventListener("pointermove", onMove);
+        playhead.addEventListener("pointerup", onUp);
+    });
+}
+
 function _renderTrimPanel() {
     const panel = document.getElementById("wfm-video-edit-trim-panel");
     if (!panel) return;
+    _teardownTrimScrubber();
     const clip = _selectedClip();
     if (!clip) {
         panel.innerHTML = `<span class="wfm-placeholder">${t("videoEditSelectClipHint")}</span>`;
@@ -420,7 +579,22 @@ function _renderTrimPanel() {
 
     panel.innerHTML = `
         <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:6px;"></div>
-        <div class="wfm-video-edit-trim-row">
+        <div class="wfm-video-trim-scrubber" id="wfm-video-trim-scrubber">
+            <div class="wfm-video-trim-ruler" id="wfm-video-trim-ruler"></div>
+            <div class="wfm-video-trim-track" id="wfm-video-trim-track">
+                <div class="wfm-video-trim-range" id="wfm-video-trim-range"></div>
+                <div class="wfm-video-trim-handle" id="wfm-video-trim-handle-start">
+                    <span class="wfm-video-trim-badge" id="wfm-video-trim-badge-start"></span>
+                </div>
+                <div class="wfm-video-trim-handle" id="wfm-video-trim-handle-end">
+                    <span class="wfm-video-trim-badge" id="wfm-video-trim-badge-end"></span>
+                </div>
+                <div class="wfm-video-trim-playhead" id="wfm-video-trim-playhead">
+                    <span class="wfm-video-trim-badge wfm-video-trim-badge-playhead" id="wfm-video-trim-badge-playhead"></span>
+                </div>
+            </div>
+        </div>
+        <div class="wfm-video-edit-trim-row" style="margin-top:10px;">
             <div class="wfm-video-edit-trim-field">
                 <label>${t("videoEditTrimStart")}</label>
                 <input type="number" id="wfm-video-edit-trim-start" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimStart.toFixed(2)}">
@@ -439,7 +613,11 @@ function _renderTrimPanel() {
     const startInput = document.getElementById("wfm-video-edit-trim-start");
     const endInput = document.getElementById("wfm-video-edit-trim-end");
 
-    const commit = () => {
+    // skipTimelineRerender: the scrubber's handle-drag calls this on every
+    // pointermove (see _wireTrimScrubber) — re-running _renderTimeline() that
+    // often would rebuild every timeline block per mousemove for no visible
+    // benefit, since the scrubber already redraws its own range live.
+    const commit = ({ skipTimelineRerender } = {}) => {
         let start = Math.max(0, Math.min(Number(startInput.value) || 0, clip.duration));
         let end = Math.max(0, Math.min(Number(endInput.value) || 0, clip.duration));
         if (end <= start) end = Math.min(clip.duration, start + 0.1);
@@ -447,7 +625,7 @@ function _renderTrimPanel() {
         clip.trimEnd = end;
         startInput.value = start.toFixed(2);
         endInput.value = end.toFixed(2);
-        _renderTimeline();
+        if (!skipTimelineRerender) _renderTimeline();
     };
     startInput.addEventListener("change", commit);
     endInput.addEventListener("change", commit);
@@ -460,6 +638,8 @@ function _renderTrimPanel() {
         const video = getActivePreviewVideoElement();
         if (video) { endInput.value = video.currentTime.toFixed(2); commit(); }
     });
+
+    _wireTrimScrubber(clip, startInput, endInput, commit);
 }
 
 // ============================================
