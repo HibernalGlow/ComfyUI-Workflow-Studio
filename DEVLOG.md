@@ -2,6 +2,16 @@
 
 ---
 
+## v0.7.1（2026-09-17）
+
+### セキュリティ修正: Tagger VLM の Unsloth 経路でAPIキーがSSRFにより外部送信され得る不備を修正
+
+セキュリティレビューで、Unsloth Desktop連携の2つの経路のうちAI TOOLタブ用プロキシ（`unsloth_routes.py`）にはリクエスト先ホストを`localhost`/`127.0.0.1`/`::1`に制限するallowlistが入っていたが、Taggerタブ VLM経路（`tagger_service.py`の`vlm_models`/`vlm_predict`、`backend=="unsloth"`時）には同等の検証が無く、クライアントがリクエストごとに指定する`api_url`へそのまま`Authorization: Bearer <UNSLOTH_API_KEY>`を送信してしまう実装になっていた。ComfyUIを`--listen 0.0.0.0`等で外部公開している環境では、設定変更なしにこの経路経由でAPIキーが任意の外部ホストへ流出し得る。`unsloth_routes.py`と同じallowlistロジックを`tagger_service.py`側にも追加し、loopback以外の`api_url`はキーを付与せずエラーを返すようにした。
+
+副次的に、G'MIC-Qt起動（`gmic_routes.py`）の`gmic_qt_path`検証も、存在チェックのみだったのを絶対パス・`.exe`拡張子・実ファイルであることの検証に強化した（`shell=True`は使用しておらずコマンドインジェクションではないが、外部公開環境で設定変更と組み合わさった際のローカル実行リスクを下げる防御的対応）。
+
+**How to apply**: 同一サービス（Unslothなど認証キーを要する外部API）へ複数の呼び出し経路がある場合、ホスト制限などのセキュリティ検証はルート/サービス単位ではなく呼び出し経路ごとに漏れなく入れる必要がある。片方だけ実装して安心しないこと。
+
 ## v0.7.0（2026-09-17）
 
 ### プレビュー枠の高さ固定・AssetサブタブをPlan/Editと並ぶ中央下部へ移設・トリムパネルにClipchamp風スクラバー追加・Frame保存のVideo Assets登録とAsset→Plan画像連携

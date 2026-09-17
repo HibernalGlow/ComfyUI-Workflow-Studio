@@ -82,9 +82,9 @@ async def handle_open(request: web.Request) -> web.Response:
         # Retrieve setting for gmic path
         data = _settings.load()
         gmic_exe = data.get("gmic_qt_path", "")
-        if not os.path.exists(gmic_exe):
+        if not os.path.isabs(gmic_exe) or os.path.splitext(gmic_exe)[1].lower() != ".exe" or not os.path.isfile(gmic_exe):
             return web.json_response({
-                "error": f"G'MIC executable not found at: {gmic_exe}. Please configure the path in settings."
+                "error": f"G'MIC executable not found at: {gmic_exe}. Please configure an absolute .exe path in settings."
             }, status=400)
 
         ext = ".png"

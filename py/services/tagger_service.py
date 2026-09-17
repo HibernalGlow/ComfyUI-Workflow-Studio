@@ -12,6 +12,7 @@ import threading
 import urllib.request
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import numpy as np
 from PIL import Image, ImageOps, PngImagePlugin
@@ -19,6 +20,20 @@ from PIL import Image, ImageOps, PngImagePlugin
 logger = logging.getLogger(__name__)
 
 _model_lock = threading.Lock()
+
+# Unsloth requires an Authorization: Bearer <UNSLOTH_API_KEY> header even for
+# local access. api_url is client-supplied per request, so without a host
+# check a client could point it at an arbitrary server and exfiltrate the key
+# (SSRF). Mirrors unsloth_routes.py's _is_allowed_base_url/_ALLOWED_HOSTS.
+_UNSLOTH_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_allowed_unsloth_url(api_url: str) -> bool:
+    try:
+        parsed = urlparse(api_url)
+        return parsed.scheme in ("http", "https") and parsed.hostname in _UNSLOTH_ALLOWED_HOSTS
+    except Exception:
+        return False
 
 
 class TaggerService:
@@ -263,6 +278,9 @@ class TaggerService:
 
             headers = {}
             if backend == "unsloth":
+                if not _is_allowed_unsloth_url(api_url):
+                    logger.error("vlm_models: Unsloth backend URL must point to localhost/127.0.0.1/::1")
+                    return []
                 key = self._unsloth_api_key()
                 if not key:
                     logger.error("vlm_models: UNSLOTH_API_KEY is not set")
@@ -303,6 +321,8 @@ class TaggerService:
             else:
                 headers = {"Content-Type": "application/json"}
                 if backend == "unsloth":
+                    if not _is_allowed_unsloth_url(api_url):
+                        return {"error": "Unsloth backend URL must point to localhost/127.0.0.1/::1"}
                     key = self._unsloth_api_key()
                     if not key:
                         return {"error": "UNSLOTH_API_KEY is not set. Copy .env.example to .env in the "
