@@ -1,5 +1,7 @@
 # Video Editサブタブ「簡易動画編集機能」実装計画
 
+**ステータス（2026-09-17時点）**: Phase 1 MVP（タイムライン・トリム・結合書き出し・静止画クリップ対応）に加え、UI改善（Asset subtabの中央下部移設、Clipchamp風トリムスクラバー、Frame/Asset連携、プレビュー枠の高さ固定）まで実装完了し、**v0.7.0としてmainへマージ・GitHub Release・Registry公開済み**（第11節参照）。Phase 2以降（クロップ・テキストオーバーレイ・BGM合成）は未着手のまま、本ドキュメントの計画に沿って残っている。
+
 ## Context
 
 Video タブは Plan（バッチ動画生成）/ Asset・Project（生成済み動画の一覧）まで実装済みだが、Edit サブタブは `templates/index.html:2895` の空div `#wfm-video-subtab-edit`（「Editing tools coming soon」のプレースホルダーテキストのみ）で、JSロジックは一切無い。ユーザーからは「Adobe Premiereのような簡易動画編集機能」を追加したいという要望があり、調査の結果ComfyUI Core 0.35.0〜0.36.0（2026年9月時点の最新）で `VideoSlice`/`VideoTrim`/`VideoCrop`/`ConcatenateVideo` 等のネイティブ動画編集プリミティブが追加されたばかりであることが判明した。これらを活用しつつ、wf-manager独自のタイムラインUIを被せることで、フルスクラッチでの動画処理実装を避けつつ「複数クリップの配置・トリム・結合」という編集の核となる機能を提供する。
@@ -279,6 +281,40 @@ UI再設計直後、実機で「空のタイムライン/書き出しパネル�
 
 実機で以下を確認済み: 静止画の`<img>`プレビュー表示、Editへの追加（🖼アイコン・表示時間入力）、単独画像クリップの書き出し（2.998秒の正確な動画化）、動画クリップ+画像クリップ混在時の自動解像度フィット・音声除去による結合成功（5.996秒）。
 
+## 11. UI改善一式（2026-09-17、追加指示・v0.7.0としてリリース済み）
+
+MVP実装後、実際にEditタブを使う中で見つかった調整要望をまとめて対応した。4件とも実機（ComfyUI_5・ポート8189、Playwright）で確認済み。
+
+### 11.1 プレビュー枠の高さ固定
+
+中央ペインのSource/Resultプレビュー枠が`min-height`指定のみだったため、動画ソースのネイティブサイズ（特に縦長）によって枠が伸縮し、下のPlan/Editサブタブの表示位置がソースを選ぶたびに動いてしまう不具合があった。`static/css/video-tab.css`の`.wfm-video-preview-frame`を`height:260px`固定・`overflow:hidden`に変更し、`.wfm-video-preview-el`（`<video>`/`<img>`共通）を`width/height:auto; max-width/max-height:100%`（ネイティブサイズが枠より大きい場合のみ縮小、小さい場合は拡大しない）に変更して解消。
+
+### 11.2 AssetサブタブをPlan/Editと並ぶ中央下部へ移設
+
+「左ペインのアセットを中央ペイン下部に移設したい。2カラムで左に一覧、右に選択ファイル名詳細というレイアウト。一覧の上部にはアセット切替・検索・サムネイル/テーブル表示切替ボタンを追加したい」という要望に対応。
+
+- `templates/index.html`: 左サイドバー(`.wfm-video-form-panel`)の`Asset`ボタン・`#wfm-video-subtab-asset`パネルを削除し、`Project`のみのシンプルな構成に変更。中央下部の`.wfm-video-center-subtab-nav`に`Plan`/`Edit`と並ぶ第3ボタン`Asset`を新設し、`#wfm-video-subtab-asset`を中央パネル側に移設（2カラム: `.wfm-video-asset-list-col`左/`.wfm-video-asset-detail-col`右）。一覧上部に検索input(`#wfm-video-asset-search`)、グリッド/テーブル表示切替ボタン(`#wfm-video-asset-view-grid`/`-view-table`)を追加。
+- `static/js/video-tab.js`: `_initCenterSubtabToggle()`がAsset選択時に`refreshVideoAssetTab()`を呼ぶよう変更。`_initSidebarSubtabToggle()`からAsset関連の分岐を削除。
+- `static/js/video-asset-tab.js`: `_filteredImages()`（ファイル名検索）、`_renderTable()`/`_makeRow()`（テーブル表示、ファイル名・更新日時・タグの3列）、`_setViewMode()`を追加。既存の`_renderGrid()`は`_filteredImages()`を経由するよう変更。
+- `static/css/video-tab.css`: `.wfm-video-asset-layout`（2カラムflex）、`.wfm-video-asset-toolbar`、`.wfm-video-asset-table*`、`.wfm-video-asset-view-btn.active`等を新設。既存`.wfm-video-asset-grid`のgrid-template-columnsを`repeat(auto-fill, minmax(110px,1fr))`に変更（元は左サイドバーの380px幅前提だったため）。
+
+### 11.3 トリムパネルにClipchamp風ビジュアルスクラバーを追加
+
+「Clipchampのように時間表示とシークバーを使いたい」という要望（画像参照あり）に対応。動画クリップのトリム編集がテキスト入力（開始/終了秒）のみだったのを、選択中クリップのトリムパネルにビジュアルなスクラバーを追加する形で拡張（サムネイル帯の表示は今回スコープ外、テキスト入力欄は温存し両方が同じ`commit()`経由で連動）。
+
+- `video-edit-tab.js`: `_fmtTimecode()`（`M:SS.ds`形式）、`_niceRulerStep()`+`_renderRuler()`（クリップ長に応じて0.5秒〜10分の見やすい間隔で目盛り生成）、`_wireTrimScrubber()`を追加。トラック・ハンドル・playheadの位置はすべて`clip.duration`基準の%指定（px/秒換算の管理不要）。ハンドルドラッグは`pointerdown/pointermove/pointerup`で実装し、ドラッグ中は`commit({skipTimelineRerender:true})`でスクラバーの見た目だけ更新、pointerup時に`_renderTimeline()`を呼んで確定（毎mousemoveでタイムライン全体を再描画しない）。playheadは選択中クリップのSourceプレビュー`<video>`の`timeupdate`購読で同期し、クリップ切替時は`_teardownTrimScrubber()`で前回のリスナーを確実に解除。
+- `static/css/video-tab.css`: `.wfm-video-trim-scrubber/-ruler/-track/-range/-handle/-playhead/-badge`を新設。playheadとトリムハンドルが同じ位置に重なった場合にハンドル操作を優先できるよう、playheadのz-indexをハンドルより低く設定。
+
+### 11.4 Frame保存のVideo Assets登録とAsset→Plan画像連携
+
+- **Frameタブ**: 「Save to Output」の上に「Add to Video Assets group」チェックボックス(`#wfm-video-frame-add-to-assets`)を追加。`video-tab.js`にGalleryの`VIDEO_GROUP`へタグ付けする`_addFrameToVideoAssets()`を追加し（`video-edit-tab.js`の`_addOutputToVideoTemp()`と同型、対象グループが異なるだけ）、保存成功後チェック時のみ呼び出す。
+- **Assetタブ**: 画像アセット詳細（`_renderDetail()`）の「Editへ送る」ボタンの下に、画像の場合のみ「Set as First Image」「Set as Last Image」ボタンを追加（動画クリップでは非表示）。`video-plan-tab.js`の`_handleBlockImageUpload()`を戻り値boolean化した上で`setBlockImageFromFile(which, file)`としてexportし、Asset側から選択中のPlanブロックへ直接画像をアップロード→`_renderBlockEditor()`で再描画→成功時Planサブタブへ自動切り替え、という流れを実装。`video-asset-tab.js`→`video-plan-tab.js`の一方向importで循環参照は発生しない構成。
+- 新規i18nキー（`videoAssetSetAsFirst/Last`, `videoAssetSetAsFirst/LastDone`, `videoNoBlockSelected`, `videoBlockImageUploadFailed`）を英/日/中3言語で追加。
+
+### リリース
+
+上記4件（コミット`2fc2365`, `a917e82`, `f726418`, `ad70622`）とヘルプ更新（`77cfedb`、`index.html`/`i18n.js`3言語/`app.js`のhelpIdMapの3点セット）をまとめてリリース。`pyproject.toml`を`v0.7.0`に更新し、DEVLOG.md/README.mdを更新した上で`main`へマージ（`74eb8b7`）・push・タグ`v0.7.0`・GitHub Release・Registry自動公開ワークフローまで完了済み。
+
 ---
 
 ### Critical Files for Implementation
@@ -288,4 +324,8 @@ UI再設計直後、実機で「空のタイムライン/書き出しパネル�
 - py/services/video_service.py（probe_video/overlay_text_on_video追加）
 - py/routes/video_routes.py（新規APIエンドポイント追加）
 - static/js/image-edit-tab.js（アクションバー・レイヤーパネル・pointerイベントパターンの流用元、1385行目・2194行目・1130-1249行目）
-- static/js/video-asset-tab.js（Asset→Edit連携ボタン追加）
+- static/js/video-asset-tab.js（Asset→Edit連携ボタン、中央下部移設後の検索/グリッド/テーブル切替、Asset→Plan First/Last Image連携）
+- static/js/video-preview.js（Source/Resultプレビュー枠、`<img>`コンパニオン要素、`getResultPreviewVideoElement()`）
+- static/js/video-plan-tab.js（`setBlockImageFromFile()` export、Asset→Plan画像連携の受け口）
+- static/css/video-tab.css（タイムライン/トリムスクラバー/Assetサブタブ2カラムレイアウトのスタイル一式）
+- static/js/gallery-tab.js（`isVideoFile()` export、`VIDEO_GROUP`/`VTEMP_GROUP`/`ensureVideoGroup()`）
