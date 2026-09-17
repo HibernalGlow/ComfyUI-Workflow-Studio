@@ -275,14 +275,84 @@
     flex-direction: column;
 }
 
-/* ── Asset: 素材グリッド・詳細パネル ── */
+/* ── Asset: 中央下部サブタブ。左=一覧(サムネイル/テーブル切替) / 右=詳細 ── */
+.wfm-video-asset-content { padding: 0 16px 16px; }
+
+.wfm-video-asset-layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.wfm-video-asset-list-col {
+    flex: 2;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wfm-video-asset-detail-col {
+    flex: 1;
+    min-width: 220px;
+    max-width: 320px;
+    border-left: 1px solid var(--wfm-border);
+    padding-left: 16px;
+}
+
+.wfm-video-asset-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.wfm-video-asset-view-btn.active {
+    background: var(--wfm-primary);
+    color: #fff;
+}
+
 .wfm-video-asset-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 8px;
-    max-height: 320px;
+    max-height: 420px;
     overflow-y: auto;
 }
+
+.wfm-video-asset-table-wrap {
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--wfm-border);
+    border-radius: 4px;
+}
+
+.wfm-video-asset-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.wfm-video-asset-table th,
+.wfm-video-asset-table td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--wfm-border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+}
+
+.wfm-video-asset-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--wfm-bg-secondary);
+}
+
+.wfm-video-asset-row { cursor: pointer; }
+.wfm-video-asset-row:hover { background: var(--wfm-bg-hover); }
+.wfm-video-asset-row.selected { outline: 2px solid var(--wfm-primary); outline-offset: -2px; }
 
 .wfm-video-asset-card {
     cursor: pointer;
@@ -315,8 +385,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    border-top: 1px solid var(--wfm-border);
-    padding-top: 10px;
 }
 
 /* ── Edit: クリップタイムライン(Planタブと同じ横トラック+共有ツールバー方式)・

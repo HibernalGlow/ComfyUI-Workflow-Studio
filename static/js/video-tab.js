@@ -27,10 +27,10 @@ export { loadWorkflowIntoVideoEditor };
 
 // ============================================
 // Subtab switching — two INDEPENDENT groups sharing the same .wfm-video-subtab-*
-// look, kept deliberately uncoupled: the sidebar's Asset/Project pair collapses
-// entirely when re-clicked (nothing needs to always be visible there — Video
-// Source covers the "load something to work with" case), while the center
-// Plan/Edit pair is a "always exactly one visible" 2-way tab. Querying each
+// look, kept deliberately uncoupled: the sidebar's Project button collapses its
+// panel entirely when re-clicked (nothing needs to always be visible there —
+// Video Source covers the "load something to work with" case), while the center
+// Plan/Edit/Asset trio is a "always exactly one visible" tab group. Querying each
 // scoped to its own container (rather than one global querySelectorAll) is
 // what keeps clicking one from affecting the other.
 // ============================================
@@ -46,13 +46,14 @@ function _initCenterSubtabToggle() {
             scope.querySelectorAll(".wfm-video-subtab-panel").forEach((p) => {
                 p.style.display = p.dataset.videoSubtabPanel === target ? "" : "none";
             });
+            if (target === "asset") refreshVideoAssetTab();
         });
     });
 }
 
-// Sidebar Asset/Project pair: clicking a button shows its panel and hides the
-// other; clicking the already-active button collapses it (both panels hidden),
-// letting the video preview reclaim the sidebar's width when neither is needed.
+// Sidebar Project button: clicking it shows its panel; clicking it again while
+// active collapses it, letting the video preview reclaim the sidebar's width
+// when it isn't needed.
 function _initSidebarSubtabToggle() {
     const sidebar = document.querySelector(".wfm-video-form-panel");
     if (!sidebar) return;
@@ -67,8 +68,7 @@ function _initSidebarSubtabToggle() {
             if (willShow) {
                 btn.classList.add("active");
                 panel.style.display = "";
-                if (target === "asset") refreshVideoAssetTab();
-                else if (target === "project") refreshVideoProjectTab();
+                if (target === "project") refreshVideoProjectTab();
             }
         });
     });

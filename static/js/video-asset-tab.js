@@ -30,7 +30,19 @@ const _s = {
     images: [],
     selectedPath: null,
     loaded: false, // becomes true once the Asset subtab has been shown at least once
+    searchQuery: "",
+    viewMode: "grid", // "grid" | "table"
 };
+
+function _formatDate(mtime) {
+    return new Date(mtime * 1000).toLocaleString();
+}
+
+function _filteredImages() {
+    const q = _s.searchQuery.trim().toLowerCase();
+    if (!q) return _s.images;
+    return _s.images.filter((img) => img.filename.toLowerCase().includes(q));
+}
 
 async function _fetchOutputDir() {
     if (_s.outputDir) return;
@@ -95,7 +107,7 @@ async function _loadImages() {
             images = await _fetchGroupImages(_s.group);
         }
         _s.images = images;
-        _renderGrid();
+        _renderList();
         if (statusEl) statusEl.textContent = `${_s.images.length} video(s)`;
     } catch (err) {
         _s.images = [];
@@ -104,15 +116,55 @@ async function _loadImages() {
     }
 }
 
+// Renders whichever of grid/table is active for the current viewMode — called
+// on load, on search input, and after switching view modes.
+function _renderList() {
+    if (_s.viewMode === "table") _renderTable();
+    else _renderGrid();
+}
+
 function _renderGrid() {
     const grid = document.getElementById("wfm-video-asset-grid");
     if (!grid) return;
-    if (_s.images.length === 0) {
+    const images = _filteredImages();
+    if (images.length === 0) {
         grid.innerHTML = `<div class="wfm-placeholder">No videos yet</div>`;
         return;
     }
     grid.innerHTML = "";
-    for (const img of _s.images) grid.appendChild(_makeCard(img));
+    for (const img of images) grid.appendChild(_makeCard(img));
+}
+
+function _renderTable() {
+    const body = document.getElementById("wfm-video-asset-table-body");
+    if (!body) return;
+    const images = _filteredImages();
+    if (images.length === 0) {
+        body.innerHTML = `<tr><td colspan="3" class="wfm-placeholder">No videos yet</td></tr>`;
+        return;
+    }
+    body.innerHTML = "";
+    for (const img of images) body.appendChild(_makeRow(img));
+}
+
+function _makeRow(img) {
+    const row = document.createElement("tr");
+    row.className = "wfm-video-asset-row" + (img.path === _s.selectedPath ? " selected" : "");
+    row.dataset.path = img.path;
+
+    const nameCell = document.createElement("td");
+    nameCell.textContent = img.filename;
+    nameCell.title = img.filename;
+
+    const dateCell = document.createElement("td");
+    dateCell.textContent = _formatDate(img.mtime);
+
+    const tagsCell = document.createElement("td");
+    tagsCell.textContent = (img.tags || []).join(", ");
+
+    row.append(nameCell, dateCell, tagsCell);
+    row.addEventListener("click", () => _selectImage(img));
+    return row;
 }
 
 function _makeCard(img) {
@@ -138,7 +190,7 @@ function _makeCard(img) {
 
 function _selectImage(img) {
     _s.selectedPath = img.path;
-    document.querySelectorAll(".wfm-video-asset-card").forEach((c) => {
+    document.querySelectorAll(".wfm-video-asset-card, .wfm-video-asset-row").forEach((c) => {
         c.classList.toggle("selected", c.dataset.path === img.path);
     });
     _renderDetail(img);
@@ -296,6 +348,17 @@ export async function refreshVideoAssetTab() {
     await _loadImages();
 }
 
+function _setViewMode(mode) {
+    _s.viewMode = mode;
+    document.getElementById("wfm-video-asset-view-grid")?.classList.toggle("active", mode === "grid");
+    document.getElementById("wfm-video-asset-view-table")?.classList.toggle("active", mode === "table");
+    const grid = document.getElementById("wfm-video-asset-grid");
+    const tableWrap = document.getElementById("wfm-video-asset-table-wrap");
+    if (grid) grid.style.display = mode === "grid" ? "" : "none";
+    if (tableWrap) tableWrap.style.display = mode === "table" ? "" : "none";
+    _renderList();
+}
+
 export function initVideoAssetTab() {
     document.getElementById("wfm-video-asset-group")?.addEventListener("change", (e) => {
         _s.group = e.target.value;
@@ -305,6 +368,12 @@ export function initVideoAssetTab() {
         _loadImages();
     });
     document.getElementById("wfm-video-asset-refresh")?.addEventListener("click", () => _loadImages());
+    document.getElementById("wfm-video-asset-search")?.addEventListener("input", (e) => {
+        _s.searchQuery = e.target.value;
+        _renderList();
+    });
+    document.getElementById("wfm-video-asset-view-grid")?.addEventListener("click", () => _setViewMode("grid"));
+    document.getElementById("wfm-video-asset-view-table")?.addEventListener("click", () => _setViewMode("table"));
 
     // Neither reserved group is ever auto-created by a batch run itself (see
     // video-plan-tab.js's _ensureVideoAssetGroups, which only ensures

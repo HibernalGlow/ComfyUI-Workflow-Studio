@@ -2717,21 +2717,7 @@
             <div class="wfm-video-layout">
                 <div class="wfm-video-form-panel">
                     <div class="wfm-video-subtab-nav">
-                        <button type="button" class="wfm-video-subtab-btn" data-video-subtab="asset" id="wfm-video-subtab-btn-asset">Asset</button>
                         <button type="button" class="wfm-video-subtab-btn" data-video-subtab="project" id="wfm-video-subtab-btn-project">Project</button>
-                    </div>
-
-                    <!-- Asset: このPlanが生成した動画の素材管理(Galleryのグループ機能を再利用) -->
-                    <div id="wfm-video-subtab-asset" class="wfm-video-subtab-panel" data-video-subtab-panel="asset" style="display:none;">
-                        <div style="display:flex;gap:6px;align-items:center;">
-                            <select id="wfm-video-asset-group" class="wfm-input" style="flex:1;"></select>
-                            <button type="button" id="wfm-video-asset-refresh" class="wfm-btn wfm-btn-sm" title="Refresh">↻</button>
-                        </div>
-                        <span id="wfm-video-asset-status" class="wfm-i2i-status"></span>
-                        <div class="wfm-video-asset-grid" id="wfm-video-asset-grid"></div>
-                        <div class="wfm-video-asset-detail" id="wfm-video-asset-detail">
-                            <span class="wfm-placeholder">Select a video</span>
-                        </div>
                     </div>
 
                     <!-- Project: 保存済みVideo Plan一覧（クリックでPlanエディタへ読み込み） -->
@@ -2777,6 +2763,42 @@
                     <div class="wfm-video-subtab-nav wfm-video-center-subtab-nav">
                         <button type="button" class="wfm-video-subtab-btn active" data-video-subtab="plan">Plan</button>
                         <button type="button" class="wfm-video-subtab-btn" data-video-subtab="edit">Edit</button>
+                        <button type="button" class="wfm-video-subtab-btn" data-video-subtab="asset" id="wfm-video-subtab-btn-asset">Asset</button>
+                    </div>
+
+                    <!-- Asset: このPlanが生成した動画の素材管理(Galleryのグループ機能を再利用)。
+                         左=一覧(サムネイル/テーブル切替可) / 右=選択ファイルの詳細(タグ・メモ等) -->
+                    <div id="wfm-video-subtab-asset" class="wfm-video-subtab-panel wfm-video-asset-content" data-video-subtab-panel="asset" style="display:none;">
+                        <div class="wfm-video-asset-layout">
+                            <div class="wfm-video-asset-list-col">
+                                <div class="wfm-video-asset-toolbar">
+                                    <select id="wfm-video-asset-group" class="wfm-input" style="flex:1;"></select>
+                                    <input type="text" id="wfm-video-asset-search" class="wfm-input" placeholder="Search filename..." style="flex:1;">
+                                    <button type="button" id="wfm-video-asset-view-grid" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn active" title="Thumbnail view">▦</button>
+                                    <button type="button" id="wfm-video-asset-view-table" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn" title="Table view">☰</button>
+                                    <button type="button" id="wfm-video-asset-refresh" class="wfm-btn wfm-btn-sm" title="Refresh">↻</button>
+                                </div>
+                                <span id="wfm-video-asset-status" class="wfm-i2i-status"></span>
+                                <div class="wfm-video-asset-grid" id="wfm-video-asset-grid"></div>
+                                <div class="wfm-video-asset-table-wrap" id="wfm-video-asset-table-wrap" style="display:none;">
+                                    <table class="wfm-video-asset-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Filename</th>
+                                                <th>Updated</th>
+                                                <th>Tags</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="wfm-video-asset-table-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="wfm-video-asset-detail-col">
+                                <div class="wfm-video-asset-detail" id="wfm-video-asset-detail">
+                                    <span class="wfm-placeholder">Select a video</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Plan: バッチ動画生成のタイムライン編集・実行(中央下部、Planタブ選択時のみ表示) -->
