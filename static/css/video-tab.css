@@ -491,7 +491,7 @@
 .wfm-video-preview-frame {
     flex: 1;
     min-width: 0;
-    min-height: 260px;
+    height: 260px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -499,11 +499,16 @@
     border-radius: 6px;
     background: var(--wfm-bg-hover, #111);
     text-align: center;
+    overflow: hidden;
 }
 
+/* ソース動画/画像のネイティブサイズがフレームより大きい場合のみ縮小し、
+   小さい場合は拡大しない(枠のheightを固定にしてPlan/Editの位置がずれないようにするため) */
 .wfm-video-preview-el {
     max-width: 100%;
-    max-height: 60vh;
+    max-height: 100%;
+    width: auto;
+    height: auto;
     border-radius: 6px;
 }
 
