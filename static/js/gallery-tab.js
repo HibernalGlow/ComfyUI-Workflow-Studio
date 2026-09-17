@@ -60,7 +60,7 @@ function _isReservedGroup(name) {
 
 // 拡張子から動画ファイル（mp4）かどうかを判定する。
 // 一覧アイテムは path/filename、詳細メタ(get_image_metadata)は ext フィールドを持つため両対応。
-function isVideoFile(img) {
+export function isVideoFile(img) {
     const source = img?.ext || img?.filename || img?.path || "";
     return source.toLowerCase().endsWith(".mp4");
 }

@@ -2,6 +2,7 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
+- **v0.7.0（2026-09-17）** — プレビュー枠の高さ固定・AssetサブタブをPlan/Editと並ぶ中央下部へ移設・トリムパネルにClipchamp風スクラバー追加・Frame保存のVideo Assets登録とAsset→Plan画像連携
 - **v0.6.3** — Send CCボタンでMP4動画をComic Creatorの新設「動画ツール」へ送れるように対応
 - **v0.6.2** — Image Editタブにペンタブレット筆圧対応とFillツール（バケツ塗りつぶし）を追加
 - **v0.6.1** — Galleryタブの検索が「読み込み中」のまま止まりクリアでも中断できない不具合、および50枚程度のフォルダでも数秒〜十数秒かかる不具合を修正

@@ -275,14 +275,84 @@
     flex-direction: column;
 }
 
-/* ── Asset: 素材グリッド・詳細パネル ── */
+/* ── Asset: 中央下部サブタブ。左=一覧(サムネイル/テーブル切替) / 右=詳細 ── */
+.wfm-video-asset-content { padding: 0 16px 16px; }
+
+.wfm-video-asset-layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.wfm-video-asset-list-col {
+    flex: 2;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wfm-video-asset-detail-col {
+    flex: 1;
+    min-width: 220px;
+    max-width: 320px;
+    border-left: 1px solid var(--wfm-border);
+    padding-left: 16px;
+}
+
+.wfm-video-asset-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.wfm-video-asset-view-btn.active {
+    background: var(--wfm-primary);
+    color: #fff;
+}
+
 .wfm-video-asset-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 8px;
-    max-height: 320px;
+    max-height: 420px;
     overflow-y: auto;
 }
+
+.wfm-video-asset-table-wrap {
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--wfm-border);
+    border-radius: 4px;
+}
+
+.wfm-video-asset-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.wfm-video-asset-table th,
+.wfm-video-asset-table td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--wfm-border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+}
+
+.wfm-video-asset-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--wfm-bg-secondary);
+}
+
+.wfm-video-asset-row { cursor: pointer; }
+.wfm-video-asset-row:hover { background: var(--wfm-bg-hover); }
+.wfm-video-asset-row.selected { outline: 2px solid var(--wfm-primary); outline-offset: -2px; }
 
 .wfm-video-asset-card {
     cursor: pointer;
@@ -315,8 +385,211 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    border-top: 1px solid var(--wfm-border);
-    padding-top: 10px;
+}
+
+/* ── Edit: クリップタイムライン(Planタブと同じ横トラック+共有ツールバー方式)・
+   トリムパネル・書き出しパネル ──
+   Planの.wfm-video-timeline-trackはブロックをflex-grow(duration比率)で幅一杯に
+   引き伸ばすのに対し、Editのブロックは実秒数×px/秒の固定幅で「左詰め」に並べる
+   (空きトラックはそのまま空く)ため、専用クラスに分けている。 */
+.wfm-video-edit-panel { padding: 0 16px 16px; }
+
+.wfm-video-edit-timeline-track {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
+    height: 48px;
+    padding: 4px;
+    border-radius: 4px;
+    border: 1px solid var(--wfm-border);
+    overflow-x: auto;
+    position: relative;
+    flex: none; /* stay a fixed-height full-width bar; never shrink/stretch with clip content */
+}
+
+.wfm-video-edit-timeline-placeholder {
+    display: flex;
+    align-items: center;
+}
+
+.wfm-video-edit-timeline-block {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 2px 6px;
+    border: 1px solid var(--wfm-border);
+    border-radius: 3px;
+    background: var(--wfm-bg-hover, rgba(255, 255, 255, 0.04));
+    cursor: grab;
+    overflow: hidden;
+    transition: outline 0.1s;
+}
+
+.wfm-video-edit-timeline-block:active { cursor: grabbing; }
+.wfm-video-edit-timeline-block.selected { outline: 2px solid var(--wfm-primary); outline-offset: -2px; }
+
+.wfm-video-edit-timeline-block-name {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wfm-video-edit-timeline-block-meta {
+    font-size: 10px;
+    color: var(--wfm-text-secondary);
+}
+
+.wfm-video-edit-main-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-top: 10px;
+}
+
+.wfm-video-edit-trim-panel {
+    flex: 1;
+    min-width: 0;
+}
+
+.wfm-video-edit-trim-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 160px));
+    gap: 10px;
+}
+
+.wfm-video-edit-trim-row label {
+    display: block;
+    font-size: 12px;
+    color: var(--wfm-text-secondary);
+    margin-bottom: 4px;
+}
+
+/* 開始/終了の入力欄+「現在位置を使用」ボタンを縦積みにする。以前は横並びで
+   ボタンのラベルがはみ出し、かつ入力欄とボタンの見分けがつきにくかった。 */
+.wfm-video-edit-trim-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wfm-video-edit-trim-field input { width: 100%; box-sizing: border-box; }
+
+.wfm-video-edit-playhead-btn {
+    align-self: flex-start;
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.wfm-video-edit-total-duration {
+    font-size: 12px;
+    color: var(--wfm-text-secondary);
+    white-space: nowrap;
+}
+
+/* ── トリムスクラバー: clipchamp風の時間目盛り+シークバー+トリムハンドル。
+   すべて%位置指定(clip.duration基準)にすることでpx/秒換算を持たずに済ませている。 */
+.wfm-video-trim-scrubber {
+    margin-top: 10px;
+    user-select: none;
+}
+
+.wfm-video-trim-ruler {
+    position: relative;
+    height: 16px;
+    font-size: 10px;
+    color: var(--wfm-text-secondary);
+}
+
+.wfm-video-trim-ruler-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.wfm-video-trim-track {
+    position: relative;
+    height: 36px;
+    margin-top: 4px;
+    background: var(--wfm-bg-hover, #111);
+    border: 1px solid var(--wfm-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.wfm-video-trim-range {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(70, 130, 230, 0.3);
+    border-top: 2px solid var(--wfm-primary);
+    border-bottom: 2px solid var(--wfm-primary);
+    pointer-events: none;
+}
+
+.wfm-video-trim-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    margin-left: -5px;
+    background: var(--wfm-primary);
+    border-radius: 2px;
+    cursor: ew-resize;
+    z-index: 3;
+}
+
+.wfm-video-trim-playhead {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    margin-left: -1px;
+    background: #fff;
+    /* Below the trim handles (z-index:3) so a handle sitting at the same
+       position (e.g. right after "Set from playhead") stays grabbable instead
+       of the playhead's hit area stealing the pointer. */
+    z-index: 2;
+    cursor: ew-resize;
+}
+
+.wfm-video-trim-playhead::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.wfm-video-trim-badge {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111;
+    color: #fff;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.wfm-video-trim-badge-playhead {
+    background: #000;
+}
+
+.wfm-video-edit-export-panel {
+    width: 220px;
+    flex: none;
 }
 
 .wfm-video-asset-detail label {
@@ -383,7 +656,7 @@
 .wfm-video-preview-frame {
     flex: 1;
     min-width: 0;
-    min-height: 260px;
+    height: 260px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -391,11 +664,16 @@
     border-radius: 6px;
     background: var(--wfm-bg-hover, #111);
     text-align: center;
+    overflow: hidden;
 }
 
+/* ソース動画/画像のネイティブサイズがフレームより大きい場合のみ縮小し、
+   小さい場合は拡大しない(枠のheightを固定にしてPlan/Editの位置がずれないようにするため) */
 .wfm-video-preview-el {
     max-width: 100%;
-    max-height: 60vh;
+    max-height: 100%;
+    width: auto;
+    height: auto;
     border-radius: 6px;
 }
 
@@ -417,18 +695,6 @@
     margin: 0 0 8px 0;
 }
 
-/* 将来の動画編集機能(トリミング等)用のプレースホルダー領域 */
-.wfm-video-edit-panel {
-    flex: 1;
-    min-height: 160px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px dashed var(--wfm-border);
-    border-radius: 6px;
-    color: var(--wfm-text-secondary);
-    font-size: 13px;
-}
 
 /* ── 右ペイン: プロパティ (Frame抽出 / GIF変換タブ) ── */
 .wfm-video-properties-panel {

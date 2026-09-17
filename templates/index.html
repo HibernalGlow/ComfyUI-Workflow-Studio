@@ -2099,7 +2099,7 @@
 
                     <div class="wfm-help-page" id="wfm-help-page-video">
                         <h2 id="wfm-help-video-title">Video Tab</h2>
-                        <p id="wfm-help-video-desc">A dedicated video generation tab for MiniMax H3 (Image to Video), LTX-2.5 (Text / Image / First & Last Frame to Video), and Wan2.2 (Text to Video) workflows, independent of the GenerateUI tab. The center panel's Plan / Edit subtabs handle batch generation and (future) editing; the sidebar's Asset / Project subtabs handle browsing generated videos and saved plans.</p>
+                        <p id="wfm-help-video-desc">A dedicated video generation tab for MiniMax H3 (Image to Video), LTX-2.5 (Text / Image / First & Last Frame to Video), and Wan2.2 (Text to Video) workflows, independent of the GenerateUI tab. The center panel's Plan / Edit / Asset subtabs handle batch generation, clip editing, and browsing generated videos; the sidebar's Project subtab handles saved plans.</p>
                         <div class="wfm-help-card">
                             <ul>
                                 <li id="wfm-help-video-1">Plan subtab: the topbar's settings row holds Aspect Ratio / Megapixels / Multiple / Duration (seconds) / Noise Seed as this plan's base settings — Duration always reflects the currently selected block (each block keeps its own value), the rest are plan-wide. A second row below adds Width / Height / Turbo Mode / Strength / Steps / Prompt Enhance, each enabled only for workflows that actually support it (see helpVideo2). Split the timeline into blocks with the ＋ Split / ＋ Block / Delete buttons — each block has its own Prompt, Duration, and First/Last Image — First Image can be None, an explicit image, or "use previous block's last frame" (an explicit Last Image on the previous block always wins over extracting one from its generated video). Click Run to generate every block in order; Pause/Cancel work mid-run.</li>
@@ -2107,11 +2107,13 @@
                                 <li id="wfm-help-video-3">Use the "Load in Video" button in the Workflow tab's detail modal to load a workflow containing a MiniMax H3 Image-to-Video node, an LTX-2.5 Text/Image/First&Last-Frame-to-Video node, or a Wan2.2 Text-to-Video node — this starts a fresh single-block plan seeded from the workflow's own current values. Unsupported workflows show an error instead.</li>
                                 <li id="wfm-help-video-4">Generated videos (mp4) automatically appear in the Asset subtab's Video Temp group, and can also be browsed and played back in the Gallery tab. Organizing keepers into Video Assets is entirely up to you, on your own schedule.</li>
                                 <li id="wfm-help-video-5">The center panel shows two previews: the left one shows either the video you select in the Asset subtab or whatever you drop/pick in the Video Source panel on its left (Clear resets it to empty), letting you use the Frame/GIF tools without running the loaded video workflow first; the right one always shows the most recently generated clip.</li>
-                                <li id="wfm-help-video-6">Frame tab (right panel): play/seek the preview video to the position you want, click Capture Frame to grab that frame client-side, then Save to Output to write it as a PNG into ComfyUI's output folder.</li>
+                                <li id="wfm-help-video-6">Frame tab (right panel): play/seek the preview video to the position you want, click Capture Frame to grab that frame client-side, then Save to Output to write it as a PNG into ComfyUI's output folder — check "Add to Video Assets group" first to also tag the saved frame into Gallery's Video Assets group.</li>
                                 <li id="wfm-help-video-7">GIF tab (right panel): set Start/End (seconds), FPS, and an optional Max Width, then Convert to GIF — the server decodes the video and encodes an animated GIF into ComfyUI's output folder.</li>
                                 <li id="wfm-help-video-8">Chaining: setting a block's First Image to "use previous block's last frame" continues smoothly from the previous clip — if that previous block has its own explicit Last Image, that image is used directly; otherwise the actual last frame of its generated video is extracted automatically.</li>
-                                <li id="wfm-help-video-9">Project tab (sidebar, next to Asset): browse every saved plan file (thumbnail, block count, last updated), click one to load it into the Plan editor, or delete it with the × button; clicking the same tab again collapses the panel.</li>
+                                <li id="wfm-help-video-9">Project tab (sidebar): browse every saved plan file (thumbnail, block count, last updated), click one to load it into the Plan editor, or delete it with the × button; clicking the same tab again collapses the panel.</li>
                                 <li id="wfm-help-video-10">Highlight color: the Prompt / Duration / First Image / Last Image / Aspect Ratio / Megapixels / Multiple / Noise Seed / Width / Height / Turbo Mode / Strength / Steps / Prompt Enhance labels turn the same highlight color as the GenerateUI Model tab (customizable in the Settings tab) when the loaded workflow actually supports that field — e.g. for a Wan2.2 workflow (no ResolutionSelector node), the Aspect Ratio / Megapixels / Multiple labels stay unhighlighted while Width / Height light up instead.</li>
+                                <li id="wfm-help-video-11">Edit subtab: a lightweight clip timeline for trimming and concatenating video/image clips outside of generation. Add clips via the Video Source panel's "Add to Edit" button or the Asset subtab's "Send to Edit" button, then drag blocks to reorder (or use the ◀/▶ toolbar buttons), Duplicate/Delete the selected clip, and Clear to empty the timeline. The trim panel for the selected video clip shows a time ruler, a draggable playhead synced to the Source preview, and draggable in/out handles with time badges — image clips instead get a simple hold-duration field. ▶ Preview plays every ready clip back-to-back (trimmed to its in/out points) in the right-hand result preview; Export builds and runs the actual ComfyUI graph (trim → concatenate if more than one clip → save), tagging the result into the Video Temp group automatically. Exporting more than one clip currently drops audio, since ComfyUI's concatenation node requires uniform audio across all inputs.</li>
+                                <li id="wfm-help-video-12">Asset subtab (center panel, next to Plan/Edit): browses every video/image tagged into Video Assets or Video Temp (via the group dropdown, or "All Video Assets" for both). Search filters by filename; the ▦/☰ buttons switch between a thumbnail grid and a table (filename/updated/tags). Selecting an item shows its tags/memo, loads it into the center preview, and offers "Send to Edit" (queues it as a clip in the Edit subtab) plus, for images only, "Set as First Image"/"Set as Last Image" (uploads it straight into the currently-selected Plan block, switching to the Plan subtab).</li>
                             </ul>
                         </div>
                         <button class="wfm-help-jump-btn wfm-btn wfm-btn-sm" data-jump-tab="video">Go to Video Tab</button>
@@ -2717,21 +2719,7 @@
             <div class="wfm-video-layout">
                 <div class="wfm-video-form-panel">
                     <div class="wfm-video-subtab-nav">
-                        <button type="button" class="wfm-video-subtab-btn" data-video-subtab="asset" id="wfm-video-subtab-btn-asset">Asset</button>
                         <button type="button" class="wfm-video-subtab-btn" data-video-subtab="project" id="wfm-video-subtab-btn-project">Project</button>
-                    </div>
-
-                    <!-- Asset: このPlanが生成した動画の素材管理(Galleryのグループ機能を再利用) -->
-                    <div id="wfm-video-subtab-asset" class="wfm-video-subtab-panel" data-video-subtab-panel="asset" style="display:none;">
-                        <div style="display:flex;gap:6px;align-items:center;">
-                            <select id="wfm-video-asset-group" class="wfm-input" style="flex:1;"></select>
-                            <button type="button" id="wfm-video-asset-refresh" class="wfm-btn wfm-btn-sm" title="Refresh">↻</button>
-                        </div>
-                        <span id="wfm-video-asset-status" class="wfm-i2i-status"></span>
-                        <div class="wfm-video-asset-grid" id="wfm-video-asset-grid"></div>
-                        <div class="wfm-video-asset-detail" id="wfm-video-asset-detail">
-                            <span class="wfm-placeholder">Select a video</span>
-                        </div>
                     </div>
 
                     <!-- Project: 保存済みVideo Plan一覧（クリックでPlanエディタへ読み込み） -->
@@ -2753,27 +2741,66 @@
                             <div class="wfm-i2i-drop-zone" id="wfm-video-source-drop">
                                 <label class="wfm-i2i-drop-label">
                                     <span id="wfm-video-source-drop-label">Drop video or click to select</span>
-                                    <input type="file" accept="video/*" id="wfm-video-source-file" style="display:none;">
+                                    <input type="file" accept="video/*,image/*" id="wfm-video-source-file" style="display:none;">
                                 </label>
                             </div>
                             <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
                                 <span class="wfm-i2i-status" id="wfm-video-source-status" style="flex:1;"></span>
+                                <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-source-add-to-edit">Add to Edit</button>
                                 <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-source-clear">Clear</button>
                             </div>
                         </div>
                         <div class="wfm-video-preview-frame" id="wfm-video-source-preview-frame">
                             <span class="wfm-placeholder" id="wfm-video-source-preview-placeholder">Asset / Source Preview</span>
                             <video id="wfm-video-source-preview-video" class="wfm-video-preview-el" controls style="display:none;"></video>
+                            <img id="wfm-video-source-preview-img" class="wfm-video-preview-el" style="display:none;">
                         </div>
                         <div class="wfm-video-preview-frame" id="wfm-video-preview-frame">
                             <span class="wfm-placeholder" id="wfm-video-preview-placeholder">Generated Video Preview</span>
                             <video id="wfm-video-preview-video" class="wfm-video-preview-el" controls style="display:none;"></video>
+                            <img id="wfm-video-preview-img" class="wfm-video-preview-el" style="display:none;">
                         </div>
                     </div>
 
                     <div class="wfm-video-subtab-nav wfm-video-center-subtab-nav">
                         <button type="button" class="wfm-video-subtab-btn active" data-video-subtab="plan">Plan</button>
                         <button type="button" class="wfm-video-subtab-btn" data-video-subtab="edit">Edit</button>
+                        <button type="button" class="wfm-video-subtab-btn" data-video-subtab="asset" id="wfm-video-subtab-btn-asset">Asset</button>
+                    </div>
+
+                    <!-- Asset: このPlanが生成した動画の素材管理(Galleryのグループ機能を再利用)。
+                         左=一覧(サムネイル/テーブル切替可) / 右=選択ファイルの詳細(タグ・メモ等) -->
+                    <div id="wfm-video-subtab-asset" class="wfm-video-subtab-panel wfm-video-asset-content" data-video-subtab-panel="asset" style="display:none;">
+                        <div class="wfm-video-asset-layout">
+                            <div class="wfm-video-asset-list-col">
+                                <div class="wfm-video-asset-toolbar">
+                                    <select id="wfm-video-asset-group" class="wfm-input" style="flex:1;"></select>
+                                    <input type="text" id="wfm-video-asset-search" class="wfm-input" placeholder="Search filename..." style="flex:1;">
+                                    <button type="button" id="wfm-video-asset-view-grid" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn active" title="Thumbnail view">▦</button>
+                                    <button type="button" id="wfm-video-asset-view-table" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn" title="Table view">☰</button>
+                                    <button type="button" id="wfm-video-asset-refresh" class="wfm-btn wfm-btn-sm" title="Refresh">↻</button>
+                                </div>
+                                <span id="wfm-video-asset-status" class="wfm-i2i-status"></span>
+                                <div class="wfm-video-asset-grid" id="wfm-video-asset-grid"></div>
+                                <div class="wfm-video-asset-table-wrap" id="wfm-video-asset-table-wrap" style="display:none;">
+                                    <table class="wfm-video-asset-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Filename</th>
+                                                <th>Updated</th>
+                                                <th>Tags</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="wfm-video-asset-table-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="wfm-video-asset-detail-col">
+                                <div class="wfm-video-asset-detail" id="wfm-video-asset-detail">
+                                    <span class="wfm-placeholder">Select a video</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Plan: バッチ動画生成のタイムライン編集・実行(中央下部、Planタブ選択時のみ表示) -->
@@ -2891,9 +2918,37 @@
                         </div>
                     </div>
 
-                    <!-- Edit: 将来の動画編集機能用プレースホルダー -->
+                    <!-- Edit: 簡易動画編集(クリップのタイムライン配置・トリム・結合書き出し)。
+                         プレビューは上部のSource/Resultペインを再利用する(専用videoは持たない)。
+                         タイムライン+下の共有ツールバーはPlan subtabの.wfm-video-timeline-*と同じ構造
+                         (個別行ボタンではなく「選択中クリップに対して働く」共通ボタン方式)。 -->
                     <div id="wfm-video-subtab-edit" class="wfm-video-subtab-panel wfm-video-edit-panel" data-video-subtab-panel="edit" style="display:none;">
-                        <span id="wfm-video-edit-placeholder-label" class="wfm-placeholder">Editing tools coming soon</span>
+                        <div class="wfm-video-timeline-wrap">
+                            <div class="wfm-video-edit-timeline-track" id="wfm-video-edit-timeline-track"></div>
+                            <div class="wfm-video-timeline-toolbar">
+                                <button type="button" id="wfm-video-edit-move-left-btn" class="wfm-btn wfm-btn-xs" title="Move left">◀</button>
+                                <button type="button" id="wfm-video-edit-move-right-btn" class="wfm-btn wfm-btn-xs" title="Move right">▶</button>
+                                <button type="button" id="wfm-video-edit-duplicate-btn" class="wfm-btn wfm-btn-xs">Duplicate</button>
+                                <button type="button" id="wfm-video-edit-delete-btn" class="wfm-btn wfm-btn-xs">Delete</button>
+                                <button type="button" id="wfm-video-edit-preview-btn" class="wfm-btn wfm-btn-xs">▶ Preview</button>
+                                <span class="wfm-i2i-status wfm-video-edit-total-duration" id="wfm-video-edit-total-duration" style="margin-left:auto;"></span>
+                                <button type="button" id="wfm-video-edit-clear-btn" class="wfm-btn wfm-btn-xs wfm-btn-danger">Clear</button>
+                            </div>
+                        </div>
+
+                        <div class="wfm-video-edit-main-row">
+                            <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
+
+                            <div class="wfm-video-edit-export-panel">
+                                <button type="button" id="wfm-video-edit-export-btn" class="wfm-btn wfm-btn-primary" style="width:100%;">Export</button>
+                                <div class="wfm-gen-progress-container" style="margin-top:8px;">
+                                    <div class="wfm-gen-progress-track">
+                                        <div id="wfm-video-edit-progress-bar" class="wfm-gen-progress-bar"></div>
+                                    </div>
+                                    <span id="wfm-video-edit-progress-text" class="wfm-gen-progress-text">Ready</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <!-- 右ペイン: プロパティ(Frame抽出 / GIF変換の2タブ)。中央ペインと同様に常時表示 -->
@@ -2909,6 +2964,9 @@
                         <div class="wfm-i2i-preview-wrap" id="wfm-video-frame-preview-wrap" style="display:none;">
                             <img class="wfm-i2i-preview-img" id="wfm-video-frame-preview-img">
                         </div>
+                        <label class="wfm-video-checkbox-inline" style="margin-top:6px;">
+                            <input type="checkbox" id="wfm-video-frame-add-to-assets"> Add to Video Assets group
+                        </label>
                         <button type="button" id="wfm-video-frame-save-btn" class="wfm-btn wfm-btn-primary wfm-btn-sm" style="width:100%;margin-top:6px;" disabled>Save to Output</button>
                         <span class="wfm-i2i-status" id="wfm-video-frame-status"></span>
                     </div>

@@ -8,8 +8,12 @@
  * to the real Gallery tab via the "Open in Gallery" button.
  */
 
-import { VIDEO_GROUP, VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
+import { VIDEO_GROUP, VTEMP_GROUP, ensureVideoGroup, isVideoFile } from "./gallery-tab.js";
 import { setSourcePreview } from "./video-preview.js";
+import { showToast } from "./app.js";
+import { t } from "./i18n.js";
+import { addClipFromFile } from "./video-edit-tab.js";
+import { setBlockImageFromFile } from "./video-plan-tab.js";
 
 // Sentinel for the "All Video Assets" option — not a real backend group, since
 // Gallery's group filter only ever matches one group at a time. Selecting it
@@ -27,7 +31,19 @@ const _s = {
     images: [],
     selectedPath: null,
     loaded: false, // becomes true once the Asset subtab has been shown at least once
+    searchQuery: "",
+    viewMode: "grid", // "grid" | "table"
 };
+
+function _formatDate(mtime) {
+    return new Date(mtime * 1000).toLocaleString();
+}
+
+function _filteredImages() {
+    const q = _s.searchQuery.trim().toLowerCase();
+    if (!q) return _s.images;
+    return _s.images.filter((img) => img.filename.toLowerCase().includes(q));
+}
 
 async function _fetchOutputDir() {
     if (_s.outputDir) return;
@@ -92,7 +108,7 @@ async function _loadImages() {
             images = await _fetchGroupImages(_s.group);
         }
         _s.images = images;
-        _renderGrid();
+        _renderList();
         if (statusEl) statusEl.textContent = `${_s.images.length} video(s)`;
     } catch (err) {
         _s.images = [];
@@ -101,15 +117,55 @@ async function _loadImages() {
     }
 }
 
+// Renders whichever of grid/table is active for the current viewMode — called
+// on load, on search input, and after switching view modes.
+function _renderList() {
+    if (_s.viewMode === "table") _renderTable();
+    else _renderGrid();
+}
+
 function _renderGrid() {
     const grid = document.getElementById("wfm-video-asset-grid");
     if (!grid) return;
-    if (_s.images.length === 0) {
+    const images = _filteredImages();
+    if (images.length === 0) {
         grid.innerHTML = `<div class="wfm-placeholder">No videos yet</div>`;
         return;
     }
     grid.innerHTML = "";
-    for (const img of _s.images) grid.appendChild(_makeCard(img));
+    for (const img of images) grid.appendChild(_makeCard(img));
+}
+
+function _renderTable() {
+    const body = document.getElementById("wfm-video-asset-table-body");
+    if (!body) return;
+    const images = _filteredImages();
+    if (images.length === 0) {
+        body.innerHTML = `<tr><td colspan="3" class="wfm-placeholder">No videos yet</td></tr>`;
+        return;
+    }
+    body.innerHTML = "";
+    for (const img of images) body.appendChild(_makeRow(img));
+}
+
+function _makeRow(img) {
+    const row = document.createElement("tr");
+    row.className = "wfm-video-asset-row" + (img.path === _s.selectedPath ? " selected" : "");
+    row.dataset.path = img.path;
+
+    const nameCell = document.createElement("td");
+    nameCell.textContent = img.filename;
+    nameCell.title = img.filename;
+
+    const dateCell = document.createElement("td");
+    dateCell.textContent = _formatDate(img.mtime);
+
+    const tagsCell = document.createElement("td");
+    tagsCell.textContent = (img.tags || []).join(", ");
+
+    row.append(nameCell, dateCell, tagsCell);
+    row.addEventListener("click", () => _selectImage(img));
+    return row;
 }
 
 function _makeCard(img) {
@@ -135,27 +191,30 @@ function _makeCard(img) {
 
 function _selectImage(img) {
     _s.selectedPath = img.path;
-    document.querySelectorAll(".wfm-video-asset-card").forEach((c) => {
+    document.querySelectorAll(".wfm-video-asset-card, .wfm-video-asset-row").forEach((c) => {
         c.classList.toggle("selected", c.dataset.path === img.path);
     });
     _renderDetail(img);
     _loadIntoSourcePreview(img);
 }
 
-// Feeds the selected asset's video into the center panel's Asset/Source preview
+// Feeds the selected asset's media into the center panel's Asset/Source preview
 // pane (see video-preview.js) so it's visible without switching tabs, and so the
 // Frame/GIF property tools can operate on it just like a Video Source drop.
 // Fetched as a Blob and wrapped as a "local" source rather than trying to map
 // Gallery's arbitrary absolute path onto ComfyUI's filename/subfolder/type
 // triple — that keeps the GIF tool's existing upload-on-first-use path working
-// unchanged for both cases.
+// unchanged for both cases. Still/animated images (this group isn't exclusively
+// videos — anything tagged into it shows up here) preview via the pane's <img>
+// companion element instead of trying to play them as a <video>.
 async function _loadIntoSourcePreview(img) {
     try {
         const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
-        const file = new File([blob], img.filename, { type: blob.type || "video/mp4" });
-        setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
+        const isVideo = isVideoFile(img);
+        const file = new File([blob], img.filename, { type: blob.type || (isVideo ? "video/mp4" : "image/png") });
+        setSourcePreview(URL.createObjectURL(file), { kind: "local", file }, isVideo ? "video" : "image");
     } catch (err) {
         console.warn("[VideoAsset] failed to load preview:", err);
     }
@@ -178,7 +237,12 @@ function _renderDetail(img) {
         <label style="margin-top:10px;">Memo</label>
         <textarea id="wfm-video-asset-memo" class="wfm-textarea" rows="3"></textarea>
         <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-memo-save" style="margin-top:6px;">Save Memo</button>
-        <button type="button" class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-video-asset-open-gallery" style="width:100%;margin-top:12px;">Open in Gallery</button>
+        <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-send-to-edit" style="width:100%;margin-top:12px;">${t("videoEditSendToEdit")}</button>
+        <div id="wfm-video-asset-set-plan-image-row" style="display:${isVideoFile(img) ? "none" : "flex"};gap:6px;margin-top:6px;">
+            <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-set-first" style="flex:1;">${t("videoAssetSetAsFirst")}</button>
+            <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-set-last" style="flex:1;">${t("videoAssetSetAsLast")}</button>
+        </div>
+        <button type="button" class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-video-asset-open-gallery" style="width:100%;margin-top:6px;">Open in Gallery</button>
     `;
 
     const nameEl = document.getElementById("wfm-video-asset-name");
@@ -204,6 +268,36 @@ function _renderDetail(img) {
         await _saveMeta(img.path, { memo });
         img.memo = memo;
     });
+
+    panel.querySelector("#wfm-video-asset-send-to-edit")?.addEventListener("click", async () => {
+        try {
+            const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
+            if (!res.ok) throw new Error(String(res.status));
+            const blob = await res.blob();
+            const file = new File([blob], img.filename, { type: blob.type || (isVideoFile(img) ? "video/mp4" : "image/png") });
+            addClipFromFile(file, img.filename);
+            document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+            showToast(t("videoEditClipSent", img.filename), "success");
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
+    });
+
+    const setAsPlanImage = async (which) => {
+        try {
+            const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
+            if (!res.ok) throw new Error(String(res.status));
+            const blob = await res.blob();
+            const file = new File([blob], img.filename, { type: blob.type || "image/png" });
+            await setBlockImageFromFile(which, file);
+            document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="plan"]')?.click();
+            showToast(t(which === "first" ? "videoAssetSetAsFirstDone" : "videoAssetSetAsLastDone", img.filename), "success");
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
+    };
+    panel.querySelector("#wfm-video-asset-set-first")?.addEventListener("click", () => setAsPlanImage("first"));
+    panel.querySelector("#wfm-video-asset-set-last")?.addEventListener("click", () => setAsPlanImage("last"));
 
     panel.querySelector("#wfm-video-asset-open-gallery")?.addEventListener("click", () => {
         document.querySelector('.wfm-tab[data-tab="gallery"]')?.click();
@@ -275,6 +369,17 @@ export async function refreshVideoAssetTab() {
     await _loadImages();
 }
 
+function _setViewMode(mode) {
+    _s.viewMode = mode;
+    document.getElementById("wfm-video-asset-view-grid")?.classList.toggle("active", mode === "grid");
+    document.getElementById("wfm-video-asset-view-table")?.classList.toggle("active", mode === "table");
+    const grid = document.getElementById("wfm-video-asset-grid");
+    const tableWrap = document.getElementById("wfm-video-asset-table-wrap");
+    if (grid) grid.style.display = mode === "grid" ? "" : "none";
+    if (tableWrap) tableWrap.style.display = mode === "table" ? "" : "none";
+    _renderList();
+}
+
 export function initVideoAssetTab() {
     document.getElementById("wfm-video-asset-group")?.addEventListener("change", (e) => {
         _s.group = e.target.value;
@@ -284,6 +389,12 @@ export function initVideoAssetTab() {
         _loadImages();
     });
     document.getElementById("wfm-video-asset-refresh")?.addEventListener("click", () => _loadImages());
+    document.getElementById("wfm-video-asset-search")?.addEventListener("input", (e) => {
+        _s.searchQuery = e.target.value;
+        _renderList();
+    });
+    document.getElementById("wfm-video-asset-view-grid")?.addEventListener("click", () => _setViewMode("grid"));
+    document.getElementById("wfm-video-asset-view-table")?.addEventListener("click", () => _setViewMode("table"));
 
     // Neither reserved group is ever auto-created by a batch run itself (see
     // video-plan-tab.js's _ensureVideoAssetGroups, which only ensures

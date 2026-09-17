@@ -17,6 +17,8 @@ import { applyStoredVideoVolume } from "./settings-tab.js";
 import { initVideoPlanTab, loadWorkflowIntoVideoEditor } from "./video-plan-tab.js";
 import { initVideoAssetTab, refreshVideoAssetTab } from "./video-asset-tab.js";
 import { initVideoProjectTab, refreshVideoProjectTab } from "./video-project-tab.js";
+import { initVideoEditTab, addClipFromFile } from "./video-edit-tab.js";
+import { VIDEO_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 import {
     setSourcePreview, getActivePreviewSource, updateActivePreviewSourceRef,
     getActivePreviewVideoElement, getAllPreviewVideoElements,
@@ -26,10 +28,10 @@ export { loadWorkflowIntoVideoEditor };
 
 // ============================================
 // Subtab switching — two INDEPENDENT groups sharing the same .wfm-video-subtab-*
-// look, kept deliberately uncoupled: the sidebar's Asset/Project pair collapses
-// entirely when re-clicked (nothing needs to always be visible there — Video
-// Source covers the "load something to work with" case), while the center
-// Plan/Edit pair is a "always exactly one visible" 2-way tab. Querying each
+// look, kept deliberately uncoupled: the sidebar's Project button collapses its
+// panel entirely when re-clicked (nothing needs to always be visible there —
+// Video Source covers the "load something to work with" case), while the center
+// Plan/Edit/Asset trio is a "always exactly one visible" tab group. Querying each
 // scoped to its own container (rather than one global querySelectorAll) is
 // what keeps clicking one from affecting the other.
 // ============================================
@@ -45,13 +47,14 @@ function _initCenterSubtabToggle() {
             scope.querySelectorAll(".wfm-video-subtab-panel").forEach((p) => {
                 p.style.display = p.dataset.videoSubtabPanel === target ? "" : "none";
             });
+            if (target === "asset") refreshVideoAssetTab();
         });
     });
 }
 
-// Sidebar Asset/Project pair: clicking a button shows its panel and hides the
-// other; clicking the already-active button collapses it (both panels hidden),
-// letting the video preview reclaim the sidebar's width when neither is needed.
+// Sidebar Project button: clicking it shows its panel; clicking it again while
+// active collapses it, letting the video preview reclaim the sidebar's width
+// when it isn't needed.
 function _initSidebarSubtabToggle() {
     const sidebar = document.querySelector(".wfm-video-form-panel");
     if (!sidebar) return;
@@ -66,8 +69,7 @@ function _initSidebarSubtabToggle() {
             if (willShow) {
                 btn.classList.add("active");
                 panel.style.display = "";
-                if (target === "asset") refreshVideoAssetTab();
-                else if (target === "project") refreshVideoProjectTab();
+                if (target === "project") refreshVideoProjectTab();
             }
         });
     });
@@ -103,7 +105,17 @@ function _applyVideoI18n() {
         const el = document.getElementById(id);
         if (el) el.textContent = t(key);
     };
-    setText("wfm-video-edit-placeholder-label", "videoEditPlaceholder");
+    const setTitle = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.title = t(key);
+    };
+    setText("wfm-video-edit-export-btn", "videoEditExportBtn");
+    setTitle("wfm-video-edit-move-left-btn", "videoEditMoveLeft");
+    setTitle("wfm-video-edit-move-right-btn", "videoEditMoveRight");
+    setText("wfm-video-edit-duplicate-btn", "videoEditDuplicate");
+    setText("wfm-video-edit-delete-btn", "videoEditDelete");
+    setText("wfm-video-edit-clear-btn", "videoEditClearBtn");
+    setText("wfm-video-source-add-to-edit", "videoSourceAddToEdit");
     setText("wfm-video-source-label", "videoSourceLabel");
     setText("wfm-video-source-hint", "videoSourceHint");
     setText("wfm-video-source-drop-label", "videoSourceDropLabel");
@@ -131,10 +143,38 @@ function _applyVideoI18n() {
 
 function _wireVideoSourcePanel() {
     _wireDropZone("wfm-video-source-drop", "wfm-video-source-file", (file) => {
-        if (!file.type.startsWith("video/")) return;
+        const isVideo = file.type.startsWith("video/");
+        const isImage = file.type.startsWith("image/");
+        if (!isVideo && !isImage) return;
         const statusEl = document.getElementById("wfm-video-source-status");
-        setSourcePreview(URL.createObjectURL(file), { kind: "local", file });
+        setSourcePreview(URL.createObjectURL(file), { kind: "local", file }, isVideo ? "video" : "image");
         if (statusEl) { statusEl.textContent = file.name; statusEl.style.color = ""; }
+    });
+
+    // "Add to Edit" — explicit, user-triggered handoff from whatever is loaded
+    // in the Source pane (a plain drop, an Asset selection, a Frame/GIF-tool
+    // source) into the Edit subtab's clip timeline. Deliberately NOT automatic
+    // on every Source drop — Frame/GIF is a single-video tool the user reaches
+    // for far more often than multi-clip editing, so auto-adding would clutter
+    // the Edit timeline with videos the user never meant to combine.
+    document.getElementById("wfm-video-source-add-to-edit")?.addEventListener("click", async () => {
+        const ref = getActivePreviewSource();
+        if (!ref) { showToast(t("videoNoSourceLoaded"), "error"); return; }
+        try {
+            let file;
+            if (ref.kind === "local") {
+                file = ref.file;
+            } else {
+                const blob = await comfyUI.getImageBlob(ref);
+                const isVideoExt = /\.(mp4|webm|mkv|mov)$/i.test(ref.filename || "");
+                file = new File([blob], ref.filename, { type: blob.type || (isVideoExt ? "video/mp4" : "image/png") });
+            }
+            addClipFromFile(file);
+            document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+            showToast(t("videoEditClipSent", file.name), "success");
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
     });
 
     document.getElementById("wfm-video-source-clear")?.addEventListener("click", () => {
@@ -170,6 +210,7 @@ function _initPropTabs() {
 // ============================================
 
 let _capturedFrameBlob = null;
+let _frameOutputDir = "";
 
 function _blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
@@ -178,6 +219,44 @@ function _blobToDataUrl(blob) {
         reader.onerror = () => reject(new Error("Failed to read blob"));
         reader.readAsDataURL(blob);
     });
+}
+
+// Same small output-dir lookup each of video-asset-tab.js/video-plan-tab.js/
+// video-edit-tab.js keeps its own copy of — needed to build the absolute path
+// Gallery's group-tagging API expects.
+async function _fetchFrameOutputDir() {
+    if (_frameOutputDir) return;
+    try {
+        const res = await fetch("/api/wfm/settings/output-dir");
+        if (res.ok) {
+            const data = await res.json();
+            _frameOutputDir = (data.current || "").replace(/\\/g, "/").replace(/\/$/, "");
+        }
+    } catch { /* non-critical */ }
+}
+
+// Opt-in tagging of a saved frame into Gallery's curated __Video Assets__
+// group (see the "Add to Video Assets group" checkbox) — mirrors
+// video-edit-tab.js's _addOutputToVideoTemp, but targets the curated group
+// directly since a manually-captured frame is a deliberate keep, not the
+// every-run scratch output __Video Temp__ exists for.
+async function _addFrameToVideoAssets(filename, subfolder) {
+    await _fetchFrameOutputDir();
+    if (!_frameOutputDir) return;
+    const parts = [_frameOutputDir];
+    if (subfolder) parts.push(subfolder);
+    parts.push(filename);
+    const path = parts.join("/");
+    try {
+        await ensureVideoGroup();
+        await fetch(`/wfm/gallery/groups/${encodeURIComponent(VIDEO_GROUP)}/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+        });
+    } catch (err) {
+        console.warn("[VideoTab] failed to tag frame into video group:", err);
+    }
 }
 
 function _initFrameTab() {
@@ -226,6 +305,9 @@ function _initFrameTab() {
             if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
             if (statusEl) { statusEl.textContent = `✓ ${json.filename}`; statusEl.style.color = "var(--wfm-success)"; }
             showToast(t("videoFrameSaved", json.filename), "success");
+            if (document.getElementById("wfm-video-frame-add-to-assets")?.checked) {
+                await _addFrameToVideoAssets(json.filename, json.subfolder);
+            }
         } catch (err) {
             if (statusEl) { statusEl.textContent = `✗ ${err.message}`; statusEl.style.color = "var(--wfm-danger)"; }
             showToast(t("errorWithMsg", err.message), "error");
@@ -321,6 +403,7 @@ export function initVideoTab() {
     initVideoPlanTab();
     initVideoAssetTab();
     initVideoProjectTab();
+    initVideoEditTab();
 
     _wireVideoSourcePanel();
     _initPropTabs();

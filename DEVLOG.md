@@ -2,6 +2,50 @@
 
 ---
 
+## v0.7.0（2026-09-17）
+
+### プレビュー枠の高さ固定・AssetサブタブをPlan/Editと並ぶ中央下部へ移設・トリムパネルにClipchamp風スクラバー追加・Frame保存のVideo Assets登録とAsset→Plan画像連携
+
+Edit サブタブMVP実装後、実際にユーザーが使う中で見つかった調整要望をまとめて対応した。
+
+**プレビュー枠の高さ固定**: 中央ペインのSource/Resultプレビュー枠が`min-height`指定のみだったため、動画ソースのネイティブサイズ（特に縦長）によって枠が伸縮し、下のPlan/Editサブタブの表示位置がソースを選ぶたびに動いてしまっていた。枠を`height:260px`固定にし、動画/画像側は`width/height:auto; max-width/max-height:100%`（ネイティブサイズが枠より大きい場合のみ縮小、小さい場合は拡大しない）に変更して解消。
+
+**AssetサブタブをPlan/Editと並ぶ中央下部の第3サブタブへ移設**: 左サイドバーにあったAsset一覧・詳細パネルを中央ペイン下部（Plan/Editと同じ場所）へ移設し、左=一覧（サムネイル/テーブル切替可）・右=選択ファイルの詳細という2カラムレイアウトに再構成。一覧上部にグループ切替・ファイル名検索・表示切替（▦グリッド/☰テーブル）ボタンを追加した。左サイドバーはProjectのみのシンプルなパネルになった。
+
+**トリムパネルにClipchamp風ビジュアルスクラバーを追加**: 動画クリップのトリム編集がテキスト入力（開始/終了秒）のみだったのを、時間目盛り（ルーラー）・Sourceプレビューの`currentTime`と同期するドラッグ可能な再生ヘッド・時刻バッジ付きのドラッグ可能なイン/アウトハンドルを備えたビジュアルなスクラバーに拡張した。全位置を`clip.duration`基準の%指定にすることでpx/秒換算の管理を持たずに済ませている。既存のStart/End数値入力・「現在位置を使用」ボタンとは同じ`commit`関数を通して連動する。ハンドルドラッグ中は`_renderTimeline()`の再描画を避け、pointerup時のみ確定してパフォーマンスに配慮。playheadとトリムハンドルが同じ位置に重なってもハンドル操作を優先できるようz-indexを調整した。
+
+**Frame保存のVideo Assets登録とAsset→Plan画像連携**: 右ペインFrameタブの「Save to Output」に「Add to Video Assets group」チェックボックスを追加し、チェック時は保存したフレームをGalleryの`__Video Assets__`グループへ自動登録できるようにした。またAssetタブの画像アセット詳細に「Set as First Image」「Set as Last Image」ボタンを追加し、PlanタブのFirst/Last Imageへ直接画像をアップロードできるようにした（動画クリップでは非表示、選択中のPlanブロックへ反映後Planサブタブへ自動切り替え）。
+
+**検証**: いずれもKaptureで実機ComfyUI_5（ポート8189）に接続し、正方形/縦長動画でのプレビュー枠固定確認、Asset新レイアウトでのグリッド/テーブル切替・検索・選択、トリムスクラバーのplayhead同期・トラッククリックシーク・ハンドルドラッグ（playhead重なり時含む）・複数クリップ切替時のリスナー管理、Frame保存後のGalleryグループ登録をAPI経由で確認、Asset画像からFirst/Last Imageへの反映まで一通り実機確認済み。
+
+**How to apply**: プレビュー枠のようにコンテンツ依存でサイズが変わる要素が、隣接するUIの表示位置に影響する場合は、コンテンツ側ではなく枠側を固定サイズにしてコンテンツを内側で縮小表示する方が安全（[[project_video_edit_tab_feature_branch]]）。ドラッグ可能なUI要素同士が同じ座標に重なる可能性がある場合は、操作頻度の高い方（今回はトリムハンドル）のz-indexを優先し、もう一方の当たり判定に埋もれないようにする。
+
+関連: [[project_video_edit_tab_feature_branch]]
+
+### Video タブ Edit サブタブ: 簡易動画編集機能（クリップタイムライン・トリム・結合・書き出し）を新規実装
+
+これまで「Editing tools coming soon」のプレースホルダーのみだったVideoタブのEditサブタブに、Adobe Premiereライクな簡易動画編集機能を実装した。詳細設計・調査結果は[VIDEO_EDIT_TAB_PLAN.md](VIDEO_EDIT_TAB_PLAN.md)にまとめてある。
+
+**MVP機能**: クリップのタイムライン配置（左詰め、実秒数×固定px/秒スケール）、トリム（開始/終了秒）、複数クリップの結合書き出し、タイムライン全体の疑似連続プレビュー、静止画/アニメーション画像クリップ（表示時間指定）、Clear/複製/削除/並べ替え（◀▶ボタンおよびネイティブドラッグ&ドロップ）。新規ファイル`static/js/video-edit-tab.js`が中心実装。
+
+**Phase 0実機検証での重要な発見（当初の設計を訂正）**:
+- ComfyUI Core 0.35〜0.36には`VideoSlice`という名前のノードは存在せず、正しいclass_typeは`"Video Slice"`（スペース込み）。`VideoTrim`（experimental）の`trim`入力はフラット値`{"start_time":..}`を渡すと**エラーにならず黙って何もトリムしない**（`.get("trim")`で一段余計にネストを剥がす実装のため）。実際に出力duration をprobeして初めて発覚し、「`execution_success`だけでは検証不十分」という教訓を得た。
+- `ConcatenateVideo`のAutogrow入力`videos`は、ネストしたJSONオブジェクトではなく`"videos.video0"`のようなドット結合フラットキーがinputsのトップレベルに必要（ComfyUI Core `Autogrow.TemplatePrefix`のドット結合ロジックに由来）。
+- `ConcatenateVideo`は解像度不一致で実行時ハードエラーになるため、クライアント側で事前チェックし、動画クリップ同士の不一致は書き出しをブロック、画像クリップは`ImageScale`(crop=center)で自動フィットして回避。
+- 動画クリップ（音声あり）と画像由来クリップ（無音）を結合すると`ConcatenateVideo`が音声レイアウト不一致でエラーになる。複数クリップ結合時のみ、全クリップを`GetVideoComponents`→`CreateVideo`で無音統一する対策を実装（単一クリップ書き出しは音声を保持。**複数クリップ結合時は音声が失われるのが既知の限界**）。
+
+**静止画/アニメーション画像クリップ対応**: 既存のAsset一覧（`__Video Assets__`/`__Video Temp__`グループ）には元々ビデオ専用フィルタが無く画像も一覧されていたが、プレビューが常に`<video>`要素前提で画像では何も表示されなかった。`video-preview.js`のSource/Resultプレビュー枠に`<img>`コンパニオン要素を追加し、`mediaType`引数で切り替えるよう拡張。画像クリップは`LoadImage`→(必要時)`ImageScale`→`RepeatImageBatch(amount=表示秒数×24fps)`→`CreateVideo`で正確な長さの動画セグメントに変換して書き出しグラフに組み込む。
+
+**UI設計はPlanサブタブに合わせて再設計**: 当初は縦リスト+各行ボタンだったが、ユーザー指示によりPlanタブの横トラック+共有ツールバー方式（◀▶/複製/削除/クリアが選択中クリップに対して働く）に変更。タイムライン自体はPlanのブロックのようにflex-growで幅一杯に引き伸ばさず、実秒数の固定幅で左詰め（空きトラックはそのまま空く）。この過程で、Edit実装以前の「Editing tools coming soon」プレースホルダー時代の重複CSSルール（`align-items:center`等）が残存しており、実装後もタイムライン全体が中央に縮んで表示される不具合を発見・修正した。
+
+**タイムライン連続プレビュー**: 新規`<video>`要素を追加せず、Export結果が最終的に書き出される「生成された動画」（Result）プレビュー枠を共有し、全クリップ（トリム区間反映）を順番に連続再生する機能を追加（「▶ プレビュー / ■ 停止」トグル）。ユーザー要望「このプレビューの動画＝書き出しされる動画」に対応。
+
+**検証**: 全JS/Pythonファイルを`node --check`/構文チェックで確認。開発元リポジトリと実行時`custom_nodes`は別実体のため、変更のたびに両フォルダへ同期しmd5ハッシュ比較で完全一致を確認。Kapture（ブラウザDevTools連携）で実機ComfyUI_5（ポート8189）に接続し、クリップ追加・トリム・並べ替え（ドラッグ含む）・複製・削除・クリア・連続プレビュー・単一/複数クリップ書き出し・静止画クリップの書き出し・動画+画像混在結合を一通り実機確認済み。
+
+**How to apply**: ComfyUI Coreの新しいノード（特にexperimental扱いのもの）をAPIプロンプト形式で直接呼び出す際は、`/object_info`のクラス名・入力スキーマを鵜呑みにせず、実際に`/prompt`で実行して**出力を実測**するまで検証を終えたとみなさない——`execution_success`は型検証を通っただけで、パラメータが意図通り効いたかは別問題（今回`VideoTrim`のトリムが黙って無視される形で顕在化）。Autogrow(`COMFY_AUTOGROW_V3`)型の動的入力は、フラットなドット結合キー(`"prefix{name}"`を`.`区切りでinputsトップレベルに並べる)で渡す。
+
+関連: [[project_dev_deploy_sync]]
+
 ## v0.6.3
 
 ### Send CCボタンでMP4動画をComic Creatorの新設「動画ツール」へ送れるように対応
@@ -71,6 +115,7 @@ Comic Creator（`eagle_comic_creator_spa/comfyui-comic-creator`、別リポジ�
 **Gallery: PSDファイルの一覧・サムネイル・プレビュー表示** — `.psd`を`IMAGE_EXTENSIONS`に追加し、Galleryのフォルダ一覧・検索・グループ機能に自動的に乗るようにした。ブラウザは`<img>`でPSDを直接レンダリングできないため、`serve_image`/`serve_thumb`ルートで`.psd`の場合は`psd_tools`で全レイヤーを合成（非表示レイヤーは除外）した上でPNG/JPEGに変換し、mtimeベースのキャッシュキーでディスクキャッシュして配信する方式にした。情報パネルの幅・高さもPSDヘッダーから取得するようにした。
 
 **実機テストで発覚した2件のバグとその修正**:
+
 1. **サムネイル表示が遅く、他の無関係なPNGサムネイルまで真っ黒になる**——原因は`serve_image`/`serve_thumb`ルートがPSD合成という重いCPU処理を`async def`ハンドラ内で直接同期実行しており、aiohttpの単一スレッドイベントループ全体をブロックしていたこと。PSD1枚の合成中は他の並行リクエスト（別画像のサムネイル配信など）も完全に止まり、結果的に無関係な画像まで表示が固まって見えた。`serve_image`・`serve_thumb`・`import_psd_layers`・新設`get_psd_layers`の4ルートを`loop.run_in_executor(None, ...)`でデフォルトのThreadPoolExecutorに逃がすことで解消した。この教訓は今後の重い処理全般に適用すべき一般原則として別途メモリに記録した。
 2. **単一画像「Image Edit」送信ボタンでPSDを開くと1レイヤーしかない**（「Open PSD」ボタンでは正しく全レイヤー開ける）——原因はこのボタンが常に`loadFromUrl()`（1枚のフラット画像として読み込む経路）を使っており、PSD専用のレイヤー分解経路を通っていなかったこと。サーバー上のファイルを再アップロードせず直接レイヤー分解できる新規`GET /wfm/gallery/image/psd-layers`（`GalleryService.get_psd_layers_from_path()`）を追加し、既存の`import_psd_layers()`とロジックを`_extract_psd_layers()`に共通化した上で、PSDファイルの場合はこの新エンドポイントを使うよう分岐させた。
 
