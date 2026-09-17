@@ -18,6 +18,7 @@ import { initVideoPlanTab, loadWorkflowIntoVideoEditor } from "./video-plan-tab.
 import { initVideoAssetTab, refreshVideoAssetTab } from "./video-asset-tab.js";
 import { initVideoProjectTab, refreshVideoProjectTab } from "./video-project-tab.js";
 import { initVideoEditTab, addClipFromFile } from "./video-edit-tab.js";
+import { VIDEO_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 import {
     setSourcePreview, getActivePreviewSource, updateActivePreviewSourceRef,
     getActivePreviewVideoElement, getAllPreviewVideoElements,
@@ -209,6 +210,7 @@ function _initPropTabs() {
 // ============================================
 
 let _capturedFrameBlob = null;
+let _frameOutputDir = "";
 
 function _blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
@@ -217,6 +219,44 @@ function _blobToDataUrl(blob) {
         reader.onerror = () => reject(new Error("Failed to read blob"));
         reader.readAsDataURL(blob);
     });
+}
+
+// Same small output-dir lookup each of video-asset-tab.js/video-plan-tab.js/
+// video-edit-tab.js keeps its own copy of — needed to build the absolute path
+// Gallery's group-tagging API expects.
+async function _fetchFrameOutputDir() {
+    if (_frameOutputDir) return;
+    try {
+        const res = await fetch("/api/wfm/settings/output-dir");
+        if (res.ok) {
+            const data = await res.json();
+            _frameOutputDir = (data.current || "").replace(/\\/g, "/").replace(/\/$/, "");
+        }
+    } catch { /* non-critical */ }
+}
+
+// Opt-in tagging of a saved frame into Gallery's curated __Video Assets__
+// group (see the "Add to Video Assets group" checkbox) — mirrors
+// video-edit-tab.js's _addOutputToVideoTemp, but targets the curated group
+// directly since a manually-captured frame is a deliberate keep, not the
+// every-run scratch output __Video Temp__ exists for.
+async function _addFrameToVideoAssets(filename, subfolder) {
+    await _fetchFrameOutputDir();
+    if (!_frameOutputDir) return;
+    const parts = [_frameOutputDir];
+    if (subfolder) parts.push(subfolder);
+    parts.push(filename);
+    const path = parts.join("/");
+    try {
+        await ensureVideoGroup();
+        await fetch(`/wfm/gallery/groups/${encodeURIComponent(VIDEO_GROUP)}/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+        });
+    } catch (err) {
+        console.warn("[VideoTab] failed to tag frame into video group:", err);
+    }
 }
 
 function _initFrameTab() {
@@ -265,6 +305,9 @@ function _initFrameTab() {
             if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
             if (statusEl) { statusEl.textContent = `✓ ${json.filename}`; statusEl.style.color = "var(--wfm-success)"; }
             showToast(t("videoFrameSaved", json.filename), "success");
+            if (document.getElementById("wfm-video-frame-add-to-assets")?.checked) {
+                await _addFrameToVideoAssets(json.filename, json.subfolder);
+            }
         } catch (err) {
             if (statusEl) { statusEl.textContent = `✗ ${err.message}`; statusEl.style.color = "var(--wfm-danger)"; }
             showToast(t("errorWithMsg", err.message), "error");

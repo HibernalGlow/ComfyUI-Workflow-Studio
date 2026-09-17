@@ -290,10 +290,13 @@ function _wireBlockImageDropZone(which) {
     });
 }
 
+// Returns true/false so setBlockImageFromFile (called from outside the Plan
+// subtab, where this status text may not even be visible) can tell its own
+// caller whether the upload actually succeeded instead of just assuming so.
 async function _handleBlockImageUpload(which, file) {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file || !file.type.startsWith("image/")) return false;
     const block = _plan.blocks.find((b) => b.id === _selectedBlockId);
-    if (!block) return;
+    if (!block) return false;
     const statusEl = document.getElementById(`wfm-video-block-${which}-status`);
     const previewImg = document.getElementById(`wfm-video-block-${which}-preview`);
     const wrap = document.getElementById(`wfm-video-block-${which}-wrap`);
@@ -309,9 +312,27 @@ async function _handleBlockImageUpload(which, file) {
         if (which === "first") { block.first_image_filename = result.name; block.first_image_mode = "explicit"; }
         else block.last_image_filename = result.name;
         if (statusEl) { statusEl.textContent = `✓ ${result.name}`; statusEl.style.color = "var(--wfm-success)"; }
+        return true;
     } catch (err) {
         if (statusEl) { statusEl.textContent = `✗ ${err.message}`; statusEl.style.color = "var(--wfm-danger)"; }
+        return false;
     }
+}
+
+// Exported so other modules (video-asset-tab.js's "Set as First/Last Image"
+// buttons) can seed the currently-selected Plan block's First/Last Image from
+// an already-fetched File — reuses the exact upload + first_image_mode
+// bookkeeping the drop-zone UI itself uses, then re-renders the block editor
+// so its dropdown/preview reflect the change even if the Plan subtab wasn't
+// the one visible when this was called. _plan.blocks always has at least one
+// entry (see _emptyBlock's initializer), so this only ever fails to find a
+// block if _selectedBlockId itself has gone stale somehow.
+export async function setBlockImageFromFile(which, file) {
+    const block = _plan.blocks.find((b) => b.id === _selectedBlockId);
+    if (!block) throw new Error(t("videoNoBlockSelected"));
+    const ok = await _handleBlockImageUpload(which, file);
+    _renderBlockEditor();
+    if (!ok) throw new Error(t("videoBlockImageUploadFailed"));
 }
 
 function _clearBlockImage(which) {
