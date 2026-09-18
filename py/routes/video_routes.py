@@ -6,14 +6,16 @@ import logging
 
 from aiohttp import web
 
-from ..config import VIDEO_PLAN_DIR
+from ..config import VIDEO_PLAN_DIR, VIDEO_EDIT_PROJECT_DIR
 from ..services.video_service import VideoService
 from ..services.video_plan_service import VideoPlanService
+from ..services.video_edit_project_service import VideoEditProjectService
 
 logger = logging.getLogger(__name__)
 
 _service = VideoService()
 _plan_service = VideoPlanService(VIDEO_PLAN_DIR)
+_edit_project_service = VideoEditProjectService(VIDEO_EDIT_PROJECT_DIR)
 
 
 def setup_routes(app: web.Application):
@@ -26,6 +28,11 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/wfm/video/plans/save", handle_save_plan)
     app.router.add_post("/api/wfm/video/plans/delete", handle_delete_plan)
     app.router.add_post("/api/wfm/video/index-image/save-to-output", handle_save_index_to_output)
+
+    app.router.add_get("/api/wfm/video/edit/projects", handle_list_edit_projects)
+    app.router.add_get("/api/wfm/video/edit/projects/content", handle_get_edit_project_content)
+    app.router.add_post("/api/wfm/video/edit/projects/save", handle_save_edit_project)
+    app.router.add_post("/api/wfm/video/edit/projects/delete", handle_delete_edit_project)
 
 
 async def handle_save_frame(request: web.Request) -> web.Response:
@@ -136,6 +143,56 @@ async def handle_delete_plan(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=400)
     except Exception as e:
         logger.error("Error deleting video plan: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_list_edit_projects(request: web.Request) -> web.Response:
+    try:
+        result = await asyncio.to_thread(_edit_project_service.list_projects)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error("Error listing video edit projects: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_get_edit_project_content(request: web.Request) -> web.Response:
+    filename = request.rel_url.query.get("filename", "")
+    try:
+        data = await asyncio.to_thread(_edit_project_service.get_project, filename)
+        return web.json_response({"data": data})
+    except FileNotFoundError:
+        return web.json_response({"error": "not found"}, status=404)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error getting video edit project content: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_save_edit_project(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+        filename = body.get("filename", "")
+        data = body.get("data", {})
+        result = await asyncio.to_thread(_edit_project_service.save_project, filename, data)
+        return web.json_response({"status": "ok", **result})
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error saving video edit project: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_delete_edit_project(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+        filename = body.get("filename", "")
+        await asyncio.to_thread(_edit_project_service.delete_project, filename)
+        return web.json_response({"status": "ok"})
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error deleting video edit project: %s", e)
         return web.json_response({"error": str(e)}, status=500)
 
 

@@ -21,7 +21,7 @@
 
 /* ── 左ペイン: フォーム ── */
 .wfm-video-form-panel {
-    width: 380px;
+    width: 253px;
     flex: none;
     display: flex;
     flex-direction: column;
@@ -494,6 +494,12 @@
    すべて%位置指定(clip.duration基準)にすることでpx/秒換算を持たずに済ませている。 */
 .wfm-video-trim-scrubber {
     margin-top: 10px;
+    /* start/end/playheadのバッジ(track上端から浮く)が上のクリップ名や
+       目盛りと重ならないよう、あらかじめ専用の余白を確保しておく。
+       playheadバッジはstart/endバッジより高い位置に2段目として出すため
+       (再生位置がトリム開始/終了に近いとき同じ高さだと文字が重なるため)、
+       その分も含めた高さを確保する。 */
+    padding-top: 44px;
     user-select: none;
 }
 
@@ -513,7 +519,7 @@
 
 .wfm-video-trim-track {
     position: relative;
-    height: 36px;
+    height: 52px;
     margin-top: 4px;
     background: var(--wfm-bg-hover, #111);
     border: 1px solid var(--wfm-border);
@@ -571,7 +577,7 @@
 
 .wfm-video-trim-badge {
     position: absolute;
-    top: -22px;
+    top: -24px;
     left: 50%;
     transform: translateX(-50%);
     background: #111;
@@ -585,6 +591,10 @@
 
 .wfm-video-trim-badge-playhead {
     background: #000;
+    /* start/endバッジ(-24px)より上の2段目に出し、再生位置がトリム範囲の
+       端に重なっても文字同士がぶつからないようにする */
+    top: -42px;
+    border: 1px solid var(--wfm-primary);
 }
 
 .wfm-video-edit-export-panel {

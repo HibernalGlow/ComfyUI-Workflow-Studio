@@ -60,7 +60,14 @@ const _s = {
     exporting: false,
     nextId: 1,
     outputDir: "",
+    projectFilename: null, // currently loaded/saved project's server filename, or null if unsaved
 };
+
+// Save/load persists only the timeline's editorial state (order, trim points,
+// which server-side file each clip refers to) — not clip.file/probing/error,
+// which are re-derived on load the same way a fresh "add clip" does (see
+// _restoreClipFromSaved). Mirrors video-plan-tab.js's VIDEO_PLAN_PREFIX pattern.
+const VIDEO_EDIT_PROJECT_PREFIX = "ws_videoeditproj_";
 
 // Pixel-per-second scale for the timeline track — clips are laid out at their
 // real (trimmed) duration and left-aligned, NOT stretched to fill the track
@@ -445,7 +452,7 @@ function _wireTrimScrubber(clip, startInput, endInput, commit) {
     const badgeStart = document.getElementById("wfm-video-trim-badge-start");
     const badgeEnd = document.getElementById("wfm-video-trim-badge-end");
     const badgePlayhead = document.getElementById("wfm-video-trim-badge-playhead");
-    if (!track || !clip.duration) return;
+    if (!track || !clip.duration) return undefined;
 
     _renderRuler(ruler, clip.duration);
 
@@ -532,6 +539,8 @@ function _wireTrimScrubber(clip, startInput, endInput, commit) {
         playhead.addEventListener("pointermove", onMove);
         playhead.addEventListener("pointerup", onUp);
     });
+
+    return updateRange;
 }
 
 function _renderTrimPanel() {
@@ -578,7 +587,7 @@ function _renderTrimPanel() {
     }
 
     panel.innerHTML = `
-        <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:6px;"></div>
+        <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:16px;"></div>
         <div class="wfm-video-trim-scrubber" id="wfm-video-trim-scrubber">
             <div class="wfm-video-trim-ruler" id="wfm-video-trim-ruler"></div>
             <div class="wfm-video-trim-track" id="wfm-video-trim-track">
@@ -594,7 +603,7 @@ function _renderTrimPanel() {
                 </div>
             </div>
         </div>
-        <div class="wfm-video-edit-trim-row" style="margin-top:10px;">
+        <div class="wfm-video-edit-trim-row" style="margin-top:20px;">
             <div class="wfm-video-edit-trim-field">
                 <label>${t("videoEditTrimStart")}</label>
                 <input type="number" id="wfm-video-edit-trim-start" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimStart.toFixed(2)}">
@@ -613,6 +622,12 @@ function _renderTrimPanel() {
     const startInput = document.getElementById("wfm-video-edit-trim-start");
     const endInput = document.getElementById("wfm-video-edit-trim-end");
 
+    // _wireTrimScrubber fills this in with its own updateRange() once it's
+    // wired below, so commit() (used by both the typed inputs and the "use
+    // current position" buttons) can keep the scrubber's highlighted range
+    // and handle positions in sync — not just the timeline blocks.
+    let syncScrubber = () => {};
+
     // skipTimelineRerender: the scrubber's handle-drag calls this on every
     // pointermove (see _wireTrimScrubber) — re-running _renderTimeline() that
     // often would rebuild every timeline block per mousemove for no visible
@@ -625,6 +640,7 @@ function _renderTrimPanel() {
         clip.trimEnd = end;
         startInput.value = start.toFixed(2);
         endInput.value = end.toFixed(2);
+        syncScrubber();
         if (!skipTimelineRerender) _renderTimeline();
     };
     startInput.addEventListener("change", commit);
@@ -639,7 +655,7 @@ function _renderTrimPanel() {
         if (video) { endInput.value = video.currentTime.toFixed(2); commit(); }
     });
 
-    _wireTrimScrubber(clip, startInput, endInput, commit);
+    syncScrubber = _wireTrimScrubber(clip, startInput, endInput, commit) || syncScrubber;
 }
 
 // ============================================
@@ -949,9 +965,183 @@ function _wireToolbar() {
     });
 }
 
+// ============================================
+// Project persistence (Save/Save As/Load) — see VIDEO_EDIT_TAB_PLAN.md
+// section 5 "永続化". Only clips that already have a serverRef (i.e. finished
+// uploading+probing) are persisted; a clip still mid-upload when Save is
+// clicked is silently skipped rather than saved half-formed.
+// ============================================
+
+function _buildProjectData() {
+    return {
+        clips: _s.clips
+            .filter((c) => c.serverRef)
+            .map((c) => ({
+                name: c.name,
+                kind: c.kind,
+                serverRef: c.serverRef,
+                trimStart: c.trimStart,
+                trimEnd: c.trimEnd,
+                duration: c.duration,
+                width: c.width,
+                height: c.height,
+                fps: c.fps,
+            })),
+    };
+}
+
+function _updateProjectNameUI() {
+    const el = document.getElementById("wfm-video-edit-project-name");
+    if (el) el.textContent = _s.projectFilename ? _s.projectFilename.replace(/\.json$/i, "") : "";
+}
+
+async function _saveProject(filenameOverride, forceNewName = false) {
+    let inputName = filenameOverride;
+    if (!inputName) {
+        if (forceNewName || !_s.projectFilename) {
+            inputName = window.prompt(t("videoEditProjectEnterName"), "");
+            if (!inputName) return;
+        } else {
+            inputName = _s.projectFilename;
+        }
+    }
+
+    const baseName = inputName.replace(/\.json$/i, "").replace(new RegExp(`^${VIDEO_EDIT_PROJECT_PREFIX}`, "i"), "");
+    const filename = `${VIDEO_EDIT_PROJECT_PREFIX}${baseName}.json`;
+    const data = _buildProjectData();
+
+    try {
+        const res = await fetch("/api/wfm/video/edit/projects/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename, data }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        _s.projectFilename = json.filename;
+        _updateProjectNameUI();
+        showToast(t("videoEditProjectSaved"), "success");
+    } catch (err) {
+        showToast(`${t("videoEditProjectSaveFailed")}: ${err.message}`, "error");
+    }
+}
+
+// Waits for a just-added clip's async upload+probe (see _probeClip/_probeImageClip)
+// to finish, so the caller can then override the freshly-probed trimStart/trimEnd
+// with the values that were actually saved in the project file.
+function _waitForProbe(id) {
+    return new Promise((resolve) => {
+        const check = () => {
+            const c = _s.clips.find((cl) => cl.id === id);
+            if (!c || !c.probing) resolve(c);
+            else setTimeout(check, 100);
+        };
+        check();
+    });
+}
+
+// Re-adds one saved clip by fetching its still-existing server-side file back
+// as a Blob and feeding it through the exact same addClipFromFile() path a
+// fresh drag-and-drop uses (re-upload + re-probe) — rather than trusting the
+// saved serverRef/duration/width/height directly, since the input file could
+// have been deleted or replaced since the project was saved. Once probing
+// settles, the saved trim points are applied on top of the freshly-probed
+// (full-length) defaults.
+async function _restoreClipFromSaved(entry) {
+    if (!entry?.serverRef?.filename) return;
+    try {
+        const params = new URLSearchParams({
+            filename: entry.serverRef.filename,
+            subfolder: entry.serverRef.subfolder || "",
+            type: entry.serverRef.type || "input",
+        });
+        const res = await fetch(`${comfyUI.baseUrl}/view?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const mime = entry.kind === "image" ? "image/png" : "video/mp4";
+        const file = new File([blob], entry.name || entry.serverRef.filename, { type: blob.type || mime });
+
+        const beforeIds = new Set(_s.clips.map((c) => c.id));
+        addClipFromFile(file, entry.name);
+        const newClip = _s.clips.find((c) => !beforeIds.has(c.id));
+        if (!newClip) return;
+
+        await _waitForProbe(newClip.id);
+        const c = _s.clips.find((cl) => cl.id === newClip.id);
+        if (!c || c.error) return;
+        if (c.kind === "video") {
+            c.trimStart = Math.max(0, Math.min(entry.trimStart ?? 0, c.duration));
+            c.trimEnd = Math.max(c.trimStart + 0.1, Math.min(entry.trimEnd ?? c.duration, c.duration));
+        } else {
+            c.trimEnd = Math.max(0.1, entry.trimEnd ?? c.trimEnd);
+        }
+        _renderTimeline();
+        if (_s.selectedId === c.id) _renderTrimPanel();
+    } catch (err) {
+        showToast(t("errorWithMsg", `${entry.name || ""}: ${err.message}`), "error");
+    }
+}
+
+async function _loadProjectData(filename, data) {
+    _stopPreview();
+    _s.clips = [];
+    _s.selectedId = null;
+    setSourcePreview(null, null);
+
+    const entries = Array.isArray(data.clips) ? data.clips : [];
+    // Sequential, not parallel: addClipFromFile() appends to _s.clips, so
+    // restoring one at a time is what keeps the reloaded timeline in the
+    // same clip order it was saved in.
+    for (const entry of entries) {
+        await _restoreClipFromSaved(entry);
+    }
+
+    _s.projectFilename = filename;
+    _updateProjectNameUI();
+    _renderTimeline();
+    _renderTrimPanel();
+    showToast(t("videoEditProjectLoaded"), "success");
+}
+
+async function _loadProjectFromFile(file) {
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const filename = file.name.toLowerCase().endsWith(".json") ? file.name : `${file.name}.json`;
+        await _loadProjectData(filename, data);
+    } catch (err) {
+        showToast(`${t("videoEditProjectLoadFailed")}: ${err.message}`, "error");
+    }
+}
+
+// Entry point for the sidebar Project panel's saved-project list
+// (video-project-tab.js, "edit" mode) — mirrors video-plan-tab.js's
+// openSavedVideoPlan(): fetches the project by filename, loads it, then jumps
+// to the Edit subtab so the freshly-loaded timeline is actually visible.
+export async function openSavedVideoEditProject(filename) {
+    try {
+        const res = await fetch(`/api/wfm/video/edit/projects/content?filename=${encodeURIComponent(filename)}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        await _loadProjectData(filename, json.data || {});
+        document.querySelector('.wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+    } catch (err) {
+        showToast(`${t("videoEditProjectLoadFailed")}: ${err.message}`, "error");
+    }
+}
+
 export function initVideoEditTab() {
     _wireToolbar();
     document.getElementById("wfm-video-edit-export-btn")?.addEventListener("click", _exportTimeline);
+    document.getElementById("wfm-video-edit-save-btn")?.addEventListener("click", () => _saveProject());
+    document.getElementById("wfm-video-edit-saveas-btn")?.addEventListener("click", () => _saveProject(null, true));
+    const loadInput = document.getElementById("wfm-video-edit-load-file-input");
+    document.getElementById("wfm-video-edit-load-btn")?.addEventListener("click", () => loadInput?.click());
+    loadInput?.addEventListener("change", (e) => {
+        const file = e.target.files?.[0];
+        if (file) _loadProjectFromFile(file);
+        e.target.value = "";
+    });
     _renderTimeline();
     _renderTrimPanel();
     _updatePreviewBtn();

@@ -72,6 +72,7 @@ WILDCARD_DIR = DATA_DIR / "wildcard"
 AI_SKILLS_DIR = DATA_DIR / "ai_skills"
 LAB_PLAN_DIR = DATA_DIR / "lab_plan"
 VIDEO_PLAN_DIR = DATA_DIR / "video_plan"
+VIDEO_EDIT_PROJECT_DIR = DATA_DIR / "video_edit_project"
 
 # Tagger
 TAGGER_DB_FILE = DATA_DIR / "tagger.db"

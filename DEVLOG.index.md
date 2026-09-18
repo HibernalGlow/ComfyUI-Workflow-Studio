@@ -2,6 +2,7 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
+- **v0.7.2（2026-09-18）** — Workflowタブにソート機能追加（Date/Name 昇順降順）
 - **v0.7.1（2026-09-17）** — セキュリティ修正: Tagger VLM の Unsloth 経路でAPIキーがSSRFにより外部送信され得る不備を修正
 - **v0.7.0（2026-09-17）** — プレビュー枠の高さ固定・AssetサブタブをPlan/Editと並ぶ中央下部へ移設・トリムパネルにClipchamp風スクラバー追加・Frame保存のVideo Assets登録とAsset→Plan画像連携
 - **v0.6.3** — Send CCボタンでMP4動画をComic Creatorの新設「動画ツール」へ送れるように対応

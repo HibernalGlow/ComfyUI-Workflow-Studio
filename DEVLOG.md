@@ -2,6 +2,54 @@
 
 ---
 
+## v0.7.2（2026-09-18）
+
+### Workflowタブにソート機能追加（Date/Name 昇順降順）
+
+Workflowタブのグループフィルター右隣に、Galleryタブと同じパターンのソートドロップダウン（Date Newest/Oldest、Name A-Z/Z-A）を追加した。`wf.mtime`（バックエンドが既に返していたファイル更新時刻）を使ったクライアント側ソートで、選択状態は`localStorage`（`wfm_workflow_sort`）に永続化する。
+
+**変更ファイル**: `templates/index.html`（`#wfm-sort` select追加）、`static/js/workflow-tab.js`（`sortWorkflows()`追加、`renderGrid()`で`filterWorkflows()`の結果に適用）
+
+### Videoタブ左ペイン幅調整・Editトリムパネルのバグ修正とUI調整
+
+**左ペイン幅**: PlanサブタブのフォームパネルをGenerateUI寄りの380px固定から253px（約2/3）に縮小し、中央プレビュー/タイムラインを広げた（`.wfm-video-form-panel`の`width`のみの変更、`flex:1`の中央パネルが自動で広がる）。
+
+**「現在位置を使用」ボタンでトリムスクラバーの見た目が更新されないバグを修正**: トリムのStart/End数値入力とスクラバー（ドラッグハンドル・ハイライト範囲）は同じ`commit()`関数を経由する設計だが、`commit()`はスクラバー自身の`updateRange()`（ハンドル位置・ハイライト帯の再描画）を呼んでいなかった。ハンドルをドラッグした場合のみ呼び出し元が直接`updateRange()`を叩いていたため気付かれておらず、数値入力や「現在位置を使用」ボタンではclipのtrimStart/trimEndは正しく更新されるのにスクラバーの表示だけ古いままになっていた。`_wireTrimScrubber()`が`updateRange`関数自体を返すようにし、`_renderTrimPanel()`側で`commit()`から必ずそれを呼べるようにして解消。
+
+**トリムスクラバーのバッジ重なりを解消**: 開始/終了/再生位置の時刻バッジ（ハンドルから浮き上がるラベル）がクリップ名やルーラー目盛りと重なる、また再生位置がトリム開始/終了に近いとStart/EndバッジとPlayheadバッジ同士が重なって読めなくなる不具合をユーザーが発見。クリップ名とスクラバーの間隔を拡大、スクラバー上部にバッジ専用の余白（`padding-top`）を確保、トラック高さを36px→52pxに拡大した上で、Playheadバッジのみ`top`をStart/Endバッジより高い位置（2段目）にずらして重なりを回避した。
+
+**変更ファイル**: `static/css/video-tab.css`（`.wfm-video-form-panel`, `.wfm-video-trim-scrubber/-track/-badge/-badge-playhead`）、`static/js/video-edit-tab.js`（`_wireTrimScrubber()`が`updateRange`を返すよう変更、`_renderTrimPanel()`の`commit()`から呼び出し、クリップ名/トリム行の余白調整）
+
+**How to apply**: 同じ状態変更を複数の入力経路（数値入力・ボタン・ドラッグ）から行える場合、各経路が同じ「見た目を再描画する関数」を実際に呼んでいるかを確認すること——1経路（ドラッグ）だけがたまたま直接呼んでいたために、他の経路のバグが長く気付かれずに残っていた。
+
+### Video Assetタブに動画/画像フィルタドロップダウン追加
+
+Asset切替ドロップダウン（`__Video Assets__`/`__Video Temp__`/All Video Assets）の右隣に、幅を約半分にした動画/画像タイプフィルタ（All Types / Video Only / Image Only）を追加。既存の`isVideoFile()`判定を再利用してクライアント側でリストを絞り込む。
+
+**変更ファイル**: `templates/index.html`（`#wfm-video-asset-kind` select追加）、`static/js/video-asset-tab.js`（`_s.kindFilter`追加、`_filteredImages()`で適用）
+
+### Video Edit プロジェクト永続化（Phase 5）とサイドバーProjectのPlan/Editモード切替
+
+[VIDEO_EDIT_TAB_PLAN.md](VIDEO_EDIT_TAB_PLAN.md)のPhase 5（永続化）を実装。他の未着手フェーズ（クロップ/テキストオーバーレイ/BGM合成）と比べ、`video_plan_service.py`と同型のCRUDパターンをほぼそのまま流用できるため最軽量（見積もり1〜1.5日相当）と判断し、最初に着手した。
+
+**バックエンド**: `video_plan_service.py`と同じ形（パス安全性チェック付きlist/get/save/delete、`updated_at`自動付与）の`VideoEditProjectService`を新設し、`video_edit_project/`ディレクトリに`ws_videoeditproj_*.json`として保存する。`video_plan_service.py`との共通base化は行わず独立クラスのまま（両者のスキーマは無関係なので、無理に共通化しても行数が減るだけで得るものがないという既存の`VideoPlanService`のドキュメント方針を踏襲）。
+
+**保存対象**: タイムラインのクリップ順序・トリム区間・各クリップが参照するアップロード済みサーバーファイル（`serverRef`）のみ。アップロード未完了のクリップは保存対象から除外する。
+
+**読込方式**: 保存されたクリップをComfyUIの`/view`エンドポイントからBlobとして再取得し、`File`化した上で既存の「クリップ追加」経路（`addClipFromFile()`→アップロード→probe）にそのまま通してから、保存済みのトリム値を上書き適用する方式にした。`serverRef`とメタデータを信頼してプレビュー生成ロジックを別に書く（再アップロードを省く）選択肢もあったが、既存の十分テスト済みの1経路だけを通ることを優先し、実装量とリスクを抑えた。
+
+**サイドバーProjectタブの切替**: 中央のPlan/Editどちらのサブタブがアクティブかを`video-tab.js`が`_centerSubtabMode`として記憶し、サイドバーのProjectパネルを開く/切り替えるたびにそのモードを渡すようにした。`video-project-tab.js`は元々Video Plan専用だったリスト表示・削除ロジックを、モードごとの設定テーブル（取得/削除エンドポイント、開く関数、件数ラベル等）に切り出して汎用化。Editモードでのアイテムクリックは新設した`video-edit-tab.js`の`openSavedVideoEditProject()`（`video-plan-tab.js`の`openSavedVideoPlan()`と同型）に委譲する。
+
+**検証**: 全JS/Pythonファイルを`node --check`/`py_compile`で構文確認、開発元リポジトリと実行時`custom_nodes`フォルダ間でファイルのdiffが空になることを確認して同期。Python側（新規サービス・ルート追加）はComfyUI完全再起動が必須（インポートは起動時一度きりのため）である旨をユーザーに案内済み。
+
+**変更ファイル**: `py/services/video_edit_project_service.py`（新規）、`py/config.py`（`VIDEO_EDIT_PROJECT_DIR`）、`py/routes/video_routes.py`（`/api/wfm/video/edit/projects`系4エンドポイント）、`static/js/video-edit-tab.js`（`_buildProjectData()`/`_saveProject()`/`_restoreClipFromSaved()`/`_loadProjectData()`/`openSavedVideoEditProject()`、Save/Save As/Loadボタン配線）、`static/js/video-project-tab.js`（`_MODES`設定テーブルによるPlan/Edit汎用化）、`static/js/video-tab.js`（`_centerSubtabMode`追跡）、`templates/index.html`（Save/Save As/Load UI）、`static/js/i18n.js`（新規メッセージキー・ヘルプ本文更新、英/日/中3言語）
+
+**How to apply**: 新機能の永続化を設計する際、対象データを直接シリアライズしてサーバー参照込みで復元しようとすると（プレビュー生成・probe結果の整合性など）別経路のロジックを新たに書く必要が出やすい。既存の「新規追加」経路がテスト済みで十分軽ければ、保存データを最小限（サーバー参照＋差分パラメータ）に絞り、読込時はその経路をそのまま再利用する方が実装・保守コストが低い。
+
+関連: [[project_video_edit_tab_feature_branch]]
+
+---
+
 ## v0.7.1（2026-09-17）
 
 ### セキュリティ修正: Tagger VLM の Unsloth 経路でAPIキーがSSRFにより外部送信され得る不備を修正

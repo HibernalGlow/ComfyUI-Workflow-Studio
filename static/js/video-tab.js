@@ -36,6 +36,17 @@ export { loadWorkflowIntoVideoEditor };
 // what keeps clicking one from affecting the other.
 // ============================================
 
+// Which of the center Plan/Edit subtabs was last active — the sidebar
+// Project panel uses this to decide whether to list saved Video Plans or
+// saved Video Edit projects (Asset has no saved-list concept, so selecting
+// it leaves this unchanged rather than resetting to "plan").
+let _centerSubtabMode = "plan";
+
+function _isProjectPanelOpen() {
+    const panel = document.getElementById("wfm-video-subtab-project");
+    return !!panel && panel.style.display !== "none";
+}
+
 function _initCenterSubtabToggle() {
     const scope = document.querySelector(".wfm-video-center-panel");
     if (!scope) return;
@@ -48,6 +59,12 @@ function _initCenterSubtabToggle() {
                 p.style.display = p.dataset.videoSubtabPanel === target ? "" : "none";
             });
             if (target === "asset") refreshVideoAssetTab();
+            if (target === "plan" || target === "edit") {
+                _centerSubtabMode = target;
+                // Project panel may already be open (e.g. switching Plan<->Edit
+                // while it's pinned) — keep its list in sync with the new mode.
+                if (_isProjectPanelOpen()) refreshVideoProjectTab(_centerSubtabMode);
+            }
         });
     });
 }
@@ -69,7 +86,7 @@ function _initSidebarSubtabToggle() {
             if (willShow) {
                 btn.classList.add("active");
                 panel.style.display = "";
-                if (target === "project") refreshVideoProjectTab();
+                if (target === "project") refreshVideoProjectTab(_centerSubtabMode);
             }
         });
     });

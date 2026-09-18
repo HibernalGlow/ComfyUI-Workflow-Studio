@@ -33,6 +33,7 @@ const _s = {
     loaded: false, // becomes true once the Asset subtab has been shown at least once
     searchQuery: "",
     viewMode: "grid", // "grid" | "table"
+    kindFilter: "all", // "all" | "video" | "image"
 };
 
 function _formatDate(mtime) {
@@ -41,8 +42,11 @@ function _formatDate(mtime) {
 
 function _filteredImages() {
     const q = _s.searchQuery.trim().toLowerCase();
-    if (!q) return _s.images;
-    return _s.images.filter((img) => img.filename.toLowerCase().includes(q));
+    let list = _s.images;
+    if (_s.kindFilter === "video") list = list.filter((img) => isVideoFile(img));
+    else if (_s.kindFilter === "image") list = list.filter((img) => !isVideoFile(img));
+    if (q) list = list.filter((img) => img.filename.toLowerCase().includes(q));
+    return list;
 }
 
 async function _fetchOutputDir() {
@@ -389,6 +393,10 @@ export function initVideoAssetTab() {
         _loadImages();
     });
     document.getElementById("wfm-video-asset-refresh")?.addEventListener("click", () => _loadImages());
+    document.getElementById("wfm-video-asset-kind")?.addEventListener("change", (e) => {
+        _s.kindFilter = e.target.value;
+        _renderList();
+    });
     document.getElementById("wfm-video-asset-search")?.addEventListener("input", (e) => {
         _s.searchQuery = e.target.value;
         _renderList();

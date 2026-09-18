@@ -2781,6 +2781,11 @@
                             <div class="wfm-video-asset-list-col">
                                 <div class="wfm-video-asset-toolbar">
                                     <select id="wfm-video-asset-group" class="wfm-input" style="flex:1;"></select>
+                                    <select id="wfm-video-asset-kind" class="wfm-input" style="flex:0.5;">
+                                        <option value="all">All Types</option>
+                                        <option value="video">Video Only</option>
+                                        <option value="image">Image Only</option>
+                                    </select>
                                     <input type="text" id="wfm-video-asset-search" class="wfm-input" placeholder="Search filename..." style="flex:1;">
                                     <button type="button" id="wfm-video-asset-view-grid" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn active" title="Thumbnail view">▦</button>
                                     <button type="button" id="wfm-video-asset-view-table" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn" title="Table view">☰</button>
@@ -2946,7 +2951,14 @@
                             <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
 
                             <div class="wfm-video-edit-export-panel">
-                                <button type="button" id="wfm-video-edit-export-btn" class="wfm-btn wfm-btn-primary" style="width:100%;">Export</button>
+                                <div id="wfm-video-edit-project-name" class="wfm-i2i-status" style="min-height:14px;margin-bottom:4px;"></div>
+                                <div style="display:flex;gap:6px;">
+                                    <button type="button" id="wfm-video-edit-save-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save</button>
+                                    <button type="button" id="wfm-video-edit-saveas-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save As</button>
+                                    <button type="button" id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Load</button>
+                                </div>
+                                <input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;">
+                                <button type="button" id="wfm-video-edit-export-btn" class="wfm-btn wfm-btn-primary" style="width:100%;margin-top:8px;">Export</button>
                                 <div class="wfm-gen-progress-container" style="margin-top:8px;">
                                     <div class="wfm-gen-progress-track">
                                         <div id="wfm-video-edit-progress-bar" class="wfm-gen-progress-bar"></div>
