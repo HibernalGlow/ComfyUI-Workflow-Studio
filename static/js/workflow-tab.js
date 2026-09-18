@@ -31,6 +31,7 @@ const state = {
     groupFilter: "", // empty = all groups
     currentPage: 0,
     showBatchOnly: false,
+    sortBy: localStorage.getItem("wfm_workflow_sort") || "date_desc",
 };
 
 
@@ -449,6 +450,26 @@ function filterWorkflows() {
     });
 }
 
+function sortWorkflows(list) {
+    const sorted = [...list];
+    switch (state.sortBy) {
+        case "date_asc":
+            sorted.sort((a, b) => a.mtime - b.mtime);
+            break;
+        case "name_asc":
+            sorted.sort((a, b) => a.filename.localeCompare(b.filename));
+            break;
+        case "name_desc":
+            sorted.sort((a, b) => b.filename.localeCompare(a.filename));
+            break;
+        case "date_desc":
+        default:
+            sorted.sort((a, b) => b.mtime - a.mtime);
+            break;
+    }
+    return sorted;
+}
+
 // ============================================
 // Grid Rendering (3 view modes)
 // ============================================
@@ -459,7 +480,7 @@ function renderGrid() {
 
     grid.className = `wfm-grid wfm-view-${state.viewMode}`;
 
-    const filtered = filterWorkflows();
+    const filtered = sortWorkflows(filterWorkflows());
 
     if (filtered.length === 0) {
         grid.innerHTML =
@@ -1361,6 +1382,16 @@ export function initWorkflowTab() {
     // Toolbar: group filter dropdown
     document.getElementById("wfm-group-filter")?.addEventListener("change", (e) => {
         state.groupFilter = e.target.value;
+        state.currentPage = 0;
+        renderGrid();
+    });
+
+    // Toolbar: sort dropdown
+    const sortSel = document.getElementById("wfm-sort");
+    if (sortSel) sortSel.value = state.sortBy;
+    sortSel?.addEventListener("change", (e) => {
+        state.sortBy = e.target.value;
+        localStorage.setItem("wfm_workflow_sort", state.sortBy);
         state.currentPage = 0;
         renderGrid();
     });
