@@ -1133,6 +1133,247 @@ test("pipeline: a style is applied before wildcards expand", async () => {
         wildcard.clearWildcardCache("qual");
     }
 });
+// ===========================================================================
+// client — the `/prompt` + WebSocket half of parity row 3. `core/client.js` is a bare
+// re-export of upstream `static/js/comfyui-client.js` (A1 keeps it byte-identical), so
+// these tests pin the contract our own pipeline.js and batch.js are built on: what
+// `generate()` sends, what it resolves with, and how every failure mode surfaces.
+// ===========================================================================
+class FakeSocket {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSING = 2;
+    static CLOSED = 3;
+    static last = null;
+
+    constructor(url = "ws://test/ws?clientId=x") {
+        this.url = url;
+        // CONNECTING first: `connectWebSocket()` only wires onopen/onclose on the socket it builds
+        // itself, and the disconnect path under test needs that wiring to be real.
+        this.readyState = FakeSocket.CONNECTING;
+        this.listeners = new Map();
+        FakeSocket.last = this;
+        queueMicrotask(() => this.fireOpen());
+    }
+
+    fireOpen() {
+        this.readyState = FakeSocket.OPEN;
+        this.onopen?.();
+        this.emit("open", "");
+    }
+
+    addEventListener(type, fn) {
+        if (!this.listeners.has(type)) this.listeners.set(type, []);
+        this.listeners.get(type).push(fn);
+    }
+
+    removeEventListener(type, fn) {
+        this.listeners.set(type, (this.listeners.get(type) || []).filter((f) => f !== fn));
+    }
+
+    close() {
+        this.readyState = FakeSocket.CLOSED;
+        this.onclose?.();
+    }
+
+    emit(type, payload) {
+        const data = typeof payload === "string" ? payload : JSON.stringify(payload);
+        for (const fn of [...(this.listeners.get(type) || [])]) fn({ data });
+    }
+}
+
+const PID = "pid-1";
+
+function stubComfyServer(outputs) {
+    routes.set("/prompt", () => json({ prompt_id: PID, number: 1, node_errors: {} }));
+    routes.set(`/history/${PID}`, () => json({ [PID]: { outputs } }));
+}
+
+const ONE_IMAGE = { "9": { images: [{ filename: "a.png", subfolder: "s", type: "output" }] } };
+
+async function withComfy(socket, fn) {
+    const keys = ["socket", "baseUrl", "wsUrl", "generating", "currentPromptId", "connected"];
+    const saved = Object.fromEntries(keys.map((k) => [k, comfyUI[k]]));
+    const savedWS = globalThis.WebSocket;
+    globalThis.WebSocket = FakeSocket;
+    Object.assign(comfyUI, { socket, baseUrl: "", wsUrl: "ws://test", generating: false, currentPromptId: null, connected: true });
+    try {
+        return await fn();
+    } finally {
+        for (const k of keys) comfyUI[k] = saved[k];
+        comfyUI._pendingTrackers.clear();
+        if (savedWS === undefined) delete globalThis.WebSocket;
+        else globalThis.WebSocket = savedWS;
+    }
+}
+
+/** Wait until trackProgress() has attached, so a message cannot be emitted into the gap. */
+async function awaitTracker() {
+    for (let i = 0; i < 500 && comfyUI._pendingTrackers.size === 0; i++) await new Promise((r) => setTimeout(r, 1));
+    assert.ok(comfyUI._pendingTrackers.size > 0, "the prompt tracker is registered before messages are sent");
+}
+
+test("client: generate() posts /prompt with the client id and the workflow as extra_pnginfo", () => {
+    const socket = new FakeSocket();
+    stubComfyServer(ONE_IMAGE);
+    const wf = { "3": { class_type: "KSampler", inputs: { seed: 0, steps: 20 } } };
+    return withComfy(socket, async () => {
+        const p = comfyUI.generate(wf, { seedMode: "fixed", seedValue: 777 });
+        await awaitTracker();
+        socket.emit("message", { type: "executing", data: { prompt_id: PID, node: null } });
+        const res = await p;
+        const post = callsTo("/prompt")[0];
+        assert.equal(post.method, "POST");
+        assert.equal(post.body.client_id, comfyUI.clientId);
+        assert.equal(post.body.prompt["3"].class_type, "KSampler", "the API graph is what is queued");
+        assert.equal(post.body.extra_data.extra_pnginfo.workflow["3"].inputs.seed, 777,
+            "SaveImage embeds the executed workflow, seed included, into the PNG");
+        assert.deepEqual(res.images, [{ filename: "a.png", subfolder: "s", type: "output" }]);
+        assert.equal(res.seed, 777);
+        assert.deepEqual(res.svgOutputs, [], "no Save SVG String node means an empty list, not undefined");
+        assert.equal(comfyUI.currentPromptId, PID);
+        assert.equal(comfyUI.generating, false, "the flag is cleared on the success path too");
+    });
+});
+
+test("client: the seed is stamped in place into seed and noise_seed", () => {
+    const socket = new FakeSocket();
+    stubComfyServer({});
+    const wf = {
+        "3": { class_type: "KSampler", inputs: { seed: 0, noise_seed: 1, steps: 20 } },
+        "4": { class_type: "EmptyLatentImage", inputs: { batch_size: 1 } },
+    };
+    return withComfy(socket, async () => {
+        const p = comfyUI.generate(wf, { seedMode: "fixed", seedValue: 4242 });
+        await awaitTracker();
+        socket.emit("message", { type: "executing", data: { prompt_id: PID, node: null } });
+        const res = await p;
+        assert.equal(res.seed, 4242);
+        assert.deepEqual(res.images, [], "a history with no outputs is a clean run, not an error");
+        assert.equal(wf["3"].inputs.seed, 4242);
+        assert.equal(wf["3"].inputs.noise_seed, 4242, "both spellings get the same seed");
+        assert.equal(wf["4"].inputs.batch_size, 1, "nodes without a seed are untouched");
+    });
+});
+
+test("client: random seed mode ignores the supplied value and picks one", () => {
+    const socket = new FakeSocket();
+    stubComfyServer(ONE_IMAGE);
+    return withComfy(socket, async () => {
+        const p = comfyUI.generate({ "3": { inputs: { seed: 5 } } }, { seedMode: "random", seedValue: 999 });
+        await awaitTracker();
+        socket.emit("message", { type: "executing", data: { prompt_id: PID, node: null } });
+        const res = await p;
+        assert.notEqual(res.seed, 999);
+        assert.ok(Number.isInteger(res.seed) && res.seed >= 0, `got ${res.seed}`);
+        assert.equal(res.images.length, 1);
+    });
+});
+
+test("client: progress messages reach the callback as value/max, other prompts are ignored", () => {
+    const socket = new FakeSocket();
+    stubComfyServer(ONE_IMAGE);
+    const seen = [];
+    return withComfy(socket, async () => {
+        const p = comfyUI.generate({ "3": { inputs: {} } }, { onProgress: (pct) => seen.push(pct) });
+        await awaitTracker();
+        socket.emit("message", { type: "progress", data: { prompt_id: "someone-else", value: 9, max: 10 } });
+        socket.emit("message", { type: "progress", data: { prompt_id: PID, value: 1, max: 10 } });
+        socket.emit("message", { type: "progress", data: { prompt_id: PID, value: 7, max: 10 } });
+        assert.deepEqual(seen, [0.1, 0.7], "only our own prompt drives the bar");
+        socket.emit("message", { type: "executing", data: { prompt_id: "someone-else", node: null } });
+        assert.equal(comfyUI._pendingTrackers.size, 1, "another job finishing must not resolve ours");
+        socket.emit("message", { type: "executing", data: { prompt_id: PID, node: "5" } });
+        assert.equal(comfyUI._pendingTrackers.size, 1, "a mid-run node is not the end");
+        socket.emit("message", { type: "executing", data: { prompt_id: PID, node: null } });
+        await p;
+        assert.equal(comfyUI._pendingTrackers.size, 0, "the tracker is removed once settled");
+    });
+});
+
+test("client: a malformed or unknown message shape cannot settle the run", async () => {
+    const socket = new FakeSocket();
+    stubComfyServer(ONE_IMAGE);
+    await withComfy(socket, async () => {
+        const p = comfyUI.generate({ "3": { inputs: {} } });
+        p.catch(() => { /* the abort below is the expected end */ });
+        await awaitTracker();
+        socket.emit("message", "not json at all");
+        socket.emit("message", { type: "progress", data: { prompt_id: PID, max: 0 } });
+        socket.emit("message", { type: "status", data: { status: {} } });
+        assert.equal(comfyUI._pendingTrackers.size, 1, "none of the above resolves or rejects the promise");
+        socket.emit("message", { type: "execution_error", data: { prompt_id: PID, exception_message: "CUDA out of memory" } });
+        await assert.rejects(p, /CUDA out of memory/);
+    });
+});
+
+test("client: an interrupt and a dropped socket both reject a hanging run", async () => {
+    for (const [label, expected, drop] of [
+        ["execution_interrupted", /Execution interrupted/, false],
+        ["websocket close", /WebSocket disconnected/, true],
+    ]) {
+        stubComfyServer(ONE_IMAGE);
+        // null = let connectWebSocket() build the socket, so its onclose wiring is the real one.
+        await withComfy(null, async () => {
+            const p = comfyUI.generate({ "3": { inputs: {} } });
+            await awaitTracker();
+            const socket = FakeSocket.last;
+            assert.ok(socket instanceof FakeSocket, "the client opened the connection itself");
+            if (drop) socket.close();
+            else socket.emit("message", { type: "execution_interrupted", data: { prompt_id: PID } });
+            await assert.rejects(p, expected, `${label} must surface as a rejection`);
+            assert.equal(comfyUI.generating, false, "and the busy flag must not stay set");
+            assert.equal(comfyUI._pendingTrackers.size, 0, "and the tracker must be dropped");
+        });
+    }
+});
+
+test("client: the timeout is a real safety valve, not a stuck promise", async () => {
+    const socket = new FakeSocket();
+    stubComfyServer(ONE_IMAGE);
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+        await withComfy(socket, async () => {
+            const started = Date.now();
+            const p = comfyUI.generate({ "3": { inputs: {} } }, { timeoutMs: 40 });
+            await awaitTracker();
+            await assert.rejects(p, (err) => /Generation timed out/.test(err.message) && err.message.includes(PID));
+            assert.ok(Date.now() - started >= 35, "it waited for the window rather than failing instantly");
+        });
+    } finally {
+        console.warn = warn;
+    }
+});
+
+test("client: an HTTP rejection from /prompt carries the server's own message", async () => {
+    const socket = new FakeSocket();
+    routes.set("/prompt", () => json({ error: { type: "invalid_prompt", message: "No checkpoint selected" } }, 400));
+    await withComfy(socket, async () => {
+        await assert.rejects(
+            comfyUI.generate({ "3": { inputs: {} } }),
+            /No checkpoint selected/,
+            "the validation error the user needs, not a bare HTTP 400",
+        );
+    });
+});
+
+test("client: svgOutputs repairs the character array ComfyUI hands back", async () => {
+    const socket = new FakeSocket();
+    stubComfyServer({
+        "9": { images: [{ filename: "v.svg", type: "output" }] },
+        "12": { saved_svg: ["v", ".", "s", "v", "g"], path: "/tmp/v.svg" },
+    });
+    await withComfy(socket, async () => {
+        const p = comfyUI.generate({ "3": { inputs: {} } });
+        await awaitTracker();
+        socket.emit("message", { type: "executing", data: { prompt_id: PID, node: null } });
+        const res = await p;
+        assert.deepEqual(res.svgOutputs, [{ filename: "v.svg", path: "/tmp/v.svg" }]);
+        assert.equal(res.images.length, 1, "images and svg outputs are collected independently");
+    });
+});
+
 test("presets: list, save, apply and delete hit the documented routes", async () => {
     routes.set("/api/wfm/gen_presets", ({ init }) => json(
         (init.method || "GET") === "GET" ? [{ id: "p1", name: "Anima 20" }] : { status: "ok", preset: { id: "p1" } },
