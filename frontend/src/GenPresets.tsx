@@ -4,9 +4,10 @@
  *
  * The payload is built by `core/presets.js`, not here: the shape has to match what
  * `py/services/gen_presets_service.py` reads back, and that contract is asserted in the unit
- * tests rather than guessed at the call site. `storyLoras` is optional because the card is
- * mounted both in Settings (no story context, so an empty LoRA list) and in Generate (the active
- * chips get stored, as in the old UI).
+ * tests rather than guessed at the call site. `storyLoras` is a prop because the only mount so
+ * far (Settings) has no story context and therefore stores sampler settings only; mounting the
+ * card where the story chips live is what feeds `loras`, matching the old UI's widget in the
+ * Generate tab.
  */
 
 import { useCallback, useEffect, useState, type ReactElement } from "react";
@@ -16,6 +17,7 @@ import {
     MdFilledButton,
     MdOutlinedButton,
     MdOutlinedCard,
+    MdLinearProgress,
     MdOutlinedTextField,
     MdIcon,
 } from "./md.js";
@@ -82,16 +84,20 @@ function samplerSnapshot(workflow: Dict | null): string {
 export function GenPresetsCard({ storyLoras = null }: { storyLoras?: Dict[] | null }): ReactElement | null {
     const snackbar = useSnackbar();
     const [presets, setPresets] = useState<Dict[]>([]);
+    const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
     const [busy, setBusy] = useState<string | null>(null);
-    const [form, setForm] = useState<FormState>(EMPTY_FORM);
     const [saving, setSaving] = useState(false);
+    const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
     const load = useCallback(async (): Promise<void> => {
+        setStatus("loading");
         try {
             const list = await api.listGenPresets();
             setPresets(Array.isArray(list) ? (list as Dict[]) : []);
+            setStatus("ready");
         } catch {
             setPresets([]);
+            setStatus("error");
         }
     }, []);
 
@@ -177,15 +183,17 @@ export function GenPresetsCard({ storyLoras = null }: { storyLoras?: Dict[] | nu
         }
     };
 
-    if (presets.length === 0) return null;
-
+    // Upstream keeps the whole bar visible when there is nothing to pick (`fetchGenPresets`
+    // swallows the error and the select simply shows its placeholder), and its "save current"
+    // button is always there. Hiding the card on an empty or failed list would take the entry
+    // point away precisely when the user needs it, so the card renders in every state.
     const lorasToStore = loraCore.activeLoras(storyLoras);
 
     return (
         <MdOutlinedCard>
             <div className="nu-card__head">
                 <h2 className="nu-card__title">{tr("nu.settings.presets", "Generation presets")}</h2>
-                <span className="nu-muted">{presets.length}</span>
+                {status === "ready" ? <span className="nu-muted">{presets.length}</span> : null}
                 <MdFilledButton onClick={() => setSaving(true)}>
                     <MdIcon slot="icon">save</MdIcon>
                     {tr("nu.presets.saveCurrent", "Save current setup")}
@@ -193,6 +201,25 @@ export function GenPresetsCard({ storyLoras = null }: { storyLoras?: Dict[] | nu
             </div>
             <MdDivider />
             <div className="nu-card__body">
+                {status === "loading" ? (
+                    <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} />
+                ) : null}
+                {status === "error" ? (
+                    <div className="nu-row">
+                        <span className="nu-muted">
+                            {tr("nu.presets.loadFailed", "The preset list could not be read from this server.")}
+                        </span>
+                        <MdOutlinedButton onClick={() => void load()}>
+                            <MdIcon slot="icon">refresh</MdIcon>
+                            {tr("nu.action.retry", "Retry")}
+                        </MdOutlinedButton>
+                    </div>
+                ) : null}
+                {status === "ready" && presets.length === 0 ? (
+                    <p className="nu-muted">
+                        {tr("nu.presets.noneYet", "No presets stored yet. Save the current sampler settings to create one.")}
+                    </p>
+                ) : null}
                 {presets.map((preset) => {
                     const id = String(preset?.id ?? "");
                     const description = String(preset?.description ?? "");

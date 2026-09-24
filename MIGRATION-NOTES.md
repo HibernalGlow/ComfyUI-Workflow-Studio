@@ -244,8 +244,52 @@ against a dropped tunnel, so it was run a third time behind the liveness gate �
 why the void pass above looked finished. It now returns the row list when the last view is done,
 and throws up front if `/system_stats` does not answer.
 
+#### The presets card has states now — and why it had to
+
+`GenPresetsCard` used to `return null` while its list was empty, which silently swallowed the
+whole control (including the save entry point) in three situations: the first paint before
+`GET /api/wfm/gen_presets` answered, a failed read, and an actually-empty store. Upstream's
+widget does the opposite — `initGenPresetsWidget` renders the bar unconditionally,
+`fetchGenPresets` swallows errors into `[]`, and 保存当前 is present regardless — so hiding it was
+a fidelity regression I introduced, and it is exactly what produced the "no presets card on a
+fresh origin" observation logged in §6 below.
+
+Now: loading renders a labelled `md-linear-progress`; a failed read renders the reason plus a
+Retry button; an empty store says so and still offers Save; rows render as before. Verified in
+the browser by swapping `window.fetch` for scripted responses and remounting the card between
+each case, which is the only way to reach these states while the compute box is down:
+
+| State | Observed in the DOM |
+|---|---|
+| loading | card present, 1 `md-linear-progress`, Save button present |
+| error (scripted 500) | "The preset list could not be read from this server." + a Retry button, Save still present |
+| empty (`[]`) | count `0` + "No presets stored yet. Save the current sampler settings to create one." |
+| one row | count `1` + that preset's Apply and Delete buttons |
+
+Still open on this change: an axe re-pass over the *new* states. Two attempts to load
+`axe.min.js` and run it in this session timed out because the tab is hidden (its timers and
+`requestAnimationFrame` are throttled, which is the same effect §5.1's note 3 records for
+transitions), so the accessibility verdict for the loading/error markup is *not yet measured* —
+the earlier 7-route/0-violation result covers the built bundle before this card change.
+
+#### The compute box became unreachable mid-verification, and what that does and does not explain
+
+`ssh -L 8188:…` was listening locally and `netstat` on the box still showed ComfyUI `LISTENING`
+on PID 23176, yet `GET http://127.0.0.1:8188/system_stats` hung for its whole 12 s timeout and
+the same request through `:8000` and `:8002` hung too. Static hosting was unaffected
+(`:8000/wfm_static/newui.html` → 200), so this is the box or the tunnel's data channel, not the
+frontend and not the bridge. Consequences, stated plainly: no write round trip could be
+completed after that point, and any "the card shows loading" observation in the table above is
+partly a product of it. Nothing on the box was restarted, interrupted, or probed with a
+state-changing request.
+
+One stray process of mine is still running: the reverse-forward tunnel (pid 71683). The
+`:8002` probe bridge was stopped (`/bin/kill 86927`, port confirmed closed).
+
 Explicitly out of scope per brief §5: Nodes, Image Edit, Video, Tagger, Metadata, AI TOOL,
 Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view.
+
+
 
 #### axe-core pass — same day, on the live backend
 
