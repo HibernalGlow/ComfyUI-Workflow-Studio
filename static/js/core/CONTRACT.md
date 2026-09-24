@@ -146,6 +146,18 @@ export async function runGeneration(opts)
   `wfm_models_view`.
 - `image.js` — `blob → dataURL`, output-directory discovery, result-metadata persistence.
   Must run in Node without a DOM global: no `FileReader`, no `canvas`. Parity item 9.
+  The parts callers may not rediscover by accident:
+  - `saveGeneratedImagesMeta(images, workflow, {outputDir})` writes metadata for **`type === "output"`
+    entries only** (`temp` previews are not artifacts), posts `{path, workflow}` to
+    `/wfm/gallery/image/meta` (note: no `/api` prefix), builds `path` as
+    `<normalized dir>/<subfolder>/<filename>`, counts a failing write into `{saved, failed}`
+    instead of throwing, and issues **zero** requests when no directory can be resolved.
+  - `normalizeOutputDir` converts `\` to `/` and strips one trailing slash — the view must apply
+    the same function to its live `wfm-output-dir-changed` value, or the two paths diverge.
+  - `applyDefaultCheckpointIfEnabled(workflow)` mutates **in place** and must run before
+    `comfyWorkflow.analyzeWorkflow()`; it rewrites `ckpt_name` on `*CheckpointLoader*`,
+    `"Checkpoint Loader"` and `"ImageMetadataPromptLoader"`, returns the applied name or `null`,
+    and swallows a settings-fetch failure.
 
 ---
 
@@ -198,6 +210,20 @@ core module in Node, asserts each `api.<name>` a core module calls is actually e
 `api.js`, resolves `index.js`, and verifies that no newui module imports anything except
 `core/index.js` and its own tree. `check-newui.sh` performs the literal-text gates the brief
 specifies, so the two overlap on purpose — a rule that only one of them catches is still caught.
+
+Two harness pieces in `core.test.mjs` are worth reusing rather than reinventing:
+
+- **`FakeSocket` + `withComfy(null, fn)` + `awaitTracker()`** — the way to test anything that goes
+  through `comfyUI.generate()`. Passing `null` lets upstream's `connectWebSocket()` build the
+  socket, so its `onopen`/`onclose` wiring is real; `awaitTracker()` waits for
+  `_pendingTrackers` to gain the prompt before a message is emitted, which is what keeps the test
+  from racing the `POST /prompt` round trip. Emit `executing` with `node: null` to finish a run.
+- **`routes.set(path, handler)` + `callsTo(path)`** — the fetch stub matches exact pathnames and
+  answers 404 for anything unregistered, so an unstubbed route surfaces as a thrown request rather
+  than a silent pass.
+
+`core/client.js` itself is a re-export, so its tests assert **upstream's** contract; keep them
+truthful after any upstream sync instead of deleting them when a hash gate goes red.
 
 Node unit tests for the pure modules live in `tools/core-tests/` and run with
 `node --test tools/core-tests/` (no packaging step, no `package.json` change — keeping that
