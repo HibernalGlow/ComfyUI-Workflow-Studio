@@ -163,15 +163,16 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | m3-light contrast, all 6 views | ok — 0 failures, worst 5.81:1 (287 text samples, same coverage) |
 | audit armed, foreground side | ok — forcing `.nu-rail__item{color:#cac4d0}` in m3-light gives 5 failures at 1.46:1 naming the right icons; removing it gives 0 again |
 | audit armed, background side | ok — forcing `.nu-rail{background:primary}` gives 5 failures at 1.45:1 |
-| tab order | ok — DOM order, no positive `tabindex`, no `role=button` outside the native focus order |
+| tab order | ok — DOM order, no positive `tabindex`, no `role=button` outside the native focus order, on all 6 views |
 | visible focus ring | ok — a *real* Tab puts a `2px solid primary` outline on the rail item and `:focus-visible` matches |
-| accessible names | ok — rail items read 工作流/生成UI/模型/提示词/图库/设置, header buttons carry `aria-label` |
+| accessible names | ok — 0 unnamed focusable controls on every view after labelling the Workflow JSON editor (it was a bare `<textarea class="nu-code">`, which the sweep caught as the single nameless control) |
+| keyboard reach of the loaded parameter form | ok — all 62 fields (50 text fields, 9 selects, 3 switch rows) are reachable: every material-web host reports `delegatesFocus: true` with a focusable inside, and focusing it yields `md-outlined-text-field>input` |
+| console | clean — a fresh load swept over all 6 views reported **zero** console messages (no errors, no warnings, no failed requests). An earlier run showed only HTTP-level noise: `404` on `/api/wfm/models/preview` for models with no stored preview (the grid falls back to the `image_not_supported` placeholder), and `502` during the tunnel blip below |
 | rollback entry | ok — the header's "Open the previous interface" reaches `/wfm`, which still mounts `js/app.js` with its own tab strip |
 | dialog focus trap | ok — with `md-dialog` open, Tab from the **last** control (Save) wrapped to the dialog's own input; focus never escaped |
 | dialog focus restore | was **broken**, now ok — Escape used to leave focus on `<body>`; `dialogs.tsx` now hands focus back to the opener after teardown (see §6) |
-| console | no JS exceptions. Only HTTP-level noise: `404` on `/api/wfm/models/preview` for models that have no stored preview (the grid falls back to the `image_not_supported` placeholder, which is why those icons are there), and `502` during the tunnel blip below |
 | parity item 1 — workflow JSON → parameter form | ok — `Anima文生图.json` and `Anima批量图像出图.json` each yield 44 node sections / 94 editable fields, of which 58 are server-constrained (29 `md-outlined-select` combos, 29 ranged numbers, 8 multiline textareas) |
-| brief §6 12-row parity table | **partly closed** — rows 1, 5, 6 are measured or unit-covered and row 2 is upstream code reused unchanged (gate A1); rows 3, 8, 9 and 12 need real generation runs (GPU time on the compute box), which were not started without the user's go-ahead |
+| brief §6 12-row parity table | see §5.2 for the per-row ledger — 8 rows closed, 3 gated on a generation run, 1 on a server restart |
 | Models' 18 items (brief §4) | ok for the ones a browser can reach — 8 type tabs (Checkpoint/LoRA/VAE/ControlNet/UNET/TextEncoder/Hypernetwork/Embedding), switching to LoRA loads 48 cards; grid⇄table toggle renders the 9 sortable columns (fav/filename/subdir/civtype/basemodel/ext/tags/memo/enabled) and persists `nu_models_view`; ★ filter, select-mode (checkboxes appear), per-card Batch/Stack chips, detail panel with subdir·ext line, "+ group…", Apply to Generate, Civitai and disable all observed live |
 
 Coverage note: an earlier pass of this table ran while `127.0.0.1:8188` was refusing
@@ -200,6 +201,13 @@ again:
    the colour part-way between themes — serialised as `oklab(…)`, unlike the `lab(…)` tokens —
    and reported the *previous* theme indefinitely. Inject `transition:none; animation:none` for
    the duration of the audit and wait on timers, never on `rAF`.
+
+4. **A material-web host is not the tab stop.** `md-outlined-text-field` and `md-outlined-select`
+   report `tabIndex === -1` on the host and delegate focus into their shadow tree, so a
+   "count the focusables" sweep saw 9 controls on a view holding 62 editable fields. Reachability
+   is real (all 59 hosts have `delegatesFocus: true` with a focusable inside); the filter was
+   wrong. Same class of miss as a chip sweep that queried `button` and so skipped
+   `md-filter-chip` entirely.
 
 Disabled controls are excluded per WCAG 1.4.3's exemption for inactive UI, and counted
 separately (6–8 per view) so the exemption cannot silently hide a real failure.
