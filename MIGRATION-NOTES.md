@@ -273,6 +273,16 @@ What the fixes were, and why each is more than a scanner appeasement:
 - `.nu-readout` — the workflow readout's caption is now legible instead of exempted; see §6 for
   the two dead ends tried first.
 
+Re-checked on this build (the DOM changed, so the keyboard record is not inherited): a real
+`Tab` keypress moved focus to `md-icon-button[Toggle colour scheme]`, 0 elements carry a positive
+`tabindex`, the loaded Generate form exposes 58 `input`/`textarea`/`select` stops with the disabled
+readout excluded from the chain (`inner.focus()` on it leaves `document.activeElement` on `<body>`),
+and the form took 13 s of `/object_info` (16 MB) plus a 23 s `/api/wfm/workflows` before those
+stops existed at all. One correction to an older row here: for `md-*` hosts the visible ring comes
+from the library's own `:focus-visible` overlay inside the shadow tree — `getComputedStyle(host)
+.outlineStyle` is `none` even while the control is drawn focused, so that property is not a usable
+probe for material-web components (it is correct for the native `.nu-rail__item` buttons).
+
 ---
 
 ### 5.2 Parity ledger — brief §6's 12 rows
