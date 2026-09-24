@@ -156,23 +156,26 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | Item | Result |
 |---|---|
 | 6 views mount (`#/workflow…#/settings`) | ok — each renders `.nu-view` |
-| m3-dark contrast, all 6 views | ok — 0 failures, worst 7.21:1 (255 text samples) |
-| m3-light contrast, all 6 views | ok — 0 failures, worst 5.81:1 (130 samples, **coverage is not equal to the dark pass** — see the caveat below) |
+| m3-dark contrast, all 6 views | ok — 0 failures, worst 7.21:1 (287 text samples) |
+| m3-light contrast, all 6 views | ok — 0 failures, worst 5.81:1 (287 text samples, same coverage) |
 | audit armed, foreground side | ok — forcing `.nu-rail__item{color:#cac4d0}` in m3-light gives 5 failures at 1.46:1 naming the right icons; removing it gives 0 again |
 | audit armed, background side | ok — forcing `.nu-rail{background:primary}` gives 5 failures at 1.45:1 |
 | tab order | ok — DOM order, no positive `tabindex`, no `role=button` outside the native focus order |
 | visible focus ring | ok — a *real* Tab puts a `2px solid primary` outline on the rail item and `:focus-visible` matches |
 | accessible names | ok — rail items read 工作流/生成UI/模型/提示词/图库/设置, header buttons carry `aria-label` |
 | rollback entry | ok — the header's "Open the previous interface" reaches `/wfm`, which still mounts `js/app.js` with its own tab strip |
-| dialog focus trap + restore | **not re-verified** — every flow that opens a dialog (delete / rename / model detail) needs server data, and the backend was down during this run |
-| brief §6 12-row parity table, Models' 18 items | **not verified in this run** — same reason |
+| dialog focus trap | ok — with `md-dialog` open, Tab from the **last** control (Save) wrapped to the dialog's own input; focus never escaped |
+| dialog focus restore | was **broken**, now ok — Escape used to leave focus on `<body>`; `dialogs.tsx` now hands focus back to the opener after teardown (see §6) |
+| console | no JS exceptions. Only HTTP-level noise: `404` on `/api/wfm/models/preview` for models that have no stored preview (the grid falls back to the `image_not_supported` placeholder, which is why those icons are there), and `502` during the tunnel blip below |
+| brief §6 12-row parity table | **not closed** — rows 3, 8, 9 and 12 require real generation runs (GPU time on the compute box), which were not started without the user's go-ahead |
+| Models' 18 items (brief §4) | partially — 8 types, grid+table, pagination, favourite, badges, groups, detail panel, Batch/Stack toggles and Civitai fetch are present and rendered against live data; per-item behaviour has not been walked against upstream one by one |
 
-Coverage caveat: the ComfyUI server on `127.0.0.1:8188` went down during this run (the bridge
-on `:8000` answered every API call with `502 Bad Gateway`, including `/object_info` and
-`/prompt`, while still serving the static bundle). The dark pass ran against the workflow list
-that had already loaded; by the light pass that list was empty, so `#/workflow` contributed 17
-samples instead of 142. The light-theme numbers are real but thinner — re-run both passes once
-the backend is up, and treat the parity table below as unverified until then.
+Coverage note: an earlier pass of this table ran while `127.0.0.1:8188` was refusing
+connections (the node bridge on `:8000` answered `502` for every API, including
+`/object_info` and `/prompt`, while still serving the static bundle). That pass sampled only
+17 nodes on `#/workflow` in m3-light because the list had not loaded; it was re-run after the
+backend recovered, which produced the equal 287/287 coverage above. The bridge, the SSH tunnel
+and Tailscale were all healthy — the stopped service was ComfyUI itself on the Windows box.
 
 Three rounds of the contrast audit reported failures that turned out to be artifacts of the
 audit rather than of the design. They are recorded because anyone re-measuring will hit them
@@ -203,6 +206,20 @@ Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view
 ---
 
 ## 6. Incidents worth recording
+
+- **`md-dialog` does not restore focus for a portal dialog.** The dialogs in `frontend/src/dialogs.tsx`
+  are mounted into a detached `<div class="nu-dialog-portal">` by `createRoot`, so the component's own
+  "focus what was focused before `show()`" path and our teardown fight over it. Two orderings were
+  tried and measured before the working one: restoring *before* unmount was a silent no-op, and
+  restoring *after* unmount guarded on `document.activeElement === document.body`, which React 19's
+  asynchronous `unmount()` had not yet made true. Focusing the opener after `host.remove()`, with no
+  guard, is what a real Escape keypress now confirms. Lesson: an async `unmount` makes every
+  "the DOM is gone now" assumption in the same tick wrong.
+- **Two rounds of "contrast failures" were my measurement, not the theme.** See §5.1 — shadow-painted
+  containers, slotted-text inheritance, and a backgrounded tab freezing `transition: color`. Each one
+  produced a confident-looking number (1.31:1 on every filled button; 1.47:1 on the nav icons) that
+  dissolved under a direct probe of the same element. The fix was not to trust the aggregate: re-measure
+  one element by a second method, then arm the audit by forcing a colour that *must* fail.
 
 - **Package-manager race (self-inflicted).** During the npm→pnpm migration an
   `npm install` started in the background finished *after* `pnpm install`, and rewrote the
