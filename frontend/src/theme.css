@@ -1,0 +1,399 @@
+/*
+ * App-level styling for the new UI.
+ *
+ * Component look-and-feel comes from @material/web. This file only provides
+ * (a) the M3 design tokens that material-web reads, and (b) the app shell
+ * layout the library does not cover.
+ *
+ * The tokens are the pre-existing static/css/newui/{m3-tokens,theme-m3}.css:
+ * material-web resolves colours as
+ *   var(--md-filled-button-container-color, var(--md-sys-color-primary, #6750a4))
+ * so supplying `--md-sys-color-*` is enough to retheme every component, and no
+ * sass pipeline is needed.
+ */
+
+@import "../../static/css/newui/m3-tokens.css";
+@import "../../static/css/newui/theme-m3.css";
+
+:root {
+  --nu-top-bar-height: 64px;
+  --nu-rail-width: 80px;
+  --nu-rail-width-label: 96px;
+  --nu-content-gap: 24px;
+}
+
+html,
+body,
+#nu-root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-background);
+  font: var(--md-sys-typescale-body-medium);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", sans-serif;
+}
+
+/* --- app grid ------------------------------------------------------------ */
+
+.nu-app {
+  display: grid;
+  grid-template-areas:
+    "bar bar"
+    "rail main";
+  grid-template-columns: var(--nu-rail-width) 1fr;
+  grid-template-rows: var(--nu-top-bar-height) 1fr;
+  height: 100dvh;
+}
+
+.nu-top-bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-level2);
+  z-index: 10;
+}
+
+.nu-top-bar__title {
+  font: var(--md-sys-typescale-title-large);
+  font-weight: 400;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nu-top-bar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-medium);
+}
+
+.nu-top-bar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-outline);
+}
+
+.nu-top-bar__dot--on {
+  background: var(--md-sys-color-primary);
+}
+
+.nu-top-bar__dot--off {
+  background: var(--md-sys-color-error);
+}
+
+/* --- navigation rail ----------------------------------------------------- */
+/*
+ * @material/web 2.5.0 ships md-navigation-drawer (modal/adaptive only, props
+ * `opened` + `pivot`) and md-navigation-bar (bottom). Neither is an M3
+ * Navigation Rail, so the rail is built here from the M3 spec using tokens.
+ */
+
+.nu-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--md-sys-color-surface-container);
+  overflow: hidden;
+}
+
+.nu-rail__item {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 56px;
+  min-height: 56px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.nu-rail__item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+.nu-rail__item:hover::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.nu-rail__item:focus-visible::before {
+  opacity: var(--md-sys-state-focus-opacity);
+}
+
+.nu-rail__item:active::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.nu-rail__item:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.nu-rail__icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 32px;
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+/* The M3 active indicator sits behind the icon only. */
+.nu-rail__item--active .nu-rail__icon {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.nu-rail__item--active {
+  color: var(--md-sys-color-on-surface);
+}
+
+.nu-rail__label {
+  font: var(--md-sys-typescale-label-small);
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.nu-main {
+  grid-area: main;
+  overflow: auto;
+  padding: var(--nu-content-gap);
+  scrollbar-gutter: stable;
+}
+
+/* --- generic view layout ------------------------------------------------- */
+
+.nu-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.nu-view__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.nu-view__title {
+  font: var(--md-sys-typescale-headline-small);
+  font-weight: 400;
+  margin: 0;
+}
+
+.nu-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.nu-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.nu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nu-spacer {
+  flex: 1 1 auto;
+}
+
+.nu-muted {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-small);
+}
+
+.nu-empty,
+.nu-error {
+  padding: 24px;
+  border-radius: var(--md-sys-shape-corner-md);
+  text-align: center;
+}
+
+.nu-error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+.nu-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 20px;
+  border-radius: var(--md-sys-shape-corner-sm);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  color: var(--badge-color, var(--md-sys-color-on-surface-variant));
+  background: color-mix(in srgb, var(--badge-color, var(--md-sys-color-primary)) 12%, transparent);
+  font: var(--md-sys-typescale-label-small);
+}
+
+/* --- snackbar ------------------------------------------------------------ */
+/* md-snackbar does not exist in @material/web 2.5.0, so it is implemented here. */
+
+.nu-snackbar-host {
+  position: fixed;
+  inset-inline-start: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 70;
+  pointer-events: none;
+}
+
+.nu-snackbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 288px;
+  max-width: 56vw;
+  padding: 0 12px 0 16px;
+  min-height: 48px;
+  border-radius: var(--md-sys-shape-corner-xs);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  box-shadow: var(--md-sys-elevation-level3);
+  font: var(--md-sys-typescale-body-medium);
+  pointer-events: auto;
+}
+
+.nu-snackbar__label {
+  flex: 1 1 auto;
+}
+
+/* --- data table ---------------------------------------------------------- */
+/* M3 has no table component; md-navigation-rail/table are built from tokens. */
+
+.nu-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-md);
+  background: var(--md-sys-color-surface);
+}
+
+.nu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--md-sys-typescale-body-small);
+}
+
+.nu-table th,
+.nu-table td {
+  padding: 0 16px;
+  height: 52px;
+  text-align: start;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  white-space: nowrap;
+}
+
+.nu-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-large);
+}
+
+.nu-table tbody tr:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+
+.nu-table tbody tr[data-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.nu-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.nu-table__sort:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+  border-radius: var(--md-sys-shape-corner-xs);
+}
+
+/* --- narrow viewports ---------------------------------------------------- */
+
+@media (max-width: 839px) {
+  .nu-app {
+    grid-template-columns: 56px 1fr;
+    --nu-rail-width: 56px;
+  }
+
+  .nu-rail__label {
+    display: none;
+  }
+
+  .nu-rail__icon {
+    width: 48px;
+  }
+
+  .nu-top-bar {
+    padding: 0 8px;
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

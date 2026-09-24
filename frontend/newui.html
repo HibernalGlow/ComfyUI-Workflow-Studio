@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="m3-dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workflow Studio</title>
+    <link rel="icon" href="/wfm_static/favicon.svg" type="image/svg+xml" />
+    <script>
+      // Applied before first paint: the M3 colour scheme is chosen by a
+      // [data-theme] attribute, so reading it only after React mounts would
+      // flash the wrong palette on every load.
+      try {
+        const pref = JSON.parse(localStorage.getItem("nu_theme") || "null");
+        document.documentElement.dataset.theme =
+          pref === "m3-light" ? "m3-light" : pref === "m3-dark" ? "m3-dark" : "m3-dark";
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="nu-root"></div>
+    <noscript>Workflow Studio 的新界面需要启用 JavaScript。</noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
