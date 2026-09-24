@@ -425,6 +425,48 @@ the WebSocket bookkeeping and every failure path are asserted against upstream's
 they still lack is one queued run that turns pixels (GPU time on the compute box, which needs the
 user's go-ahead), and the same applies to the run-half of 12. Everything else is machine-checked.
 
+### 5.3 Handoff — what stands, what is parked, and the exact next move
+
+Captured at the end of the session that produced commits `f637f53 … 6dc0da2` (test count 46 →
+102). Everything below is reproducible from the repo; nothing depends on this conversation.
+
+Standing state, verified in this state: `bash tools/check-newui.sh` → 26/26; `node --test
+tools/core-tests/` → 102/102; `tsc --noEmit` clean; gate A1 green, so `py/` and every
+upstream-owned file are byte-identical; `git ls-files static/newui static/newui.html` → 0, so no
+build output is committed; nothing has been pushed.
+
+Parked, in the order that unblocks the most:
+
+1. Five recorded Models fidelity gaps (§5.1's audit table). All frontend-only, all closable
+   without the compute box: table-view per-row ★/enable/Batch-Stack cells, bulk badge *remove* and
+   move-to-*new* folder, a clear-filters and a refresh control, an empty-state placeholder, and
+   Apply-to-Generate for negative prompts plus `M.civitaiUrl` and the thumbnail's Civitai-image
+   fallback.
+2. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box. The box
+   has been unreachable since ~23:20 (`:8188` answers nothing while both ends show a listener, so
+   ComfyUI on the Windows side is hung); `bash tools/live-verify.sh` re-diagnoses in seconds and
+   exits 2 until it is back. Requires the user's go-ahead for GPU time.
+3. Parity row 7's write round trip (save → apply → delete a preset) needs the `:8000` bridge
+   restarted: the long-running process predates the `Origin` rewrite in `tools/dev-server.js`, so
+   browser writes 403 there while reads work. Proven by A/B: identical `DELETE` → 403 on the old
+   process, 200 on a bridge started from current code.
+4. An axe re-pass over the presets card's new states, and any screenshot check. Both need the
+   browser tab in the foreground: a backgrounded tab throttles timers, freezes transitions and
+   `requestAnimationFrame`, offers no visible surface, and made even `axe.min.js`'s `onload`
+   exceed a 15 s call budget here.
+
+Process footprints left behind, both mine and both disposable: the reverse-forward
+`ssh -N -L 8188:127.0.0.1:8188 win30902` (pid 71683) is still up, and `static/newui/axe.min.js`
+plus `static/newui/contrast-audit.mjs` sit in the gitignored build dir, where the next
+`pnpm build` deletes them anyway.
+
+Explicitly not planned: touching `py/`, deleting or rewriting any upstream file, restarting the
+user's bridge or ComfyUI without asking, and mounting the presets card inside Generate (its
+`storyLoras` prop exists for exactly that; today it stores sampler settings only, which the card
+says out loud).
+
+
+
 ---
 
 ## 6. Incidents worth recording
