@@ -73,7 +73,7 @@ afterEach(() => {
 
 // Import AFTER the shims exist. Dynamic import caches, so this happens once.
 const core = await import("../../static/js/core/index.js");
-const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC } = core;
+const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets } = core;
 
 // ===========================================================================
 // model-constants — pure helpers (no I/O)
@@ -532,4 +532,132 @@ test("guard: hard-coded badge colours are absent from the models helpers", () =>
     assert.equal("DEFAULT_BADGE_PALETTE" in modelConstants, true);
     assert.deepEqual(modelConstants.DEFAULT_BADGE_PALETTE, {},
         "an untouched palette is empty — colours come from the user or from CSS tokens");
+});
+
+// ---------------------------------------------------------------------------
+// widgets.js — /object_info derived constraints (parity item 1 depth).
+// Fixture shapes copied from what ComfyUI actually returns for these nodes.
+// ---------------------------------------------------------------------------
+const OBJECT_INFO = {
+    KSampler: {
+        input: {
+            required: {
+                seed: ["INT", { default: 0, min: 0, max: 18446744073709551615 }],
+                steps: ["INT", { default: 20, min: 1, max: 10000, step: 1 }],
+                cfg: ["FLOAT", { default: 8.0, min: 0.0, max: 100.0, step: 0.1 }],
+                sampler_name: [["euler", "euler_ancestral", "dpmpp_2m"], {}],
+                scheduler: ["COMBO", { options: ["normal", "karras"], default: "normal" }],
+                denoise: ["FLOAT", { default: 1.0, min: 0.0, max: 1.0, step: 0.01 }],
+                model: ["MODEL", {}],
+                positive: ["CONDITIONING", {}],
+            },
+            optional: {
+                lora_name: ["COMBO", { default: "none" }],
+                batch_index: ["INT", { default: 0, min: 0, max: 10000 }],
+            },
+        },
+    },
+    CLIPTextEncode: {
+        input: {
+            required: {
+                // forceInput: a link-only socket whose type happens to be a widget type.
+                text: ["STRING", { multiline: true, default: "hello" }],
+                clip: ["CLIP", {}],
+            },
+            optional: { text_alias: ["STRING", { forceInput: true }] },
+        },
+    },
+    LTXVEmptyLatentAudio: {
+        input: {
+            required: {
+                // MultiType union: one widget slot, FLOAT preferred, INT also accepted.
+                frame_rate: ["FLOAT,INT", { default: 25, min: 1, max: 200, step: 0.5, widgetType: "FLOAT" }],
+                seconds: ["FLOAT", { default: 5, min: 0.1, max: 60 }],
+                batch_size: ["INT", { default: 1, min: 1, max: 64 }],
+            },
+        },
+    },
+};
+
+test("widgets: INT and FLOAT specs carry min/max/step/default", () => {
+    const steps = widgets.inputSpec(OBJECT_INFO, "KSampler", "steps");
+    assert.equal(steps.kind, "int");
+    assert.equal(steps.min, 1);
+    assert.equal(steps.max, 10000);
+    assert.equal(steps.default, 20);
+
+    const cfg = widgets.inputSpec(OBJECT_INFO, "KSampler", "cfg");
+    assert.equal(cfg.kind, "float");
+    assert.equal(cfg.step, 0.1);
+    assert.equal(cfg.max, 100);
+});
+
+test("widgets: both combo shapes become an option list", () => {
+    const sampler = widgets.inputSpec(OBJECT_INFO, "KSampler", "sampler_name");
+    assert.equal(sampler.kind, "combo");
+    assert.deepEqual(sampler.options, ["euler", "euler_ancestral", "dpmpp_2m"]);
+    assert.equal(sampler.default, "euler", "an option-list combo defaults to its first choice");
+
+    const scheduler = widgets.inputSpec(OBJECT_INFO, "KSampler", "scheduler");
+    assert.equal(scheduler.kind, "combo");
+    assert.deepEqual(scheduler.options, ["normal", "karras"]);
+    assert.equal(scheduler.default, "normal");
+
+    // A COMBO with no enumerable choices is still a combo, just without options.
+    const lora = widgets.inputSpec(OBJECT_INFO, "KSampler", "lora_name");
+    assert.equal(lora.kind, "combo");
+    assert.equal(lora.options, null);
+});
+
+test("widgets: link-only inputs have no widget spec", () => {
+    assert.equal(widgets.inputSpec(OBJECT_INFO, "KSampler", "model"), null);
+    assert.equal(widgets.inputSpec(OBJECT_INFO, "KSampler", "positive"), null);
+    assert.equal(widgets.inputSpec(OBJECT_INFO, "CLIPTextEncode", "clip"), null);
+    // forceInput wins over the widget-looking type, otherwise a link socket gets a field.
+    assert.equal(widgets.inputSpec(OBJECT_INFO, "CLIPTextEncode", "text_alias"), null);
+});
+
+test("widgets: STRING keeps the multiline hint", () => {
+    const text = widgets.inputSpec(OBJECT_INFO, "CLIPTextEncode", "text");
+    assert.equal(text.kind, "string");
+    assert.equal(text.multiline, true);
+    assert.equal(text.default, "hello");
+});
+
+test("widgets: a MultiType declaration occupies one widget slot", () => {
+    // Exact-matching "FLOAT,INT" against the type set would drop frame_rate and shift
+    // batch_size into its position — the bug upstream documents for this node.
+    assert.equal(widgets.widgetKindOf("FLOAT,INT"), "FLOAT");
+    const frameRate = widgets.inputSpec(OBJECT_INFO, "LTXVEmptyLatentAudio", "frame_rate");
+    assert.equal(frameRate.kind, "float");
+    assert.equal(frameRate.step, 0.5);
+
+    const names = widgets.widgetNames(OBJECT_INFO, "LTXVEmptyLatentAudio");
+    assert.deepEqual(names, ["frame_rate", "seconds", "batch_size"]);
+});
+
+test("widgets: widgetNames is schema order, required before optional", () => {
+    const ks = widgets.widgetNames(OBJECT_INFO, "KSampler");
+    assert.deepEqual(ks, ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise", "lora_name", "batch_index"],
+        "MODEL/CONDITIONING sockets are links, not widgets, so they must not appear");
+
+    const clip = widgets.widgetNames(OBJECT_INFO, "CLIPTextEncode");
+    assert.deepEqual(clip, ["text"]);
+});
+
+test("widgets: unknown classes and inputs return null instead of throwing", () => {
+    assert.equal(widgets.inputSpec(OBJECT_INFO, "NoSuchNode", "steps"), null);
+    assert.equal(widgets.inputSpec(OBJECT_INFO, "KSampler", "nope"), null);
+    assert.equal(widgets.inputSpec(null, "KSampler", "steps"), null);
+    assert.deepEqual(widgets.widgetNames(undefined, "KSampler"), []);
+});
+
+test("widgets: widgetKindOf resolves the declared shapes ComfyUI emits", () => {
+    assert.equal(widgets.widgetKindOf("INT"), "INT");
+    assert.equal(widgets.widgetKindOf("int"), "INT", "lower-case declarations still resolve");
+    assert.equal(widgets.widgetKindOf(["a", "b"]), "COMBO");
+    assert.equal(widgets.widgetKindOf("COMFY_DYNAMICCOMBO_V3"), "COMFY_DYNAMICCOMBO_V3");
+    assert.equal(widgets.widgetKindOf("LATENT"), null);
+    assert.equal(widgets.widgetKindOf("INT,LATENT"), "INT");
+    assert.equal(widgets.widgetKindOf(null), null);
 });

@@ -34,6 +34,7 @@ export * as lora from "./lora.js";
 export * as batch from "./batch.js";
 export * as models from "./models.js";
 export * as image from "./image.js";
+export * as widgets from "./widgets.js";
 
 // --- the few helpers every view needs, flattened for convenience ------------
 export { comfyUI } from "./client.js";
