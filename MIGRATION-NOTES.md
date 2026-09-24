@@ -226,6 +226,32 @@ Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view
 
 ---
 
+### 5.2 Parity ledger — brief §6's 12 rows
+
+"unit" = asserted by `node --test tools/core-tests/` (70 tests); "live" = observed in the
+browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
+upstream file is byte-identical.
+
+| # | Row | Status | Evidence |
+|---|---|---|---|
+| 1 | workflow JSON → parameter form | ok | live — 2 workflows × 44 node sections / 94 fields, 58 of them server-constrained (§5.1) |
+| 2 | UI↔API conversion reused unchanged | ok | A1, plus `core/workflow.js` being a bare `export { comfyWorkflow }` — there is no re-implementation to drift |
+| 3 | `/prompt` + WS progress 0→100% | **not verified** | needs a real generation run (GPU) |
+| 4 | storyboard → LoRA auto-inject | ok | unit — active-only payload, `POST /api/wfm/lora/apply` body `{workflow, loras}`, `auto_turbo` key mapping, blank text clears without a request, chip mutations (7 tests) |
+| 5 | Style application | ok | unit — `{prompt}` substitution vs append, enabled flag, batch override, unknown name no-op (7 tests) |
+| 6 | Wildcard expansion | ok | unit — pinned RNG, comments and blank lines, unknown token verbatim, recursion, Impact nodes skipped, no-token identity (7 tests) |
+| 7 | Gen presets store / load / apply | partly | unit — list/save/apply/delete routes, methods, verbatim bodies. The UI walk "save → reload → compare sampler params" is not done |
+| 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
+| 9 | Results land in Gallery + workflow backfill | **not verified** | needs a real generation run (GPU) |
+| 10 | Settings persist across restart | partly | unit — `updateSettings` merges into the shared `wfm_settings`, prefs stay in the `nu_` namespace, corrupt JSON degrades. Not re-checked across an actual restart |
+| 11 | Models subsystem, 18 items | ok for 17 | live — see §5.1. Item 9's batch Civitai fetch and item 18's bulk move-to-subdir were not exercised (both write to the compute box) |
+| 12 | `tools/run_typhon_test.py` untouched | ok for "untouched" | A1 — byte-identical to upstream; *running* it needs a GPU |
+
+Rows 3, 9 and the run-half of 12 are gated on one generation run; 7 and 10 each have a short
+live walk left. Everything else is machine-checked.
+
+---
+
 ## 6. Incidents worth recording
 
 - **`md-dialog` does not restore focus for a portal dialog.** The dialogs in `frontend/src/dialogs.tsx`
