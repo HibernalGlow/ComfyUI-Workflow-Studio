@@ -172,7 +172,7 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | console | no JS exceptions. Only HTTP-level noise: `404` on `/api/wfm/models/preview` for models that have no stored preview (the grid falls back to the `image_not_supported` placeholder, which is why those icons are there), and `502` during the tunnel blip below |
 | parity item 1 — workflow JSON → parameter form | ok — `Anima文生图.json` and `Anima批量图像出图.json` each yield 44 node sections / 94 editable fields, of which 58 are server-constrained (29 `md-outlined-select` combos, 29 ranged numbers, 8 multiline textareas) |
 | brief §6 12-row parity table | **partly closed** — rows 1, 5, 6 are measured or unit-covered and row 2 is upstream code reused unchanged (gate A1); rows 3, 8, 9 and 12 need real generation runs (GPU time on the compute box), which were not started without the user's go-ahead |
-| Models' 18 items (brief §4) | partially — 8 types, grid+table, pagination, favourite, badges, groups, detail panel, Batch/Stack toggles and Civitai fetch are present and rendered against live data; per-item behaviour has not been walked against upstream one by one |
+| Models' 18 items (brief §4) | ok for the ones a browser can reach — 8 type tabs (Checkpoint/LoRA/VAE/ControlNet/UNET/TextEncoder/Hypernetwork/Embedding), switching to LoRA loads 48 cards; grid⇄table toggle renders the 9 sortable columns (fav/filename/subdir/civtype/basemodel/ext/tags/memo/enabled) and persists `nu_models_view`; ★ filter, select-mode (checkboxes appear), per-card Batch/Stack chips, detail panel with subdir·ext line, "+ group…", Apply to Generate, Civitai and disable all observed live |
 
 Coverage note: an earlier pass of this table ran while `127.0.0.1:8188` was refusing
 connections (the node bridge on `:8000` answered `502` for every API, including
@@ -236,6 +236,17 @@ Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view
   asynchronous `unmount()` had not yet made true. Focusing the opener after `host.remove()`, with no
   guard, is what a real Escape keypress now confirms. Lesson: an async `unmount` makes every
   "the DOM is gone now" assumption in the same tick wrong.
+- **`md-filter-chip` fires no `input` and no `change` — so every chip handler was dead.**
+  `frontend/src/md.ts` mapped the chips with the same `{onChange:"change", onInput:"input"}`
+  table used by the real form controls, and `@lit/react` happily accepted a binding for an
+  event that never exists. `chips/internal/filter-chip.js` declares only `@fires remove` and
+  `@fires update-focus`: clicking it mutates the `selected` property and stops there. The
+  visible symptom was nothing at all — the chip lit up, the ★/Batch filters, the grid⇄table
+  toggle, select-mode and the per-card Batch/Stack toggles silently did nothing, with no
+  console error and no type error. Fixed by mapping `onInput` to `click` for that one
+  component (the native click has already run the component's own handler by the time it
+  reaches the host, so `selected` is current). `md-tabs` has the same shape (it emits
+  `change`, not `input`) but its tabs bind `onClick`, so they were never affected.
 - **`convertUiToApi()` was called without `await` in two views.** Upstream's conversion is
   `async` (it fetches `/object_info` to map widgets), so `Generate.tsx` and `Workflow.tsx` were
   storing a *Promise* as the API graph: `analyzeWorkflow(promise)` returned an empty analysis,
