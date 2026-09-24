@@ -539,6 +539,10 @@ pnpm dev                     # serve static/ + reverse-proxy ComfyUI (default ht
 pnpm test:core               # node --test tools/core-tests/
 bash tools/check-newui.sh    # every mechanical gate
 bash tools/gate-selftest.sh  # proof the gates can still go red
+bash tools/live-verify.sh    # read-only link ladder + the exact commands for what gates cannot
+                             #   reach (browser sweeps, the GPU rows, the preset round trip);
+                             #   exits 2 when the compute box is unreachable, 0 when a sweep is
+                             #   meaningful. It performs no writes and starts nothing.
 RUN_MERGE_DRY=1 bash tools/check-newui.sh
 
 # Contrast / keyboard audit (browser-side; see MIGRATION-NOTES §5.1):
