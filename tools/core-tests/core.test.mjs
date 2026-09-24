@@ -73,7 +73,7 @@ afterEach(() => {
 
 // Import AFTER the shims exist. Dynamic import caches, so this happens once.
 const core = await import("../../static/js/core/index.js");
-const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets } = core;
+const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets, lora, batch, comfyUI } = core;
 
 // ===========================================================================
 // model-constants — pure helpers (no I/O)
@@ -660,4 +660,285 @@ test("widgets: widgetKindOf resolves the declared shapes ComfyUI emits", () => {
     assert.equal(widgets.widgetKindOf("LATENT"), null);
     assert.equal(widgets.widgetKindOf("INT,LATENT"), "INT");
     assert.equal(widgets.widgetKindOf(null), null);
+});
+
+// ===========================================================================
+// lora.js — story storyboard (`LN*.txt`) matching + injection (parity item 4)
+// ===========================================================================
+const MATCHED = [
+    { name: "charA.safetensors", active: true, strength_model: 1, strength_clip: 1 },
+    { name: "styleB.safetensors", active: false, strength_model: 0.8, strength_clip: 0.8 },
+    { name: "charC.safetensors", active: true, strength_model: 0.6, strength_clip: 0.7 },
+];
+
+test("lora: the apply payload carries only the active matches", () => {
+    const payload = lora.buildApplyPayload({ "1": { class_type: "KSampler" } }, MATCHED);
+    assert.deepEqual(payload.active_loras.map((l) => l.name), ["charA.safetensors", "charC.safetensors"]);
+});
+
+test("lora: an all-inactive selection never reaches the backend", async () => {
+    routes.set("/api/wfm/lora/apply", () => json({ applied_count: 1 }));
+    const workflow = { "1": { class_type: "KSampler", inputs: {} } };
+    const res = await lora.applyLoras(workflow, [{ name: "x.safetensors", active: false }]);
+    assert.equal(res.appliedCount, 0);
+    assert.equal(res.workflow, workflow, "the untouched workflow is handed back");
+    assert.equal(callsTo("/api/wfm/lora/apply").length, 0);
+});
+
+test("lora: apply posts {workflow, loras} and returns the rewritten workflow", async () => {
+    const applied = { "7": { class_type: "LoraLoader", inputs: { lora_name: "charA.safetensors" } } };
+    routes.set("/api/wfm/lora/apply", () => json({ success: true, applied_count: 2, workflow: applied }));
+    const res = await lora.applyLoras({ "7": { class_type: "LoraLoader", inputs: {} } }, MATCHED);
+    const call = lastCall();
+    assert.equal(call.path, "/api/wfm/lora/apply");
+    assert.equal(call.method, "POST");
+    assert.deepEqual(call.body.loras.map((l) => l.name), ["charA.safetensors", "charC.safetensors"]);
+    assert.equal(call.body.workflow["7"].class_type, "LoraLoader", "the fragment itself travels to the service");
+    assert.equal(res.appliedCount, 2);
+    assert.equal(res.workflow["7"].inputs.lora_name, "charA.safetensors");
+});
+
+test("lora: loadStoryContent maps the storyboard to the positive prompt", async () => {
+    routes.set("/api/wfm/lora/match", ({ body }) => json({
+        matched_loras: MATCHED,
+        parsed_prompt: { positive_prompt: "1girl, smile", raw: body.text },
+    }));
+    const res = await lora.loadStoryContent("分镜 01：她笑了", { filename: "LN01.txt", autoTurbo: false });
+    assert.equal(res.filename, "LN01.txt");
+    assert.equal(res.positivePrompt, "1girl, smile");
+    assert.equal(res.matchedLoras.length, 3);
+    const call = lastCall();
+    assert.equal(call.body.text, "分镜 01：她笑了");
+    assert.equal(call.body.auto_turbo, false, "autoTurbo is sent under the server's snake_case key");
+});
+
+test("lora: a blank prompt clears the match without a request", async () => {
+    routes.set("/api/wfm/lora/match", () => json({ matched_loras: MATCHED }));
+    const res = await lora.matchLoras("   ");
+    assert.deepEqual(res.matchedLoras, []);
+    assert.equal(callsTo("/api/wfm/lora/match").length, 0);
+});
+
+test("lora: chip mutations match the upstream list handlers", () => {
+    const loras = MATCHED.map((l) => ({ ...l }));
+    lora.setLoraActive(loras, 1, true);
+    assert.equal(loras[1].active, true);
+
+    lora.setLoraWeight(loras, 0, "strength_model", "0.35");
+    assert.equal(loras[0].strength_model, 0.35);
+    lora.setLoraWeight(loras, 0, "strength_model", "abc");
+    assert.equal(loras[0].strength_model, 0.35, "a NaN entry is ignored, as upstream's !isNaN guard did");
+
+    lora.removeLora(loras, 0);
+    assert.deepEqual(loras.map((l) => l.name), ["styleB.safetensors", "charC.safetensors"], "later rows shift up");
+    lora.removeLora(loras, 99);
+    assert.equal(loras.length, 2, "an out-of-range index is a no-op");
+});
+
+// ===========================================================================
+// batch.js — the traversal loop (parity item 8, minus the GPU side)
+// `opts.generate` is injectable precisely so the loop can be tested without a server.
+// ===========================================================================
+function loraBatchState(names) {
+    const state = batch.createBatchState();
+    batch.setActiveBatchType(state, "lora");
+    const groupSet = batch.createGroupSet({ Batch: names });
+    groupSet.loaded = true;
+    groupSet.selected.add("Batch");
+    state.modelGroups.lora = groupSet;
+    return state;
+}
+
+async function withAnalysis(analysis, fn) {
+    const hadWorkflow = comfyUI.currentWorkflow;
+    const hadAnalysis = comfyUI.currentAnalysis;
+    comfyUI.currentAnalysis = analysis;
+    try {
+        return await fn();
+    } finally {
+        comfyUI.currentAnalysis = hadAnalysis;
+        comfyUI.currentWorkflow = hadWorkflow;
+    }
+}
+
+const LORA_ANALYSIS = { lora_nodes: [{ id: "7", is_lora_manager: true }], checkpoint_nodes: [], sampler_nodes: [], prompt_nodes: [] };
+
+test("batch: a 3-LoRA selection generates exactly three times", async () => {
+    routes.set("/api/wfm/models/metadata", () => json({}));
+    routes.set("/api/wfm/models/civitai/cache", () => json({}));
+    const seen = [];
+    const labels = [];
+    const state = loraBatchState(["a.safetensors", "b.safetensors", "c.safetensors"]);
+    const summary = await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async (opts) => { seen.push(opts); return { images: [{ src: "/view?i=1" }], seed: 42 }; },
+        onItemResult: (item) => labels.push(item),
+    }));
+    assert.equal(summary.batchType, "lora");
+    assert.equal(summary.total, 3);
+    assert.equal(summary.completed, 3);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.aborted, false);
+    assert.equal(seen.length, 3, "one generation per selected LoRA, no more");
+    assert.deepEqual(labels, ["a.safetensors", "b.safetensors", "c.safetensors"]);
+    assert.ok(seen.every((opts) => typeof opts.onProgress === "function"), "each item gets a progress callback");
+});
+
+test("batch: an empty selection skips with the upstream toast key", async () => {
+    const state = loraBatchState([]);
+    let generated = 0;
+    const summary = await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async () => { generated++; return {}; },
+    }));
+    assert.equal(generated, 0);
+    assert.equal(summary.total, 0);
+    assert.equal(summary.skipped.key, "batchNoneSelected");
+    assert.deepEqual(summary.skipped.args, ["LoRAs"], "the plural matches upstream's toast wording");
+});
+
+test("batch: a workflow without the required node skips before generating", async () => {
+    const state = loraBatchState(["a.safetensors"]);
+    const summary = await withAnalysis({ lora_nodes: [] }, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async () => ({}),
+    }));
+    assert.equal(summary.skipped.key, "modelsGenUINoNode");
+    assert.deepEqual(summary.skipped.args, ["LoRA"]);
+    assert.equal(summary.total, 0);
+});
+
+test("batch: each item rewrites the workflow before its own generation", async () => {
+    routes.set("/api/wfm/models/metadata", () => json({}));
+    routes.set("/api/wfm/models/civitai/cache", () => json({}));
+    const snapshots = [];
+    const state = loraBatchState(["a.safetensors", "b.safetensors", "c.safetensors"]);
+    const workflow = { "7": { class_type: "LoraManager", inputs: {} } };
+    const summary = await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow,
+        generate: async (opts) => { snapshots.push(JSON.stringify(opts.workflow["7"].inputs)); return { images: [], seed: 1 }; },
+    }));
+    assert.equal(summary.completed, 3);
+    assert.equal(snapshots.length, 3);
+    assert.notEqual(snapshots[0], "{}", "the applier must write the first LoRA into the node before generating");
+    assert.equal(new Set(snapshots).size, 3, "each item gets its own workflow state, not the same one three times");
+});
+
+test("batch: an explicit failure path counts the failed item", async () => {
+    routes.set("/api/wfm/models/metadata", () => json({}));
+    routes.set("/api/wfm/models/civitai/cache", () => json({}));
+    const errors = [];
+    let calls = 0;
+    const state = loraBatchState(["a.safetensors", "b.safetensors"]);
+    const summary = await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async () => { calls++; if (calls === 2) throw new Error("boom"); return { images: [], seed: 1 }; },
+        onItemError: (item, err, index, total) => errors.push({ item, message: err.message, index, total }),
+    }));
+    assert.equal(summary.total, 2);
+    assert.equal(summary.completed, 1);
+    assert.equal(summary.failed, 1);
+    assert.deepEqual(errors, [{ item: "b.safetensors", message: "boom", index: 2, total: 2 }]);
+});
+
+test("batch: abort stops the loop and the summary says so", async () => {
+    routes.set("/api/wfm/models/metadata", () => json({}));
+    routes.set("/api/wfm/models/civitai/cache", () => json({}));
+    let started = 0;
+    const state = loraBatchState(["a.safetensors", "b.safetensors", "c.safetensors"]);
+    const summary = await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async () => { started++; return { images: [], seed: 1 }; },
+        onItemResult: () => { batch.abortBatch(state, { interrupt: false }); },
+    }));
+    assert.equal(started, 1, "the loop must not start a second item after the abort");
+    assert.equal(summary.completed, 1);
+    assert.equal(summary.aborted, true);
+    assert.equal(summary.total, 3, "the total still reports the planned work");
+});
+
+test("batch: a pause holds the loop until it is resumed", async () => {
+    routes.set("/api/wfm/models/metadata", () => json({}));
+    routes.set("/api/wfm/models/civitai/cache", () => json({}));
+    const phases = [];
+    let resumed = false;
+    const state = loraBatchState(["a.safetensors", "b.safetensors"]);
+    const summary = await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async () => ({ images: [], seed: 1 }),
+        onStatus: (evt) => phases.push(evt.phase),
+        onItemResult: (item) => {
+            if (item === "a.safetensors" && !resumed) {
+                resumed = true;
+                batch.pauseBatch(state);
+                setTimeout(() => batch.resumeBatch(state), 5);
+            }
+        },
+    }));
+    assert.equal(summary.completed, 2);
+    assert.ok(phases.includes("paused"), "the pause phase is reported before the gate releases");
+    assert.equal(phases[phases.length - 1], "done");
+});
+
+test("batch: seed mode and story loras are forwarded to every generation", async () => {
+    routes.set("/api/wfm/models/metadata", () => json({}));
+    routes.set("/api/wfm/models/civitai/cache", () => json({}));
+    const seen = [];
+    const story = [{ name: "story.safetensors", active: true }];
+    const state = loraBatchState(["a.safetensors", "b.safetensors"]);
+    await withAnalysis(LORA_ANALYSIS, () => batch.runBatchGenerate(state, {
+        workflow: { "7": { class_type: "LoraManager", inputs: {} } },
+        generate: async (opts) => { seen.push(opts); return { images: [], seed: 1 }; },
+        seedMode: "increment",
+        seedValue: 7,
+        storyLoras: story,
+        autoInjectLoras: true,
+    }));
+    assert.equal(seen.length, 2);
+    assert.ok(seen.every((o) => o.seedMode === "increment" && o.seedValue === 7));
+    assert.ok(seen.every((o) => o.storyLoras === story && o.autoInjectLoras === true));
+});
+
+test("batch: a sampler run writes each value into the KSampler and keeps the last", async () => {
+    const state = batch.createBatchState();
+    batch.setActiveBatchType(state, "sampler");
+    batch.setSimpleItems(state, "samplers", ["dpmpp_2m", "euler", "euler_ancestral"]);
+    for (const name of ["euler", "dpmpp_2m", "euler_ancestral"]) state.samplers.selected.add(name);
+    const workflow = { "3": { class_type: "KSampler", inputs: { sampler_name: "euler" } } };
+    const seen = [];
+    const summary = await withAnalysis({ ...LORA_ANALYSIS, sampler_nodes: [{ id: "3" }] }, () => batch.runBatchGenerate(state, {
+        workflow,
+        generate: async (opts) => { seen.push(opts.workflow["3"].inputs.sampler_name); return { images: [], seed: 1 }; },
+    }));
+    assert.deepEqual(seen, ["dpmpp_2m", "euler", "euler_ancestral"], "the selection is traversed in sorted order");
+    assert.equal(summary.completed, 3);
+    assert.equal(workflow["3"].inputs.sampler_name, "euler_ancestral", "sampler batches leave the last value applied, like upstream");
+});
+
+// ===========================================================================
+// gen presets (parity item 7)
+// ===========================================================================
+test("presets: list, save, apply and delete hit the documented routes", async () => {
+    routes.set("/api/wfm/gen_presets", ({ init }) => json(
+        (init.method || "GET") === "GET" ? [{ id: "p1", name: "Anima 20" }] : { status: "ok", preset: { id: "p1" } },
+    ));
+    routes.set("/api/wfm/gen_presets/apply", () => json({ status: "ok", preset: { id: "p1" }, workflow: { "3": { inputs: { steps: 20 } } } }));
+    routes.set("/api/wfm/gen_presets/p1", () => json({ status: "ok", deleted: "p1" }));
+
+    const list = await api.listGenPresets();
+    assert.deepEqual(list, [{ id: "p1", name: "Anima 20" }]);
+    assert.equal(callsTo("/api/wfm/gen_presets")[0].method, "GET");
+
+    await api.saveGenPreset({ id: "p1", name: "Anima 20", steps: 20, cfg: 7 });
+    const saved = callsTo("/api/wfm/gen_presets").at(-1);
+    assert.equal(saved.method, "POST");
+    assert.deepEqual(saved.body, { id: "p1", name: "Anima 20", steps: 20, cfg: 7 }, "the preset is forwarded verbatim");
+
+    const applied = await api.applyGenPreset({ workflow: { "3": { inputs: {} } }, preset_id: "p1" });
+    assert.equal(applied.workflow["3"].inputs.steps, 20, "the sampler parameters come back on the workflow");
+    assert.equal(lastCall().path, "/api/wfm/gen_presets/apply");
+
+    await api.deleteGenPreset("p1");
+    assert.equal(lastCall().path, "/api/wfm/gen_presets/p1");
+    assert.equal(lastCall().method, "DELETE");
 });
