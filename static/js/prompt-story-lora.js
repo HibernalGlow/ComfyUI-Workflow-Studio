@@ -200,7 +200,7 @@ export async function matchPromptText(text) {
 /**
  * Render the interactive badge list of matched LoRAs
  */
-function renderMatchedLorasList() {
+export function renderMatchedLorasList() {
     const listEl = document.getElementById("wfm-story-matched-list");
     if (!listEl) return;
 
