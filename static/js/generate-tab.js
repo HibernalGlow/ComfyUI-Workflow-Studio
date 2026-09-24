@@ -13,6 +13,7 @@ import { initLabTab, refreshLabLiveDefaults } from "./lab-tab.js";
 import { getSettings, readJsonStorage, escapeHtml, getEagleSettings, saveToEagle } from "./util.js";
 import { isVideoFilename } from "./video-utils.js";
 import { storyLoraState } from "./prompt-story-lora.js";
+import { initGenPresetsWidget } from "./gen-presets.js";
 
 // ============================================
 // Gallery Metadata - ワークフロー保存
@@ -2114,6 +2115,12 @@ async function handleGenerate(workflowOverride = null, genOptions = {}) {
 export async function initGenerateTab() {
     // Default to same origin
     comfyUI.updateUrl(window.location.origin);
+
+    // Initialize Generation Presets Widget
+    const presetMount = document.getElementById("wfm-gen-preset-mount");
+    if (presetMount) {
+        initGenPresetsWidget(presetMount);
+    }
 
     // Connect button
     document.getElementById("wfm-gen-connect-btn")?.addEventListener("click", async () => {

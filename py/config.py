@@ -81,3 +81,6 @@ TAGGER_MODELS_DIR = _COMFYUI_ROOT / "models" / "tagger"
 
 # LoRA trigger & blend rules
 LORA_RULES_FILE = DATA_DIR / "lora_rules.json"
+
+# Generation / Sampler Presets
+GEN_PRESETS_FILE = DATA_DIR / "gen_presets.json"
