@@ -411,9 +411,31 @@ class LoraTriggerService:
         if not enabled_loras:
             return wf
 
-        # Check for CR LoRA Stack pattern
-        cr_stack_ids = [nid for nid, n in wf.items() if n.get("class_type") == "CR LoRA Stack"]
-        cr_apply_ids = [nid for nid, n in wf.items() if n.get("class_type") == "CR Apply LoRA Stack"]
+        # Check if UI format workflow (contains top-level 'nodes' array)
+        if isinstance(wf, dict) and "nodes" in wf and isinstance(wf["nodes"], list):
+            for n in wf["nodes"]:
+                if n.get("type") == "CR LoRA Stack":
+                    widgets = []
+                    for slot in range(3):
+                        if slot < len(enabled_loras):
+                            item = enabled_loras[slot]
+                            widgets.extend([
+                                "On",
+                                item["path"].replace("/", "\\"),
+                                float(item["model_weight"]),
+                                float(item["clip_weight"])
+                            ])
+                        else:
+                            widgets.extend(["Off", "None", 1.0, 1.0])
+                    n["widgets_values"] = widgets
+                    n["mode"] = 0
+                elif n.get("type") == "CR Apply LoRA Stack":
+                    n["mode"] = 0
+            return wf
+
+        # Check for CR LoRA Stack pattern in API-format workflow
+        cr_stack_ids = [nid for nid, n in wf.items() if isinstance(n, dict) and n.get("class_type") == "CR LoRA Stack"]
+        cr_apply_ids = [nid for nid, n in wf.items() if isinstance(n, dict) and n.get("class_type") == "CR Apply LoRA Stack"]
 
         if cr_stack_ids and cr_apply_ids:
             # Distribute into CR LoRA Stack nodes (in chunks of 3)
@@ -422,13 +444,23 @@ class LoraTriggerService:
             prev_stack_id = None
             base_id = int(cr_stack_ids[0])
 
-            # Prepare stack nodes
+            # Prepare stack nodes with collision-free IDs
             num_stacks_needed = (len(enabled_loras) + 2) // 3
-            current_id = base_id
+            existing_int_ids = []
+            for k in wf.keys():
+                try:
+                    existing_int_ids.append(int(k))
+                except (ValueError, TypeError):
+                    pass
+            next_available_id = (max(existing_int_ids) + 1) if existing_int_ids else 9000
 
             for s_idx in range(num_stacks_needed):
                 chunk = enabled_loras[s_idx * 3 : (s_idx + 1) * 3]
-                node_id_str = str(current_id)
+                if s_idx == 0:
+                    node_id_str = str(base_id)
+                else:
+                    node_id_str = str(next_available_id)
+                    next_available_id += 1
 
                 inputs: Dict[str, Any] = {}
                 if prev_stack_id is not None:
@@ -449,10 +481,10 @@ class LoraTriggerService:
 
                 wf[node_id_str] = {
                     "class_type": "CR LoRA Stack",
-                    "inputs": inputs
+                    "inputs": inputs,
+                    "_meta": {"title": f"CR LoRA Stack {s_idx + 1}"}
                 }
                 prev_stack_id = node_id_str
-                current_id += 2
 
             # Connect final stack to CR Apply LoRA Stack
             apply_node["inputs"]["lora_stack"] = [str(prev_stack_id), 0]

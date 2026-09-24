@@ -76,9 +76,13 @@ async def handle_apply_loras(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         workflow = data.get("workflow", {})
-        active_loras = data.get("active_loras", [])
+        active_loras = data.get("loras") or data.get("active_loras") or []
         updated_wf = _service.apply_loras_to_workflow(workflow, active_loras)
-        return web.json_response({"workflow": updated_wf})
+        return web.json_response({
+            "success": True,
+            "applied_count": len(active_loras),
+            "workflow": updated_wf
+        })
     except Exception as e:
         logger.error("Error applying LoRAs: %s", e)
         return web.json_response({"error": str(e)}, status=500)
