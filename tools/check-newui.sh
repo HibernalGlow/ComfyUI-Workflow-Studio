@@ -275,7 +275,9 @@ printf '\n================ %s passed, %s failed ================\n' "$PASS" "$FA
 cat <<'EOF'
 Live-browser items (brief §8 6-10) are measured and logged in MIGRATION-NOTES §5.1:
 axe-core 0 violations over 7 routes, contrast 635 samples / 12 view×theme rows / 0 failures,
-keyboard reach, console clean, old-UI rollback, Models' 18 items.
+keyboard reach, console clean, old-UI rollback, Models' 18 items, and the rail collapse
+measured at a 319px viewport (its cascade rule is a unit test; the >839px state was not
+re-measured in that session, and §5.1 says so).
 What no mechanical gate can close: parity rows 3, 9 and the run-half of 12 — a real generation
 queued on the compute box, which needs the user's go-ahead (MIGRATION-NOTES §5.2).
 EOF

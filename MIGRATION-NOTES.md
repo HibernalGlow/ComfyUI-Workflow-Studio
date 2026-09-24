@@ -70,7 +70,7 @@ written 11 times and never read), so §4 item 16 is greenfield, not a port.
 
 | Asset | Size | Fate |
 |---|---|---|
-| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **98 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
+| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **99 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
 | `static/js/core/CONTRACT.md`, `CONTRACT-api.md` | 2 docs | kept, updated to v2 gates |
 | `static/css/newui/m3-tokens.css` + `theme-m3.css` | ~890 lines | **kept and load-bearing** — they supply the `--md-sys-color-*` layer material-web falls back to |
 | `static/css/newui/{m3-layout,m3-components,newui}.css` | ~3.4k lines | discarded; the library owns component styling |
@@ -171,6 +171,7 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | keyboard reach of the loaded parameter form | ok — all 62 fields (50 text fields, 9 selects, 3 switch rows) are reachable: every material-web host reports `delegatesFocus: true` with a focusable inside, and focusing it yields `md-outlined-text-field>input` |
 | console | clean — a fresh load swept over all 6 views reported **zero** console messages (no errors, no warnings, no failed requests). An earlier run showed only HTTP-level noise: `404` on `/api/wfm/models/preview` for models with no stored preview (the grid falls back to the `image_not_supported` placeholder), and `502` during the tunnel blip below |
 | rollback entry | ok — the header's "Open the previous interface" reaches `/wfm`, which mounts `js/app.js` and renders with **live data**: all 12 upstream tabs (工作流/节点/模型/生成UI/提示词/图库/Image Edit/Video/Tagger/设置/帮助/AI TOOL), 128 workflow rows, 15 thumbnails, and its own `wfm_*` localStorage keys still in use |
+| responsive shell | measured live at a 319 px viewport: `.nu-rail` 56 px, `.nu-rail__label` computed `display: none`, icon tile 48 px, rail item 56×56, `.nu-main` 263 px, top bar 64 px, `grid-template-columns: 56px 263px`, and no horizontal document overflow. The cascade half is now a unit test (`responsive: the nav rail collapses at its declared breakpoint`): the `@media (max-width: 839px)` block must hide the labels, narrow `--nu-rail-width` to 56 px and grow the icon, while the *base* `.nu-rail__label` rule must not hide them — otherwise the breakpoint hides nothing. Armed by rewriting that one declaration to `display: revert`: the test goes red on "labels are what collapses", and the file came back byte-identical. **What is NOT measured:** the >839 px state in this session — the tab is 319 px wide, a sized `window.open` popup is blocked without a user gesture, and a hidden tab offers no screenshot surface. The earlier contrast/keyboard rows in this table were taken at a normal desktop width, so the wide layout was lived through then, not asserted now. |
 | dialog focus trap | ok — with `md-dialog` open, Tab from the **last** control (Save) wrapped to the dialog's own input; focus never escaped |
 | dialog focus restore | was **broken**, now ok — Escape used to leave focus on `<body>`; `dialogs.tsx` now hands focus back to the opener after teardown (see §6) |
 | parity item 1 — workflow JSON → parameter form | ok — `Anima文生图.json` and `Anima批量图像出图.json` each yield 44 node sections / 94 editable fields, of which 58 are server-constrained (29 `md-outlined-select` combos, 29 ranged numbers, 8 multiline textareas) |
@@ -287,7 +288,7 @@ probe for material-web components (it is correct for the native `.nu-rail__item`
 
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (98 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (99 tests); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
 upstream file is byte-identical. Two of those tests are a **cross-language route gate**: they
 parse every `request()` path/method out of `core/api.js` (93 call sites, 9 of them templated)

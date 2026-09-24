@@ -1570,6 +1570,37 @@ test("contract: every api.js request lands on a route py/routes actually registe
     assert.deepEqual(audit.unmatched, [], `${audit.unmatched.length} frontend call(s) hit a path or method the backend never registers`);
 });
 
+test("responsive: the nav rail collapses at its declared breakpoint", () => {
+    const css = readFs(REPO_ROOT + "frontend/src/theme.css", "utf8");
+    const blocks = [];
+    const re = /@media\s+([^{]+)\{/g;
+    let m;
+    while ((m = re.exec(css))) {
+        let depth = 1;
+        let i = re.lastIndex;
+        while (i < css.length && depth > 0) {
+            if (css[i] === "{") depth++;
+            else if (css[i] === "}") depth--;
+            i++;
+        }
+        blocks.push({ query: m[1].trim(), body: css.slice(re.lastIndex, i - 1) });
+    }
+    const byQuery = (needle) => blocks.find((b) => b.query.includes(needle));
+    const compact = byQuery("max-width: 839px");
+    assert.ok(compact, "the 839px rail collapse is gone from the stylesheet");
+    assert.match(compact.body, /\.nu-rail__label\s*\{[^}]*display:\s*none/, "labels are what collapses");
+    assert.match(compact.body, /\.nu-rail__icon\s*\{[^}]*width:\s*48px/, "the icon tile grows to the M3 48dp target");
+    assert.match(compact.body, /--nu-rail-width:\s*56px/, "and the grid column narrows with it");
+
+    const baseLabelRule = css.match(/\.nu-rail__label\s*\{[^}]*\}/);
+    assert.ok(baseLabelRule, "the base .nu-rail__label rule is missing");
+    assert.doesNotMatch(baseLabelRule[0], /display:\s*none/,
+        "labels must be visible by default, or the breakpoint hides nothing");
+    assert.match(css, /\.nu-app\s*\{[^}]*display:\s*grid/, "the shell is a grid, so the rail width drives the content column");
+    assert.ok(byQuery("max-width: 1100px"), "the intermediate breakpoint the card grids rely on is missing");
+    assert.ok(byQuery("prefers-reduced-motion"), "the reduced-motion block A5e confines !important to");
+});
+
 test("contract: the route gate is armed and can go red", () => {
     const routes = backendRoutes();
     assert.equal(routeMatches({ method: "GET", path: "/api/wfm/settings" }, { method: "GET", path: "/api/wfm/settings" }), true);
