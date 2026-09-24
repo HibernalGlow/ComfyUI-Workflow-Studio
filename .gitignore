@@ -14,3 +14,4 @@ VIDEO_EDIT_TAB_PLAN.md
 QWEN_CHAT_INTEGRATION_PLAN.md
 
 .DS_Store
+node_modules/

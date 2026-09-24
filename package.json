@@ -1,0 +1,16 @@
+{
+  "name": "ComfyUI-Workflow-Studio",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/HibernalGlow/ComfyUI-Workflow-Studio.git",
+  "author": "HibernalGlow <3090253564@qq.com>",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/dev-server.js",
+    "start": "node tools/dev-server.js"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}
