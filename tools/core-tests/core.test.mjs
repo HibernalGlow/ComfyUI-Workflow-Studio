@@ -1487,3 +1487,101 @@ test("presets: list, save, apply and delete hit the documented routes", async ()
     assert.equal(lastCall().path, "/api/wfm/gen_presets/p1");
     assert.equal(lastCall().method, "DELETE");
 });
+
+// ===========================================================================
+// contract — the JS -> Python boundary, cross-checked against the real registrations
+//
+// `py/` is frozen for this refactor, so every endpoint `core/api.js` calls has to already
+// exist in `py/routes/*.py`. A wrong path or method there is invisible to every other gate:
+// the request throws at runtime, the calling view catches it, and the feature is just quietly
+// dead. This gate reads both sides as source and matches them, no server needed.
+// ===========================================================================
+import { readFileSync as readFs, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const COMFY_CORE_PREFIXES = ["/object_info", "/prompt", "/history", "/view", "/upload", "/system_stats", "/ws"];
+
+function backendRoutes() {
+    const dir = REPO_ROOT + "py/routes";
+    const routes = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".py"))) {
+        const src = readFs(dir + "/" + file, "utf8");
+        for (const m of src.matchAll(/add_(get|post|put|delete|route)\(\s*["']([^"']+)["']/g)) {
+            routes.push({ method: m[1] === "route" ? "ANY" : m[1].toUpperCase(), path: m[2], file });
+        }
+    }
+    return routes;
+}
+
+function frontendCalls() {
+    const src = readFs(REPO_ROOT + "static/js/core/api.js", "utf8");
+    const exportRe = /^export\s+(?:async\s+)?(?:function|const)\s+([A-Za-z0-9_$]+)/gm;
+    const found = [];
+    const skipped = [];
+    let match;
+    while ((match = exportRe.exec(src))) {
+        const start = match.index;
+        const rest = src.slice(start + 1);
+        const next = rest.search(/^export\s+(?:async\s+)?(?:function|const)\s+/m);
+        const body = next === -1 ? src.slice(start) : src.slice(start, start + 1 + next);
+        for (const call of body.matchAll(/request\(\s*(["`])([^"`]*)\1/g)) {
+            const path = call[2];
+            const method = (body.slice(call.index, call.index + 400).match(/method:\s*"([A-Z]+)"/) || [])[1] || "GET";
+            if (!path.startsWith("/")) skipped.push(`${match[1]} -> ${path}`);
+            else found.push({ name: match[1], method, path });
+        }
+    }
+    return { found, skipped };
+}
+
+function routeMatches(call, route) {
+    if (route.method !== "ANY" && route.method !== call.method) return false;
+    const tpl = route.path.replace(/\/$/, "").split("/").filter(Boolean);
+    // A `${...}` segment on the frontend side is a wildcard, exactly like a `{name}` segment on
+    // the backend side. Segment counts must still agree: matching on prefix alone would let
+    // `/api/x/${id}/bogus` pass against `/api/x/{id}/status`, which is the whole point of the gate.
+    const segs = call.path.replace(/\/$/, "").split("/").filter(Boolean);
+    if (segs.length !== tpl.length) return false;
+    return segs.every((seg, i) => /^\{.*\}$/.test(tpl[i]) || seg.includes("${") || seg === tpl[i]);
+}
+
+function auditRoutes() {
+    const routes = backendRoutes();
+    const { found, skipped } = frontendCalls();
+    const scoped = found.filter((c) => !COMFY_CORE_PREFIXES.some((p) => c.path.startsWith(p)));
+    return {
+        routeCount: routes.length,
+        callCount: found.length,
+        skipped,
+        coreScoped: found.length - scoped.length,
+        methodsSeen: [...new Set(routes.map((r) => r.method))].sort(),
+        unmatched: scoped.filter((c) => !routes.some((r) => routeMatches(c, r))),
+    };
+}
+
+test("contract: every api.js request lands on a route py/routes actually registers", () => {
+    const audit = auditRoutes();
+    assert.ok(audit.routeCount >= 150, `found only ${audit.routeCount} backend registrations`);
+    assert.deepEqual(audit.methodsSeen, ["DELETE", "GET", "POST", "PUT"]);
+    assert.ok(audit.callCount >= 90, `only ${audit.callCount} request call sites parsed`);
+    assert.deepEqual(audit.skipped, [], "no request() call may take a computed path we cannot read");
+    assert.equal(audit.coreScoped, 0, "api.js is the Workflow-Studio layer; ComfyUI-core routes belong to client.js");
+    assert.deepEqual(audit.unmatched, [], `${audit.unmatched.length} frontend call(s) hit a path or method the backend never registers`);
+});
+
+test("contract: the route gate is armed and can go red", () => {
+    const routes = backendRoutes();
+    assert.equal(routeMatches({ method: "GET", path: "/api/wfm/settings" }, { method: "GET", path: "/api/wfm/settings" }), true);
+    assert.equal(routeMatches({ method: "POST", path: "/api/wfm/settings" }, { method: "GET", path: "/api/wfm/settings" }), false,
+        "a flipped method must not match");
+    assert.equal(routeMatches({ method: "GET", path: "/api/wfm/settins" }, { method: "GET", path: "/api/wfm/settings" }), false,
+        "a typo must not match");
+    assert.equal(routeMatches({ method: "GET", path: "/api/wfm/models/civitai/${id}/status" }, { method: "GET", path: "/api/wfm/models/civitai/{name}/status" }), true,
+        "a templated path matches on its static prefix");
+    assert.equal(routeMatches({ method: "GET", path: "/api/wfm/models/civitai/${id}/bogus" }, { method: "GET", path: "/api/wfm/models/civitai/{name}/status" }), false);
+    const audit = auditRoutes();
+    const poisoned = [...audit.unmatched, { name: "poison", method: "POST", path: "/api/wfm/nope-does-not-exist" }];
+    assert.equal(poisoned.filter((c) => !routes.some((r) => routeMatches(c, r))).length, 1,
+        "an invented route survives the audit only as an unmatched entry");
+});

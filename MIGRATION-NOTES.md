@@ -70,7 +70,7 @@ written 11 times and never read), so §4 item 16 is greenfield, not a port.
 
 | Asset | Size | Fate |
 |---|---|---|
-| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **96 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
+| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **98 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
 | `static/js/core/CONTRACT.md`, `CONTRACT-api.md` | 2 docs | kept, updated to v2 gates |
 | `static/css/newui/m3-tokens.css` + `theme-m3.css` | ~890 lines | **kept and load-bearing** — they supply the `--md-sys-color-*` layer material-web falls back to |
 | `static/css/newui/{m3-layout,m3-components,newui}.css` | ~3.4k lines | discarded; the library owns component styling |
@@ -287,9 +287,14 @@ probe for material-web components (it is correct for the native `.nu-rail__item`
 
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (96 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (98 tests); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
-upstream file is byte-identical.
+upstream file is byte-identical. Two of those tests are a **cross-language route gate**: they
+parse every `request()` path/method out of `core/api.js` (93 call sites, 9 of them templated)
+and match them segment-for-segment against the `add_get/add_post/add_put/add_delete`
+registrations in `py/routes/*.py` (151 routes), so "the backend is unchanged" is checked
+jointly with "the frontend only calls things that exist". The gate is armed inside the test
+(a flipped method, a typo, and a wrong suffix after an interpolation all have to go red).
 
 | # | Row | Status | Evidence |
 |---|---|---|---|

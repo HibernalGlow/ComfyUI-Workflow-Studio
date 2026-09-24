@@ -4,6 +4,13 @@ Reference for every export of `static/js/core/api.js` (the project's only networ
 layer for Workflow-Studio backend routes). 104 exports covering 100 of the 151
 documented endpoints.
 
+This table is machine-checked: `tools/core-tests/core.test.mjs` parses `request()` call
+sites out of `api.js` and the `add_get/add_post/add_put/add_delete` registrations out of
+`py/routes/*.py`, and fails when a path or method does not line up segment for segment
+(`93/93` call sites currently resolve, `0` computed paths). `py/` is frozen for the
+refactor, so a drift here would otherwise surface only as a runtime throw that the
+calling view swallows — a feature going quietly dead, not a red gate.
+
 ## 1. Transport contract (applies to every JSON export unless stated otherwise)
 
 | Aspect | Behaviour |
