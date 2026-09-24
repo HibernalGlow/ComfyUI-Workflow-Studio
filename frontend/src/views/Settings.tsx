@@ -213,7 +213,7 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
 
     return (
         <div className="nu-view">
-            {loading ? <MdLinearProgress indeterminate /> : null}
+            {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
 
             <SettingsCard title={tr("nu.settings.comfy", "ComfyUI connection")}>
                 <div className="nu-stack">
@@ -339,17 +339,25 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
             <SettingsCard title={tr("nu.settings.backup", "Backup & restore")}>
                 <MdDivider />
                 <div className="nu-row">
+                    {/* The anchor's label lives inside a slotted custom element, so its accessible
+                        name is stated explicitly instead of relying on name-from-content. */}
                     <a
                         className="nu-link"
                         href={api.settingsExportUrl()}
                         download
+                        aria-label={tr("nu.settings.export", "Export settings")}
                     >
                         <MdOutlinedButton>
                             <MdIcon slot="icon">download</MdIcon>
                             {tr("nu.settings.export", "Export settings")}
                         </MdOutlinedButton>
                     </a>
-                    <a className="nu-link" href={api.settingsExportFullUrl({ includeWorkflows: true })} download>
+                    <a
+                        className="nu-link"
+                        href={api.settingsExportFullUrl({ includeWorkflows: true })}
+                        download
+                        aria-label={tr("nu.settings.exportFull", "Full backup (zip)")}
+                    >
                         <MdOutlinedButton>
                             <MdIcon slot="icon">folder_zip</MdIcon>
                             {tr("nu.settings.exportFull", "Full backup (zip)")}

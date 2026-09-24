@@ -70,7 +70,7 @@ written 11 times and never read), so §4 item 16 is greenfield, not a port.
 
 | Asset | Size | Fate |
 |---|---|---|
-| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.5k lines + 46 unit tests | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
+| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **80 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
 | `static/js/core/CONTRACT.md`, `CONTRACT-api.md` | 2 docs | kept, updated to v2 gates |
 | `static/css/newui/m3-tokens.css` + `theme-m3.css` | ~890 lines | **kept and load-bearing** — they supply the `--md-sys-color-*` layer material-web falls back to |
 | `static/css/newui/{m3-layout,m3-components,newui}.css` | ~3.4k lines | discarded; the library owns component styling |
@@ -159,8 +159,10 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | Item | Result |
 |---|---|
 | 6 views mount (`#/workflow…#/settings`) | ok — each renders `.nu-view` |
-| m3-dark contrast, all 6 views | ok — 0 failures, worst 7.21:1 (287 text samples) |
-| m3-light contrast, all 6 views | ok — 0 failures, worst 5.81:1 (287 text samples, same coverage) |
+| m3-dark contrast, all 6 views, **live backend** | ok — 0 failures, worst 7.21:1 (317 text samples over 6 views) |
+| m3-light contrast, all 6 views, **live backend** | ok — 0 failures, worst 5.81:1 (318 text samples, same coverage) |
+| same audit against a **dead** backend | 276 samples, also "0 failures" — which is exactly why it is not the number of record. An empty `#/workflow` yields 18 samples, a loaded one 142 (see §6) |
+| exempted (disabled / opacity) samples, live pass | 46 across the 12 view×theme rows, counted separately so the WCAG 1.4.3 exemption cannot hide a real failure |
 | audit armed, foreground side | ok — forcing `.nu-rail__item{color:#cac4d0}` in m3-light gives 5 failures at 1.46:1 naming the right icons; removing it gives 0 again |
 | audit armed, background side | ok — forcing `.nu-rail{background:primary}` gives 5 failures at 1.45:1 |
 | tab order | ok — DOM order, no positive `tabindex`, no `role=button` outside the native focus order, on all 6 views |
@@ -232,16 +234,50 @@ loaded workflow whenever the form changes.
 Re-run after the presets card, the chip fix and the labelled JSON editor (the newest build):
 12/12 view×theme combinations clean again, 0 failures everywhere, worst 7.21:1 dark / 5.81:1
 light, and `selfTest()` still reports 0 clean vs 5 armed. The console stayed empty through the
-whole sweep.
+whole sweep. That pass measured 287 samples; the axe round below then exposed that part of it ran
+against a dropped tunnel, so it was run a third time behind the liveness gate — 635 samples,
+12/12 clean, same worst values, `selfTest()` still 0 clean / 5 armed.
+
+`run()` also used to resolve *before* the sweep finished (it launched the loop and returned
+`{started: true}`), so `await m.run()` proved nothing while `progress()` kept climbing — that is
+why the void pass above looked finished. It now returns the row list when the last view is done,
+and throws up front if `/system_stats` does not answer.
 
 Explicitly out of scope per brief §5: Nodes, Image Edit, Video, Tagger, Metadata, AI TOOL,
 Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view.
+
+#### axe-core pass — same day, on the live backend
+
+`axe-core@4.13.0` (fetched as a tarball into `/tmp`, copied into the gitignored
+`static/newui/`; `git check-ignore` proves it cannot be committed — no dependency was added to
+`package.json`) run over all 6 views plus `#/generate?workflow=Anima文生图.json`:
+
+| Stage | Result |
+|---|---|
+| first run, before any fix | 4 rule families across 7 routes: `page-has-heading-one` (7/7 routes), `aria-progressbar-name` (models, prompt), `link-name` (settings, 2 nodes), `color-contrast` (generate, the disabled readout's caption at 3.05:1) |
+| after the fixes, dead backend | 7/7 routes clean — **but this pass is void** (see §6: the tunnel had dropped, so the views were shells) |
+| after the fixes, live backend (`63` workflows, `3218` `/object_info` classes as the gate) | **7/7 routes, 0 violations** |
+| the loaded parameter form specifically | 65 controls (53 text fields, 9 selects, 3 switches) across 20 node cards, **0 violations** — the first two passes had scanned it at 3 controls because the route was given 9 s and `/object_info` alone takes 12.7 s / 16 MB on this link |
+| `axe` incompletes on the form, recorded so nobody re-investigates them | 9 × `aria-valid-attr-value`: every `md-outlined-select` carries `aria-controls="listbox"` and the listbox exists only inside the component's shadow tree while open, which axe cannot resolve. 124 × `color-contrast`: axe will not composite the shadow-painted `.background` boxes — exactly the shadow boundary the audit in §5.1 was written to cross |
+
+What the fixes were, and why each is more than a scanner appeasement:
+
+- `<h1>` — the top-app-bar title was a `<span>`; the document had no level-one heading on any
+  route, and the views' own `<h2 class="nu-card__title">` headings therefore had no parent. Now
+  exactly one `h1` per view, geometry unchanged (measured 122×28 inside the same 64 px bar).
+- `aria-label` on all 9 `md-linear-progress` usages — a progressbar with no name announces
+  nothing; each now says what is loading (`Loading`, `Civitai metadata`, `Batch progress`,
+  `Generation progress`).
+- `aria-label` on the two Settings export anchors — see §6: their visible label is slotted into a
+  `md-outlined-button`, which axe's name computation does not flatten.
+- `.nu-readout` — the workflow readout's caption is now legible instead of exempted; see §6 for
+  the two dead ends tried first.
 
 ---
 
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (70 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (80 tests); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
 upstream file is byte-identical.
 
@@ -316,6 +352,40 @@ which needs the user's go-ahead). Everything else is machine-checked.
   dissolved under a direct probe of the same element. The fix was not to trust the aggregate: re-measure
   one element by a second method, then arm the audit by forcing a colour that *must* fail.
 
+- **A whole accessibility pass was measured against a dead backend.** The first axe sweep
+  (7 routes) and a 12-combination contrast re-audit both came back "0 violations / 276 samples,
+  worst 5.81:1" and looked like a pass. They were only half real: the SSH tunnel to the compute
+  box dropped mid-session, so every view rendered its empty shell (`502` on `/object_info`,
+  `/api/wfm/workflows`, `/api/wfm/models/*`) and the "loaded workflow" route scanned a form that
+  had never loaded. Nothing in the tools complained. Detection came from the one place that does
+  not lie — counting console `502`s — and `netstat` on the box, which showed ComfyUI still
+  `LISTENING` while nothing local was forwarding. Both sweeps were re-run behind an explicit
+  liveness gate that fails the run unless `/api/wfm/workflows` and `/object_info` answer with
+  plausible counts (63 workflows / 3218 classes on this instance). Lesson, again: a green number
+  from an empty page is the cheapest green there is, so measure the *data* the page holds, not
+  just the absence of errors.
+- **Three separate traps in "just add `aria-hidden` / look at the contrast of a disabled field".**
+  (a) `aria-hidden` passed to `md-outlined-text-field` never reaches the element: the component
+  mirrors it to `data-aria-hidden` for its own notch label, so the attribute the host carries is
+  not the one assistive tech reads. (b) Wrapping the field in a real `aria-hidden` span hides the
+  *name* but not the *text*: `md-outlined-field` renders its floating label with an explicit
+  `aria-hidden="false"`, which re-exposes that one span inside a hidden subtree — and if the field
+  is only `readOnly` (not `disabled`) its inner `<input>` stays tabbable, which axe then reports as
+  `aria-hidden-focus`, a worse bug than the one being fixed. (c) MD3 draws a disabled field's
+  caption as `on-surface` at **`…-disabled-label-text-opacity`**, not as a dim colour, so
+  overriding `…-disabled-label-text-color` alone changes nothing measurable. The working form is
+  `.nu-readout` in `theme.css`, setting both the colour and the opacity for label and value, which
+  takes the caption from 3.05:1 to compliant while the outline keeps the "this is not an input"
+  signal. The general rule: material-web's look is composed of colour *and* opacity tokens per
+  state, so a state's contrast is fixed with the state's own pair, not by hiding the element.
+- **`axe` cannot compute a name through a slot, so it reports a real-looking `link-name` false
+  positive.** Two `<a class="nu-link">` elements in `Settings.tsx` wrap their label in
+  `<MdOutlinedButton>`, which renders it through `<span class="label"><slot></slot></span>` in its
+  shadow root. Both anchors carry 23 and 27 characters of `textContent`, are 166×40 and 176×40
+  pixels, and announced `passes: 0 / violations: 1` when the rule was run against the element
+  alone. `aria-label` on the anchor (same string as the visible label, so WCAG 2.5.3's
+  label-in-name still holds) makes it deterministic in both directions: AT reads it whether or not
+  it flattens slots, and the scanner agrees.
 - **Package-manager race (self-inflicted).** During the npm→pnpm migration an
   `npm install` started in the background finished *after* `pnpm install`, and rewrote the
   top level of `node_modules` in npm's layout — `vite` disappeared and the next build failed
@@ -366,5 +436,18 @@ RUN_MERGE_DRY=1 bash tools/check-newui.sh
 cp tools/contrast-audit.mjs static/newui/
 #   then in the page console:
 #   const m = await import("/wfm_static/newui/contrast-audit.mjs")
-#   await m.run();  m.progress();  m.results();  m.selfTest()
+#   await m.run();  // resolves only after the 12th row; throws if the backend is unreachable
+#   m.progress();  m.results();  m.selfTest()
+
+# axe-core (no repo dependency; fetched with `npm pack axe-core --registry=https://registry.npmmirror.com`
+# into /tmp, then copied into the gitignored build dir — prove it: `git check-ignore static/newui/axe.min.js`):
+cp axe-core/package/axe.min.js static/newui/
+#   in the page console:
+#   await new Promise((r, j) => { const s = document.createElement('script');
+#     s.src = '/wfm_static/newui/axe.min.js'; s.onload = r; s.onerror = j; document.head.appendChild(s); });
+#   for (const v of ['workflow','generate','models','prompt','gallery','settings']) {
+#     location.hash = '#/' + v; await new Promise(r => setTimeout(r, 9000));
+#     console.log(v, (await axe.run(document, { resultTypes: ['violations'] })).violations.map(x => x.id)); }
+#   # 9 s is the floor, not a guess: /object_info alone is 16 MB / ~13 s over the tunnel, and a
+#   # route scanned before that yields a confident "0 violations" over an empty shell.
 ```

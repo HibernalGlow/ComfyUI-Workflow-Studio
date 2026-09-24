@@ -326,7 +326,10 @@ export default function Generate({ params }: ViewProps): ReactElement {
     return (
         <div className="nu-view">
             <div className="nu-view__toolbar">
+                {/* Readout of the native select below: `disabled` keeps it out of the tab order,
+                    `.nu-readout` keeps its caption legible (MD3's disabled dim is 3.05:1 here). */}
                 <MdOutlinedTextField
+                    className="nu-readout"
                     label={tr("nu.generate.workflow", "Workflow")}
                     value={chosen}
                     readOnly
@@ -358,7 +361,7 @@ export default function Generate({ params }: ViewProps): ReactElement {
 
             {progress !== null ? (
                 <div className="nu-stack" aria-live="polite">
-                    <MdLinearProgress value={progress} />
+                    <MdLinearProgress value={progress} aria-label={tr("nu.generate.progress", "Generation progress")} />
                     <span className="nu-muted">{Math.round(progress * 100)}%</span>
                 </div>
             ) : null}

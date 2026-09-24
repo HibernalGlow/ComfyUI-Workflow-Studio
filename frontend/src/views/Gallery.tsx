@@ -216,7 +216,7 @@ export default function Gallery({ navigate }: ViewProps): ReactElement {
                 </div>
             ) : null}
 
-            {loading ? <MdLinearProgress indeterminate /> : null}
+            {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
 
             <div className="nu-split">
                 <MdOutlinedCard className="nu-list-panel">

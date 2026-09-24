@@ -61,6 +61,7 @@ body {
 }
 
 .nu-top-bar__title {
+  margin: 0;
   font: var(--md-sys-typescale-title-large);
   font-weight: 400;
   flex: 1 1 auto;
@@ -365,6 +366,16 @@ body {
 .nu-grow {
   flex: 1 1 auto;
   min-width: 200px;
+}
+
+/* A disabled field used as a readout: MD3 draws its label/value as on-surface at 38% opacity
+   (3.05:1 on this surface). The text here is information, not an editable control, so the
+   opacity is lifted while the disabled outline keeps the "not an input" signal. */
+.nu-readout {
+  --md-outlined-text-field-disabled-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-text-field-disabled-label-text-opacity: 1;
+  --md-outlined-text-field-disabled-input-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-text-field-disabled-input-text-opacity: 1;
 }
 
 .nu-file {

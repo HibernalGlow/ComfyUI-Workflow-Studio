@@ -183,7 +183,17 @@ const VIEWS = ["workflow", "generate", "models", "prompt", "gallery", "settings"
 const state = { done: false, at: "idle", rows: [] };
 
 /** Sweep every view in both themes. Returns immediately; poll with progress()/results(). */
-export async function run({ settleMs = 400, viewMs = 950 } = {}) {
+export async function run({ settleMs = 400, viewMs = 950, requireLive = true } = {}) {
+    // A sweep over views whose data never loaded reports "0 failures" as confidently as a real one:
+    // on this app an empty `#/workflow` yields 18 text samples and a loaded one 142. Refuse to
+    // measure a shell.
+    if (requireLive) {
+        let res = null;
+        try {
+            res = await fetch("/system_stats");
+        } catch { /* falls through to the throw below */ }
+        if (!res || !res.ok) throw new Error("backend not reachable (HTTP " + (res ? res.status : "no response") + "); the sweep would be void");
+    }
     if (!document.getElementById(FROZE_ID)) {
         const st = document.createElement("style");
         st.id = FROZE_ID;
@@ -193,7 +203,7 @@ export async function run({ settleMs = 400, viewMs = 950 } = {}) {
     state.done = false;
     state.at = "start";
     state.rows = [];
-    (async () => {
+    return (async () => {
         for (const theme of ["m3-dark", "m3-light"]) {
             document.documentElement.dataset.theme = theme;
             await wait(settleMs);
@@ -217,8 +227,8 @@ export async function run({ settleMs = 400, viewMs = 950 } = {}) {
         document.getElementById(FROZE_ID)?.remove();
         state.at = "done";
         state.done = true;
+        return results();
     })();
-    return { started: true, views: VIEWS.length * 2 };
 }
 
 export function progress() {

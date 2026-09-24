@@ -98,7 +98,7 @@ function Shell(): ReactElement {
     return (
         <div className="nu-app">
             <header className="nu-top-bar">
-                <span className="nu-top-bar__title">{tr(active.labelKey, active.label)}</span>
+                <h1 className="nu-top-bar__title">{tr(active.labelKey, active.label)}</h1>
                 <ConnectionDot connected={connected} />
                 <MdIconButton
                     aria-label={tr("nu.action.toggleTheme", "Toggle colour scheme")}
@@ -138,7 +138,7 @@ function Shell(): ReactElement {
             </nav>
 
             <main className="nu-main" id="nu-view-root">
-                <Suspense fallback={<MdLinearProgress indeterminate />}>
+                <Suspense fallback={<MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} />}>
                     <View
                         params={params}
                         navigate={navigate}

@@ -373,9 +373,12 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                 ))}
             </MdTabs>
 
-            {loading ? <MdLinearProgress indeterminate /> : null}
+            {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
             {civitaiProgress ? (
-                <MdLinearProgress value={civitaiProgress.total ? civitaiProgress.current / civitaiProgress.total : 0} />
+                <MdLinearProgress
+                    value={civitaiProgress.total ? civitaiProgress.current / civitaiProgress.total : 0}
+                    aria-label={tr("nu.models.civitaiProgress", "Civitai metadata")}
+                />
             ) : null}
 
             <div className="nu-view__toolbar">

@@ -154,7 +154,7 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
 
     return (
         <div className="nu-view">
-            {loading ? <MdLinearProgress indeterminate /> : null}
+            {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
 
             <div className="nu-view__toolbar">
                 <MdOutlinedTextField

@@ -99,7 +99,7 @@ export default function Prompt(_props: ViewProps): ReactElement {
 
     return (
         <div className="nu-view">
-            {loading ? <MdLinearProgress indeterminate /> : null}
+            {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
 
             <MdOutlinedCard>
                 <div className="nu-card__head">

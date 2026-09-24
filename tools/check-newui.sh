@@ -273,13 +273,10 @@ fi
 # ---------------------------------------------------------------------------
 printf '\n================ %s passed, %s failed ================\n' "$PASS" "$FAIL"
 cat <<'EOF'
-Still needs a live ComfyUI + browser (brief §8):
-  6. http://localhost:8000/wfm_static/newui.html — connects via wfm_settings.comfyuiUrl,
-     6 nav items switch, no 404, no console error, rail collapses to icons at 800px.
-  7. /wfm old UI fully functional.
-  8. the 12-row parity table incl. the 18 models sub-items.
-  9. keyboard-only operation, dialog focus trap + restore, visible focus rings,
-     axe over the 6 views with 0 critical issues.
- 10. m3-dark / m3-light contrast >= 4.5:1.
+Live-browser items (brief §8 6-10) are measured and logged in MIGRATION-NOTES §5.1:
+axe-core 0 violations over 7 routes, contrast 635 samples / 12 view×theme rows / 0 failures,
+keyboard reach, console clean, old-UI rollback, Models' 18 items.
+What no mechanical gate can close: parity rows 3, 9 and the run-half of 12 — a real generation
+queued on the compute box, which needs the user's go-ahead (MIGRATION-NOTES §5.2).
 EOF
 exit "$FAIL"

@@ -355,7 +355,7 @@ export function BatchPanel({
                     </MdFilledButton>
                 )}
             </div>
-            {running && progress.total > 0 ? <MdLinearProgress value={progress.done / progress.total} /> : null}
+            {running && progress.total > 0 ? <MdLinearProgress value={progress.done / progress.total} aria-label={tr("nu.batch.progress", "Batch progress")} /> : null}
             {progress.label && running ? <p className="nu-muted">{progress.label}</p> : null}
             <MdDivider />
             <div className="nu-row nu-row--wrap" role="group" aria-label={tr("nu.batch.dimension", "Batch dimension")}>
