@@ -23,7 +23,8 @@ import {
     MdChipSet,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
-import { requestApply, requestPromptAppend } from "../store.js";
+import { requestApply, requestPromptAppend, getState, touchBatch } from "../store.js";
+import { batch as B } from "core";
 import { confirmDialog, promptDialog } from "../dialogs.js";
 import {
     api,
@@ -277,11 +278,31 @@ export default function Models({ navigate }: ViewProps): ReactElement {
         }
     };
 
-    const toggleBatchGroup = (r: Record_): void => {
-        const on = !(groups.Batch || []).includes(r.name);
-        void commitGroups(M.withMembers(groups, "Batch", [r.name], on)).then(() => {
-            setGroups((g) => M.withMembers(g, "Batch", [r.name], on));
+    /**
+     * §4 item 13: Batch / Stack toggles go through core/batch.js so the Generate
+     * view's batch panel sees the same selection. The group defs are kept in sync
+     * locally for the group filter and the badge/summary rows.
+     */
+    const toggleReserved = async (groupName: string, r: Record_): Promise<void> => {
+        const result = await (groupName === "Stack" ? B.toggleStack : B.toggleBatch)(
+            getState().batch, type, r.name,
+        );
+        touchBatch();
+        setGroups((prev) => ({ ...prev, [groupName]: result.members }));
+        setDetail((d) => (d && d.name === r.name ? { ...d, groups: Object.entries({ ...groups, [groupName]: result.members })
+            .filter(([, list]) => list.includes(r.name)).map(([g]) => g) } : d));
+        snackbar.show({
+            label: `${r.base} ${result.added ? "+" : "−"} ${groupName}`,
+            actionLabel: tr("nu.batch.open", "Batch panel"),
+            onAction: () => navigate("generate"),
         });
+    };
+
+    const clearReserved = async (groupName: string): Promise<void> => {
+        const result = await (groupName === "Stack" ? B.clearStackGroup : B.clearBatchGroup)(getState().batch, type);
+        touchBatch();
+        setGroups((prev) => ({ ...prev, [groupName]: result.members }));
+        snackbar.show({ label: `${groupName} ${tr("nu.models.cleared", "cleared")}` });
     };
 
     const fetchOne = async (r: Record_): Promise<void> => {
@@ -394,6 +415,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                 </select>
                 <MdFilterChip label="★" selected={favOnly} onInput={() => setFavOnly((v) => !v)} />
                 <MdFilterChip label="Batch" selected={batchOnly} onInput={() => setBatchOnly((v) => !v)} />
+                {MC.isBatchType(type) && (groups.Batch?.length ?? 0) > 0 ? (
+                    <MdTextButton onClick={() => void clearReserved("Batch")}>
+                        {tr("nu.models.clearBatch", "clear Batch")} ({groups.Batch?.length})
+                    </MdTextButton>
+                ) : null}
+                {MC.isStackType(type) && (groups.Stack?.length ?? 0) > 0 ? (
+                    <MdTextButton onClick={() => void clearReserved("Stack")}>
+                        {tr("nu.models.clearStack", "clear Stack")} ({groups.Stack?.length})
+                    </MdTextButton>
+                ) : null}
                 <MdFilterChip
                     label={view === "thumb" ? "grid" : "table"}
                     onInput={() => switchView(view === "thumb" ? "table" : "thumb")}
@@ -469,7 +500,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                                         <MdIcon aria-hidden="true">{r.favorite ? "star" : "star_border"}</MdIcon>
                                         <MdTextButton onClick={() => void setFavorite(r)}>★</MdTextButton>
                                         <MdSwitch selected={r.enabled} aria-label="enabled" onChange={() => void setEnabled(r, !r.enabled)} />
-                                        <MdTextButton onClick={() => toggleBatchGroup(r)}>Batch</MdTextButton>
+                                        <MdFilterChip
+                                            label="Batch"
+                                            selected={(groups.Batch ?? []).includes(r.name)}
+                                            onInput={() => void toggleReserved("Batch", r)}
+                                        />
+                                        <MdFilterChip
+                                            label="Stack"
+                                            selected={(groups.Stack ?? []).includes(r.name)}
+                                            onInput={() => void toggleReserved("Stack", r)}
+                                        />
                                     </div>
                                 </MdOutlinedCard>
                             ))}
