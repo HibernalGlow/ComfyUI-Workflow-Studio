@@ -148,7 +148,7 @@ export const comfyUI = {
 
     async fetchDiffusionModels() {
         const [standard, gguf] = await Promise.all([
-            this._fetchModelList(["UNETLoader", "UnetLoaderGGUF"], "unet_name"),
+            this._fetchModelList(["UNETLoader", "UnetLoaderGGUF", "OTUNetLoaderW8A8"], "unet_name"),
             this._fetchModelList(["LoaderGGUF", "LoaderGGUFAdvanced"], "gguf_name"),
         ]);
         return [...new Set([...standard, ...gguf])];

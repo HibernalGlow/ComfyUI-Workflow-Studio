@@ -78,3 +78,6 @@ VIDEO_EDIT_PROJECT_DIR = DATA_DIR / "video_edit_project"
 TAGGER_DB_FILE = DATA_DIR / "tagger.db"
 TAGGER_SETTINGS_FILE = DATA_DIR / "tagger_settings.json"
 TAGGER_MODELS_DIR = _COMFYUI_ROOT / "models" / "tagger"
+
+# LoRA trigger & blend rules
+LORA_RULES_FILE = DATA_DIR / "lora_rules.json"

@@ -12,6 +12,7 @@ import { initFeederTab, refreshFeederNodeList } from "./feeder-tab.js";
 import { initLabTab, refreshLabLiveDefaults } from "./lab-tab.js";
 import { getSettings, readJsonStorage, escapeHtml, getEagleSettings, saveToEagle } from "./util.js";
 import { isVideoFilename } from "./video-utils.js";
+import { storyLoraState } from "./prompt-story-lora.js";
 
 // ============================================
 // Gallery Metadata - ワークフロー保存
@@ -285,6 +286,24 @@ export async function loadWorkflowIntoEditor(workflow, filename) {
     if (nameEl) {
         nameEl.textContent = filename || "Loaded Workflow";
         nameEl.dataset.filename = filename || "";
+    }
+
+    // Update detected model badge (UNet / Checkpoint)
+    const modelBadge = document.getElementById("wfm-gen-model-badge");
+    if (modelBadge) {
+        const diffNode = comfyUI.currentAnalysis?.diffusion_model_nodes?.[0];
+        const ckptNode = comfyUI.currentAnalysis?.checkpoint_nodes?.[0];
+        if (diffNode?.unet_name) {
+            modelBadge.textContent = `UNet (INT8/Anima): ${diffNode.unet_name}`;
+            modelBadge.style.color = "#38bdf8";
+            modelBadge.style.display = "inline-block";
+        } else if (ckptNode?.ckpt_name) {
+            modelBadge.textContent = `CKPT: ${ckptNode.ckpt_name}`;
+            modelBadge.style.color = "#a855f7";
+            modelBadge.style.display = "inline-block";
+        } else {
+            modelBadge.style.display = "none";
+        }
     }
 
     // Enable generate button
@@ -1482,7 +1501,32 @@ async function _coreGenerate(silent = false, workflowOverride = null, genOptions
     // inside a Style's prompt/negative_prompt also gets expanded, not just wildcards
     // already present in the base workflow's prompt nodes.
     const baseWorkflow = workflowOverride || comfyUI.currentWorkflow;
-    const workflowStyled = _applyStyleToWorkflow({ ...baseWorkflow });
+    let targetWorkflow = { ...baseWorkflow };
+
+    // Auto-inject matched story LoRAs if enabled
+    if (storyLoraState?.autoInject && storyLoraState.matchedLoras?.length > 0) {
+        try {
+            const activeList = storyLoraState.matchedLoras.filter((l) => l.active !== false);
+            if (activeList.length > 0) {
+                const loraRes = await fetch("/api/wfm/lora/apply", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        workflow: targetWorkflow,
+                        active_loras: activeList
+                    })
+                });
+                if (loraRes.ok) {
+                    const loraData = await loraRes.json();
+                    if (loraData.workflow) targetWorkflow = loraData.workflow;
+                }
+            }
+        } catch (e) {
+            console.warn("Auto-inject LoRAs failed:", e);
+        }
+    }
+
+    const workflowStyled = _applyStyleToWorkflow(targetWorkflow);
     const workflowForGenerate = await _expandWildcardsInWorkflow(workflowStyled);
     // Video workflows (e.g. MiniMax H3) run far longer than a still image — use a longer
     // timeout so a multi-minute generation doesn't get force-rejected mid-run (see

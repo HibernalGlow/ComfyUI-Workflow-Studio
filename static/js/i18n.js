@@ -221,6 +221,18 @@ const LANGUAGES = {
         batchItemFailed: (i, total, msg) => `[${i}/${total}] Failed: ${msg}`,
         batchStopped: (completed, failed) => `Batch stopped — ${completed} completed, ${failed} failed`,
         batchComplete: (completed, total, failed) => failed > 0 ? `Batch complete: ${completed}/${total} (${failed} failed)` : `Batch complete: ${completed}/${total}`,
+        storyLoraTitle: "Story & Smart LoRA Blend",
+        loadStoryFile: "Load Story",
+        matchLorasBtn: "Match LoRAs",
+        loraRulesBtn: "Rules",
+        storyLoraHint: "Enter prompt or load story, then click Match LoRAs to detect character & action LoRAs with tuned weights",
+        autoInjectLoRA: "Auto-inject LoRA blend on generate",
+        includeTurbo: "Include Turbo LoRA",
+        applyLorasToWf: "Apply to Workflow",
+        loraRulesConfig: "LoRA Rules & Tuned Mixture Management",
+        rescanTriggersBtn: "Rescan Local .trigger.txt",
+        addRuleBtn: "Add Rule",
+        saveRules: "Save Rules",
         batchLoraMissing: (count, total, sample) => `${count}/${total} selected LoRAs are not recognized by ComfyUI yet (e.g. ${sample}). Click Refresh in ComfyUI or restart the server, then try again.`,
         catalogCreateBtn: "Create Catalog",
         catalogOpenBtn: "Catalog",
@@ -1662,6 +1674,18 @@ const LANGUAGES = {
         batchItemFailed: (i, total, msg) => `[${i}/${total}] 失敗: ${msg}`,
         batchStopped: (completed, failed) => `バッチ停止 — 完了${completed}件、失敗${failed}件`,
         batchComplete: (completed, total, failed) => failed > 0 ? `バッチ完了: ${completed}/${total}件 (${failed}件失敗)` : `バッチ完了: ${completed}/${total}件`,
+        storyLoraTitle: "ストーリー絵コンテ & 賢いLoRAブレンド",
+        loadStoryFile: "ストーリー読込",
+        matchLorasBtn: "LoRAマッチ",
+        loraRulesBtn: "ルール",
+        storyLoraHint: "プロンプト入力またはストーリー読込後に【LoRAマッチ】を押すと、学習済みキャラ・動作LoRAおよび微調整重みを自動識別します",
+        autoInjectLoRA: "生成時にLoRAブレンドを自動注入",
+        includeTurbo: "高速化Turbo LoRAを含む",
+        applyLorasToWf: "ワークフローへ即時書込",
+        loraRulesConfig: "LoRAトリガールール・配合管理",
+        rescanTriggersBtn: "ローカル .trigger.txt を再スキャン",
+        addRuleBtn: "ルール追加",
+        saveRules: "ルール保存",
         batchLoraMissing: (count, total, sample) => `選択したLoRAのうち${count}/${total}件がComfyUIに認識されていません（例: ${sample}）。ComfyUIでRefreshするかサーバーを再起動してから再実行してください。`,
         catalogCreateBtn: "カタログ作成",
         catalogOpenBtn: "カタログ",
@@ -3103,6 +3127,18 @@ const LANGUAGES = {
         batchItemFailed: (i, total, msg) => `[${i}/${total}] 失败: ${msg}`,
         batchStopped: (completed, failed) => `批处理已停止 — 完成${completed}个，失败${failed}个`,
         batchComplete: (completed, total, failed) => failed > 0 ? `批处理完成: ${completed}/${total}个 (${failed}个失败)` : `批处理完成: ${completed}/${total}个`,
+        storyLoraTitle: "故事分镜 & 智能 LoRA 混合",
+        loadStoryFile: "导入故事",
+        matchLorasBtn: "匹配 LoRA",
+        loraRulesBtn: "规则",
+        storyLoraHint: "输入提示词或导入分镜后点击【匹配 LoRA】，将自动识别自训角色与动作 LoRA 及其独立混合权重",
+        autoInjectLoRA: "生成时自动注入 LoRA 混合",
+        includeTurbo: "包含加速 Turbo LoRA",
+        applyLorasToWf: "立即写入工作流",
+        loraRulesConfig: "LoRA 触发规则与微调混合管理",
+        rescanTriggersBtn: "重新扫描本地 .trigger.txt",
+        addRuleBtn: "添加规则",
+        saveRules: "保存规则",
         batchLoraMissing: (count, total, sample) => `所选LoRA中有${count}/${total}个尚未被ComfyUI识别（例如：${sample}）。请在ComfyUI中点击Refresh或重启服务器后再试。`,
         catalogCreateBtn: "创建目录",
         catalogOpenBtn: "目录",
@@ -4369,8 +4405,9 @@ let _summaryLang = "en";
  */
 export function initI18n() {
     const s = getSettings();
-    _currentLang = s.uiLang || "en";
-    _summaryLang = s.summaryLang || "en";
+    const browserLang = (navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+    _currentLang = s.uiLang || browserLang;
+    _summaryLang = s.summaryLang || browserLang;
 }
 
 /**

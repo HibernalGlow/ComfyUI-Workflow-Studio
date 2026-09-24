@@ -7,6 +7,7 @@ import { syncJsonHighlight } from "./json-highlight.js";
 import { t } from "./i18n.js";
 import { escapeHtml, setupSearchClearBtn } from "./util.js";
 import { showToast } from "./app.js";
+import { initPromptStoryLora, matchPromptText, loadStoryContent } from "./prompt-story-lora.js";
 
 // ── Latent Image preset state ─────────────────────────────
 const _LATENT_PRESET_KEY = "wfm_latent_presets";
@@ -482,6 +483,7 @@ export const comfyEditor = {
         const embeddings = this.models.embeddings || [];
 
         el.innerHTML = `
+            <div id="wfm-story-lora-mount" style="margin-bottom:12px;"></div>
             <div class="wfm-form-group">
                 <label>Positive Prompt</label>
                 <div style="display:flex;gap:8px;margin-bottom:6px;">
@@ -519,6 +521,12 @@ export const comfyEditor = {
                 </div>
             </div>
         `;
+
+        // Initialize Story Prompt & LoRA Auto-Match widget
+        const storyMount = document.getElementById("wfm-story-lora-mount");
+        if (storyMount) {
+            initPromptStoryLora(storyMount);
+        }
 
         document.getElementById("wfm-prompt-pos-apply")?.addEventListener("click", (e) => {
             const nodeId = document.getElementById("wfm-prompt-pos-target")?.value;
@@ -575,6 +583,20 @@ export const comfyEditor = {
             });
             _attachPromptWeightControl(ta);
         });
+
+        const posTextarea = document.getElementById("wfm-prompt-pos-text");
+        if (posTextarea) {
+            posTextarea.addEventListener("paste", () => {
+                setTimeout(() => {
+                    const val = posTextarea.value;
+                    if (val.includes("[tags]") || val.includes("[caption]")) {
+                        loadStoryContent(val, "");
+                    } else if (val.trim().length > 0) {
+                        matchPromptText(val);
+                    }
+                }, 60);
+            });
+        }
 
         // Embedding filter
         document.getElementById("wfm-embedding-filter")?.addEventListener("input", (e) => {

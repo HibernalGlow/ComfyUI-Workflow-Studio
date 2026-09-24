@@ -97,6 +97,8 @@ def _detect_model_type_from_name(mn_base, model_types):
         model_types.add("HiDream")
     elif "wan" in mn_base and re.search(r"wan[-_.]?\d|wan[-_]video", mn_base):
         model_types.add("Wan")
+    elif "anima" in mn_base:
+        model_types.add("Anima")
 
 
 def analyze_workflow(workflow_data, filename=""):
@@ -128,6 +130,8 @@ def analyze_workflow(workflow_data, filename=""):
         model_types.add("HiDream")
     if "wan" in fn and re.search(r"wan[-_.]?\d|wan[-_]video", fn):
         model_types.add("Wan")
+    if "anima" in fn:
+        model_types.add("Anima")
 
     # Support both UI format (nodes array) and API format (node ID object)
     raw_nodes = workflow_data.get("nodes", None)
@@ -157,6 +161,8 @@ def analyze_workflow(workflow_data, filename=""):
             "CheckpointLoader" in ntype
             or "UNETLoader" in ntype
             or "UnetLoader" in ntype  # UnetLoaderGGUF 等を含む
+            or "OTUNetLoader" in ntype
+            or "AnimaBoosterLoader" in ntype
             or "unet_name" in ntype
         ):
             mn_base = os.path.basename(mn.replace("\\", "/"))

@@ -1486,6 +1486,25 @@ export const comfyWorkflow = {
                 result.lora_nodes.push({ id, type: ct, title, is_lora_manager: true });
             }
 
+            // CR LoRA Stack — 3 slots per node, chainable via lora_stack
+            if (ct === "CR LoRA Stack") {
+                for (let i = 1; i <= 3; i++) {
+                    const sw = inputs[`switch_${i}`];
+                    const lName = inputs[`lora_name_${i}`];
+                    if (typeof lName === "string" && lName !== "None") {
+                        result.lora_nodes.push({
+                            id, type: ct, title: `${title} [slot ${i}]`,
+                            lora_name: lName,
+                            strength_model: inputs[`model_weight_${i}`] ?? 1.0,
+                            strength_clip: inputs[`clip_weight_${i}`] ?? 1.0,
+                            slot: i,
+                            active: sw === "On" || sw === true,
+                            is_cr_stack: true,
+                        });
+                    }
+                }
+            }
+
             // ImageMetadataLoRALoader — up to 3 LoRA slots; skip "None" entries
             if (ct === "ImageMetadataLoRALoader") {
                 for (let i = 1; i <= 3; i++) {
@@ -1555,6 +1574,11 @@ export const comfyWorkflow = {
             if (ct === "LoaderGGUF" || ct === "LoaderGGUFAdvanced") {
                 result.diffusion_model_nodes.push({
                     id, type: ct, title, unet_name: inputs.gguf_name, inputKey: "gguf_name",
+                });
+            }
+            if (ct === "OTUNetLoaderW8A8" || ct.startsWith("OTUNetLoader")) {
+                result.diffusion_model_nodes.push({
+                    id, type: ct, title, unet_name: inputs.unet_name || inputs.model_name, inputKey: "unet_name",
                 });
             }
 
