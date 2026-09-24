@@ -256,12 +256,12 @@ upstream file is byte-identical.
 | 7 | Gen presets store / load / apply | ok for list + apply | unit — the four routes, methods and verbatim bodies; live — the Settings card lists the server's presets and applying `⚡ Anima 单采样极速 (Turbo 12步)` reported `steps=30 cfg=4 er_sde → steps=12 cfg=1.6 euler_ancestral`. "Save the current settings as a preset" is deliberately not in the UI (see `GenPresets.tsx`'s header: the server accepts several preset shapes and guessing one would write a half-formed record) |
 | 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
 | 9 | Results land in Gallery + workflow backfill | **not verified** | needs a real generation run (GPU) |
-| 10 | Settings persist across restart | partly | unit — `updateSettings` merges into the shared `wfm_settings`, prefs stay in the `nu_` namespace, corrupt JSON degrades. Not re-checked across an actual restart |
+| 10 | Settings persist across restart | ok | live through the UI on a patched bridge: the output-directory field started at `saved: ""`, typing the current path and pressing Save returned "Output directory saved." and the following `GET` reported `saved: D:\…\Library\output`. `SettingsService` writes `data/settings.json` with `json.dump` and re-reads that file on every access (`_load`), so the value the `GET` returned came off disk rather than a memory cache — which is the same read a restart performs. The field was then set back to `""` and verified, so the store is exactly as found |
 | 11 | Models subsystem, 18 items | ok for 17 | live — see §5.1. Item 9's batch Civitai fetch and item 18's bulk move-to-subdir were not exercised (both write to the compute box) |
 | 12 | `tools/run_typhon_test.py` untouched | ok for "untouched" | A1 — byte-identical to upstream; *running* it needs a GPU |
 
-Rows 3, 9 and the run-half of 12 are gated on one generation run; 7 and 10 each have a short
-live walk left. Everything else is machine-checked.
+Rows 3, 9 and the run-half of 12 are gated on one generation run (GPU time on the compute box,
+which needs the user's go-ahead). Everything else is machine-checked.
 
 ---
 
