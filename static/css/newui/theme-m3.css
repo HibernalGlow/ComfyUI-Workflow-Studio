@@ -1,0 +1,241 @@
+/* ============================================================================
+   theme-m3.css — light + dark value sets for the LAYER 2 color roles
+   ============================================================================
+   Cascade contract (attribute lives on <html> / document.documentElement):
+     default (no data-theme)             -> DARK
+     [data-theme="m3-dark"]              -> dark
+     [data-theme="m3-light"]             -> light
+     @media (prefers-color-scheme: light)
+       with no explicit data-theme       -> light
+   m3-tokens.css already declares dark values on :root, so every selector here
+   redeclares the SAME names character-for-character; theme-m3.css is imported
+   after m3-tokens.css, and [data-theme="m3-light"] / :root:not([data-theme])
+   are equal-or-higher specificity than plain :root, so the cascade resolves
+   exactly as listed above. Non-color layer-2 tokens (shape, elevation,
+   typescale, motion, state) are theme-independent and stay in m3-tokens.css.
+   Values reference the layer-1 palette only — no literals at this layer and no
+   forced-important overrides.
+
+   Contrast (WCAG AA, both schemes >= 4.5:1 for every text pair):
+     dark  — on-surface/surface 14.35, on-surface-variant/surface-variant 5.49,
+             on-surface-variant/surface 10.89, on-primary/primary 7.72,
+             on-primary-container/primary-container 7.24, on-error/error 7.72,
+             on-error-container/error-container 7.24, on-secondary* 7.72/7.24,
+             on-tertiary* 7.72/7.24, inverse-on-surface/inverse-surface 10.18,
+             outline/surface 5.85
+     light — on-surface/surface 16.31, on-surface-variant/surface-variant 7.24,
+             on-surface-variant/surface 8.89, on-primary/primary 6.46,
+             on-primary-container/primary-container 13.27, on-error/error 6.46,
+             on-error-container/error-container 13.27, on-secondary* 6.46/13.27,
+             on-tertiary* 6.46/13.27, inverse-on-surface/inverse-surface 11.60,
+             outline/surface 6.15
+   Two deliberate deviations from the MD3 baseline, both for contrast:
+     outline          light = neutral-variant-40 (baseline 50 = 4.27:1 on
+                      surface-98, below AA) -> 6.15:1
+     outline-variant  dark = neutral-variant-40 / light = neutral-variant-70
+                      (baseline 30/80) so dividers stay legible in dense
+                      tables. outline-variant is used for decorative dividers
+                      only; every component boundary uses `outline`.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+   DARK — default scheme (mirrors the :root block in m3-tokens.css)
+   ------------------------------------------------------------------------ */
+:root {
+  --md-sys-color-primary: var(--md-ref-palette-primary-80);
+  --md-sys-color-on-primary: var(--md-ref-palette-primary-20);
+  --md-sys-color-primary-container: var(--md-ref-palette-primary-30);
+  --md-sys-color-on-primary-container: var(--md-ref-palette-primary-90);
+
+  --md-sys-color-secondary: var(--md-ref-palette-secondary-80);
+  --md-sys-color-on-secondary: var(--md-ref-palette-secondary-20);
+  --md-sys-color-secondary-container: var(--md-ref-palette-secondary-30);
+  --md-sys-color-on-secondary-container: var(--md-ref-palette-secondary-90);
+
+  --md-sys-color-tertiary: var(--md-ref-palette-tertiary-80);
+  --md-sys-color-on-tertiary: var(--md-ref-palette-tertiary-20);
+  --md-sys-color-tertiary-container: var(--md-ref-palette-tertiary-30);
+  --md-sys-color-on-tertiary-container: var(--md-ref-palette-tertiary-90);
+
+  --md-sys-color-error: var(--md-ref-palette-error-80);
+  --md-sys-color-on-error: var(--md-ref-palette-error-20);
+  --md-sys-color-error-container: var(--md-ref-palette-error-30);
+  --md-sys-color-on-error-container: var(--md-ref-palette-error-90);
+
+  --md-sys-color-background: var(--md-ref-palette-neutral-6);
+  --md-sys-color-on-background: var(--md-ref-palette-neutral-90);
+  --md-sys-color-surface: var(--md-ref-palette-neutral-6);
+  --md-sys-color-on-surface: var(--md-ref-palette-neutral-90);
+  --md-sys-color-surface-variant: var(--md-ref-palette-neutral-variant-30);
+  --md-sys-color-on-surface-variant: var(--md-ref-palette-neutral-variant-80);
+
+  --md-sys-color-surface-container-lowest: var(--md-ref-palette-neutral-4);
+  --md-sys-color-surface-container-low: var(--md-ref-palette-neutral-10);
+  --md-sys-color-surface-container: var(--md-ref-palette-neutral-12);
+  --md-sys-color-surface-container-high: var(--md-ref-palette-neutral-17);
+  --md-sys-color-surface-container-highest: var(--md-ref-palette-neutral-22);
+  --md-sys-color-surface-dim: var(--md-ref-palette-neutral-6);
+  --md-sys-color-surface-bright: var(--md-ref-palette-neutral-24);
+  --md-sys-color-surface-tint: var(--md-ref-palette-primary-80);
+
+  --md-sys-color-outline: var(--md-ref-palette-neutral-variant-60);
+  --md-sys-color-outline-variant: var(--md-ref-palette-neutral-variant-40);
+  --md-sys-color-scrim: var(--md-ref-palette-neutral-0);
+  --md-sys-color-shadow: var(--md-ref-palette-neutral-0);
+
+  --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-90);
+  --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-20);
+  --md-sys-color-inverse-primary: var(--md-ref-palette-primary-40);
+}
+
+/* ---------------------------------------------------------------------------
+   DARK — explicit attribute
+   ------------------------------------------------------------------------ */
+[data-theme="m3-dark"] {
+  --md-sys-color-primary: var(--md-ref-palette-primary-80);
+  --md-sys-color-on-primary: var(--md-ref-palette-primary-20);
+  --md-sys-color-primary-container: var(--md-ref-palette-primary-30);
+  --md-sys-color-on-primary-container: var(--md-ref-palette-primary-90);
+
+  --md-sys-color-secondary: var(--md-ref-palette-secondary-80);
+  --md-sys-color-on-secondary: var(--md-ref-palette-secondary-20);
+  --md-sys-color-secondary-container: var(--md-ref-palette-secondary-30);
+  --md-sys-color-on-secondary-container: var(--md-ref-palette-secondary-90);
+
+  --md-sys-color-tertiary: var(--md-ref-palette-tertiary-80);
+  --md-sys-color-on-tertiary: var(--md-ref-palette-tertiary-20);
+  --md-sys-color-tertiary-container: var(--md-ref-palette-tertiary-30);
+  --md-sys-color-on-tertiary-container: var(--md-ref-palette-tertiary-90);
+
+  --md-sys-color-error: var(--md-ref-palette-error-80);
+  --md-sys-color-on-error: var(--md-ref-palette-error-20);
+  --md-sys-color-error-container: var(--md-ref-palette-error-30);
+  --md-sys-color-on-error-container: var(--md-ref-palette-error-90);
+
+  --md-sys-color-background: var(--md-ref-palette-neutral-6);
+  --md-sys-color-on-background: var(--md-ref-palette-neutral-90);
+  --md-sys-color-surface: var(--md-ref-palette-neutral-6);
+  --md-sys-color-on-surface: var(--md-ref-palette-neutral-90);
+  --md-sys-color-surface-variant: var(--md-ref-palette-neutral-variant-30);
+  --md-sys-color-on-surface-variant: var(--md-ref-palette-neutral-variant-80);
+
+  --md-sys-color-surface-container-lowest: var(--md-ref-palette-neutral-4);
+  --md-sys-color-surface-container-low: var(--md-ref-palette-neutral-10);
+  --md-sys-color-surface-container: var(--md-ref-palette-neutral-12);
+  --md-sys-color-surface-container-high: var(--md-ref-palette-neutral-17);
+  --md-sys-color-surface-container-highest: var(--md-ref-palette-neutral-22);
+  --md-sys-color-surface-dim: var(--md-ref-palette-neutral-6);
+  --md-sys-color-surface-bright: var(--md-ref-palette-neutral-24);
+  --md-sys-color-surface-tint: var(--md-ref-palette-primary-80);
+
+  --md-sys-color-outline: var(--md-ref-palette-neutral-variant-60);
+  --md-sys-color-outline-variant: var(--md-ref-palette-neutral-variant-40);
+  --md-sys-color-scrim: var(--md-ref-palette-neutral-0);
+  --md-sys-color-shadow: var(--md-ref-palette-neutral-0);
+
+  --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-90);
+  --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-20);
+  --md-sys-color-inverse-primary: var(--md-ref-palette-primary-40);
+}
+
+/* ---------------------------------------------------------------------------
+   LIGHT — explicit attribute (wins over :root by source order + specificity)
+   ------------------------------------------------------------------------ */
+[data-theme="m3-light"] {
+  --md-sys-color-primary: var(--md-ref-palette-primary-40);
+  --md-sys-color-on-primary: var(--md-ref-palette-primary-100);
+  --md-sys-color-primary-container: var(--md-ref-palette-primary-90);
+  --md-sys-color-on-primary-container: var(--md-ref-palette-primary-10);
+
+  --md-sys-color-secondary: var(--md-ref-palette-secondary-40);
+  --md-sys-color-on-secondary: var(--md-ref-palette-secondary-100);
+  --md-sys-color-secondary-container: var(--md-ref-palette-secondary-90);
+  --md-sys-color-on-secondary-container: var(--md-ref-palette-secondary-10);
+
+  --md-sys-color-tertiary: var(--md-ref-palette-tertiary-40);
+  --md-sys-color-on-tertiary: var(--md-ref-palette-tertiary-100);
+  --md-sys-color-tertiary-container: var(--md-ref-palette-tertiary-90);
+  --md-sys-color-on-tertiary-container: var(--md-ref-palette-tertiary-10);
+
+  --md-sys-color-error: var(--md-ref-palette-error-40);
+  --md-sys-color-on-error: var(--md-ref-palette-error-100);
+  --md-sys-color-error-container: var(--md-ref-palette-error-90);
+  --md-sys-color-on-error-container: var(--md-ref-palette-error-10);
+
+  --md-sys-color-background: var(--md-ref-palette-neutral-98);
+  --md-sys-color-on-background: var(--md-ref-palette-neutral-10);
+  --md-sys-color-surface: var(--md-ref-palette-neutral-98);
+  --md-sys-color-on-surface: var(--md-ref-palette-neutral-10);
+  --md-sys-color-surface-variant: var(--md-ref-palette-neutral-variant-90);
+  --md-sys-color-on-surface-variant: var(--md-ref-palette-neutral-variant-30);
+
+  --md-sys-color-surface-container-lowest: var(--md-ref-palette-neutral-100);
+  --md-sys-color-surface-container-low: var(--md-ref-palette-neutral-96);
+  --md-sys-color-surface-container: var(--md-ref-palette-neutral-94);
+  --md-sys-color-surface-container-high: var(--md-ref-palette-neutral-92);
+  --md-sys-color-surface-container-highest: var(--md-ref-palette-neutral-90);
+  --md-sys-color-surface-dim: var(--md-ref-palette-neutral-87);
+  --md-sys-color-surface-bright: var(--md-ref-palette-neutral-98);
+  --md-sys-color-surface-tint: var(--md-ref-palette-primary-40);
+
+  --md-sys-color-outline: var(--md-ref-palette-neutral-variant-40);
+  --md-sys-color-outline-variant: var(--md-ref-palette-neutral-variant-70);
+  --md-sys-color-scrim: var(--md-ref-palette-neutral-0);
+  --md-sys-color-shadow: var(--md-ref-palette-neutral-0);
+
+  --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-20);
+  --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-95);
+  --md-sys-color-inverse-primary: var(--md-ref-palette-primary-80);
+}
+
+/* ---------------------------------------------------------------------------
+   LIGHT — OS preference, only while no explicit data-theme is set
+   ------------------------------------------------------------------------ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --md-sys-color-primary: var(--md-ref-palette-primary-40);
+    --md-sys-color-on-primary: var(--md-ref-palette-primary-100);
+    --md-sys-color-primary-container: var(--md-ref-palette-primary-90);
+    --md-sys-color-on-primary-container: var(--md-ref-palette-primary-10);
+
+    --md-sys-color-secondary: var(--md-ref-palette-secondary-40);
+    --md-sys-color-on-secondary: var(--md-ref-palette-secondary-100);
+    --md-sys-color-secondary-container: var(--md-ref-palette-secondary-90);
+    --md-sys-color-on-secondary-container: var(--md-ref-palette-secondary-10);
+
+    --md-sys-color-tertiary: var(--md-ref-palette-tertiary-40);
+    --md-sys-color-on-tertiary: var(--md-ref-palette-tertiary-100);
+    --md-sys-color-tertiary-container: var(--md-ref-palette-tertiary-90);
+    --md-sys-color-on-tertiary-container: var(--md-ref-palette-tertiary-10);
+
+    --md-sys-color-error: var(--md-ref-palette-error-40);
+    --md-sys-color-on-error: var(--md-ref-palette-error-100);
+    --md-sys-color-error-container: var(--md-ref-palette-error-90);
+    --md-sys-color-on-error-container: var(--md-ref-palette-error-10);
+
+    --md-sys-color-background: var(--md-ref-palette-neutral-98);
+    --md-sys-color-on-background: var(--md-ref-palette-neutral-10);
+    --md-sys-color-surface: var(--md-ref-palette-neutral-98);
+    --md-sys-color-on-surface: var(--md-ref-palette-neutral-10);
+    --md-sys-color-surface-variant: var(--md-ref-palette-neutral-variant-90);
+    --md-sys-color-on-surface-variant: var(--md-ref-palette-neutral-variant-30);
+
+    --md-sys-color-surface-container-lowest: var(--md-ref-palette-neutral-100);
+    --md-sys-color-surface-container-low: var(--md-ref-palette-neutral-96);
+    --md-sys-color-surface-container: var(--md-ref-palette-neutral-94);
+    --md-sys-color-surface-container-high: var(--md-ref-palette-neutral-92);
+    --md-sys-color-surface-container-highest: var(--md-ref-palette-neutral-90);
+    --md-sys-color-surface-dim: var(--md-ref-palette-neutral-87);
+    --md-sys-color-surface-bright: var(--md-ref-palette-neutral-98);
+    --md-sys-color-surface-tint: var(--md-ref-palette-primary-40);
+
+    --md-sys-color-outline: var(--md-ref-palette-neutral-variant-40);
+    --md-sys-color-outline-variant: var(--md-ref-palette-neutral-variant-70);
+    --md-sys-color-scrim: var(--md-ref-palette-neutral-0);
+    --md-sys-color-shadow: var(--md-ref-palette-neutral-0);
+
+    --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-20);
+    --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-95);
+    --md-sys-color-inverse-primary: var(--md-ref-palette-primary-80);
+  }
+}
