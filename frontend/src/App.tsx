@@ -1,30 +1,37 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactElement } from "react";
 import { MdIconButton, MdIcon, MdLinearProgress } from "./md.js";
-import { useHashRoute, VIEWS } from "./useHashRoute.js";
-import { SnackbarProvider, useSnackbar } from "./snackbar.jsx";
-import { comfyUI, getSettings, initI18n, readPref, settings, tr } from "core";
+import { useHashRoute, VIEWS, FIRST_VIEW, type ViewDef, type ViewId } from "./useHashRoute.js";
+import { SnackbarProvider, useSnackbar } from "./snackbar.js";
+import { comfyUI, initI18n, readPref, writePref, tr } from "core";
 
 /**
- * Views are code-split: the heaviest ones (models, gallery) only download when
- * they are opened, which keeps first paint on a remote ComfyUI box fast.
+ * Views are code-split so that opening the page on a remote ComfyUI box does not
+ * download the models and gallery bundles first.
  */
-const VIEWS_MODULES = {
-    workflow: lazy(() => import("./views/Workflow.jsx")),
-    generate: lazy(() => import("./views/Generate.jsx")),
-    models: lazy(() => import("./views/Models.jsx")),
-    prompt: lazy(() => import("./views/Prompt.jsx")),
-    gallery: lazy(() => import("./views/Gallery.jsx")),
-    settings: lazy(() => import("./views/Settings.jsx")),
+const VIEW_MODULES: Record<ViewId, React.LazyExoticComponent<(p: ViewProps) => ReactElement>> = {
+    // Extensionless: Vite maps .js -> .ts/.tsx but not .jsx -> .tsx.
+    workflow: lazy(() => import("./views/Workflow")),
+    generate: lazy(() => import("./views/Generate")),
+    models: lazy(() => import("./views/Models")),
+    prompt: lazy(() => import("./views/Prompt")),
+    gallery: lazy(() => import("./views/Gallery")),
+    settings: lazy(() => import("./views/Settings")),
 };
 
-const THEME_POLL_MS = 15000;
+export interface ViewProps {
+    params: URLSearchParams;
+    navigate: (id: ViewId, query?: Record<string, string>) => void;
+    connected: boolean | null;
+    setConnected: (v: boolean) => void;
+}
 
-function applyTheme(theme) {
+/** Re-applies the stored scheme and returns the value actually in the DOM. */
+function applyTheme(theme: string): string {
     document.documentElement.dataset.theme = theme === "m3-light" ? "m3-light" : "m3-dark";
     return document.documentElement.dataset.theme;
 }
 
-function ConnectionDot({ connected }) {
+function ConnectionDot({ connected }: { connected: boolean | null }): ReactElement | null {
     if (connected === null) return null;
     return (
         <span className="nu-top-bar__status">
@@ -34,58 +41,59 @@ function ConnectionDot({ connected }) {
                 }
                 aria-hidden="true"
             />
-            {connected ? tr("nu.status.online", "connected") : tr("nu.status.offline", "disconnected")}
+            {connected
+                ? tr("nu.status.online", "connected")
+                : tr("nu.status.offline", "disconnected")}
         </span>
     );
 }
 
-function Shell() {
+function Shell(): ReactElement {
     const { view, params, navigate } = useHashRoute();
     const snackbar = useSnackbar();
-    const [theme, setTheme] = useState(() => applyTheme(readPref("theme", "m3-dark")));
-    const [connected, setConnected] = useState(null);
-    const active = VIEWS.find((v) => v.id === view) || VIEWS[0];
-    const View = VIEWS_MODULES[active.id];
+    const [theme, setTheme] = useState<string>(() => applyTheme(readPref("theme", "m3-dark")));
+    const [connected, setConnected] = useState<boolean | null>(null);
+
+    const active: ViewDef = VIEWS.find((v) => v.id === view) ?? FIRST_VIEW;
+    const View = VIEW_MODULES[active.id];
 
     /*
-     * ComfyUI reachability. `comfyUI.updateUrl()` is what every core network
-     * call depends on, so it runs before anything else can reach the server.
+     * Reachability probe. This also flips the offline warning below, and the
+     * 15 s interval is what notices ComfyUI going away while the page stays open.
      */
     useEffect(() => {
         let cancelled = false;
-        const probe = async () => {
+        const probe = async (): Promise<void> => {
             const ok = await comfyUI.checkConnection();
             if (!cancelled) setConnected(ok);
         };
-        probe();
-        const timer = setInterval(probe, THEME_POLL_MS);
+        void probe();
+        const timer = setInterval(() => void probe(), 15000);
         return () => {
             cancelled = true;
             clearInterval(timer);
         };
     }, []);
 
-    const toggleTheme = useCallback(() => {
+    const toggleTheme = useCallback((): void => {
         setTheme((prev) => {
             const next = prev === "m3-light" ? "m3-dark" : "m3-light";
-            settings.writePref("theme", next);
+            writePref("theme", next);
             return applyTheme(next);
         });
     }, []);
 
+    const wentOffline = connected === false;
     useEffect(() => {
-        if (connected === false) {
-            snackbar.show({
-                label: tr("nu.warn.comfyOffline", "ComfyUI is unreachable — check its address in Settings."),
-                tone: "error",
-                duration: "long",
-                actionLabel: tr("nu.warn.openSettings", "Open Settings"),
-                onAction: () => navigate("settings"),
-            });
-        }
-        // Deliberately keyed on the boolean transition, not on every probe.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [connected === false]);
+        if (!wentOffline) return;
+        snackbar.show({
+            label: tr("nu.warn.comfyOffline", "ComfyUI is unreachable — check its address in Settings."),
+            tone: "error",
+            duration: "long",
+            actionLabel: tr("nu.warn.openSettings", "Open Settings"),
+            onAction: () => navigate("settings"),
+        });
+    }, [wentOffline, snackbar, navigate]);
 
     return (
         <div className="nu-app">
@@ -93,14 +101,14 @@ function Shell() {
                 <span className="nu-top-bar__title">{tr(active.labelKey, active.label)}</span>
                 <ConnectionDot connected={connected} />
                 <MdIconButton
-                    ariaLabel={tr("nu.action.toggleTheme", "Toggle colour scheme")}
+                    aria-label={tr("nu.action.toggleTheme", "Toggle colour scheme")}
                     title={tr("nu.action.toggleTheme", "Toggle colour scheme")}
                     onClick={toggleTheme}
                 >
                     <MdIcon>{theme === "m3-light" ? "dark_mode" : "light_mode"}</MdIcon>
                 </MdIconButton>
                 <MdIconButton
-                    ariaLabel={tr("nu.action.openOldUi", "Open the previous interface")}
+                    aria-label={tr("nu.action.openOldUi", "Open the previous interface")}
                     title={tr("nu.action.openOldUi", "Open the previous interface")}
                     onClick={() => window.open("/wfm", "_blank", "noopener")}
                 >
@@ -110,8 +118,6 @@ function Shell() {
 
             <nav className="nu-rail" aria-label={tr("nu.nav.label", "Views")}>
                 {VIEWS.map((item) => {
-                    const ItemView = VIEWS_MODULES[item.id];
-                    void ItemView;
                     const isActive = item.id === active.id;
                     return (
                         <button
@@ -137,7 +143,7 @@ function Shell() {
                         params={params}
                         navigate={navigate}
                         connected={connected}
-                        onConnectedChange={setConnected}
+                        setConnected={setConnected}
                     />
                 </Suspense>
             </main>
@@ -145,7 +151,7 @@ function Shell() {
     );
 }
 
-export default function App() {
+export default function App(): ReactElement {
     useEffect(() => {
         initI18n();
         document.title = tr("nu.app.title", "Workflow Studio");

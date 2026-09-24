@@ -271,6 +271,309 @@ body {
   font: var(--md-sys-typescale-label-small);
 }
 
+/* --- cards --------------------------------------------------------------- */
+
+.nu-card {
+  display: block;
+  width: 100%;
+}
+
+.nu-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 16px;
+}
+
+.nu-card__title {
+  margin: 0;
+  font: var(--md-sys-typescale-title-medium);
+  font-weight: 500;
+}
+
+.nu-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-block-end: 16px;
+}
+
+/* --- switch rows ---------------------------------------------------------- */
+/* md-switch has no label prop, so text is a sibling of the control. */
+
+.nu-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.nu-switch-row__label {
+  font: var(--md-sys-typescale-body-medium);
+  overflow-wrap: anywhere;
+}
+
+.nu-link {
+  display: inline-flex;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* --- view layout --------------------------------------------------------- */
+
+.nu-split {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .nu-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nu-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
+  overflow: auto;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-md);
+  padding: 8px;
+}
+
+/* --- form + list primitives ----------------------------------------------- */
+
+.nu-native-select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-xs);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-medium);
+}
+
+.nu-native-select:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
+}
+
+.nu-grow {
+  flex: 1 1 auto;
+  min-width: 200px;
+}
+
+.nu-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.nu-file:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+
+.nu-file:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.nu-file--active {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.nu-file__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nu-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.nu-list-row__main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nu-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* --- code + JSON --------------------------------------------------------- */
+
+.nu-code,
+.nu-pre {
+  width: 100%;
+  min-height: 240px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-sm);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nu-code:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+}
+
+.nu-code-preview {
+  display: none;
+}
+
+/* --- nodes / images ------------------------------------------------------ */
+
+.nu-node {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.nu-node__title {
+  margin: 0;
+  font: var(--md-sys-typescale-title-small);
+  font-weight: 500;
+}
+
+.nu-shot {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nu-shot__hit,
+.nu-card__hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-md);
+  background: var(--md-sys-color-surface-container-low);
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nu-shot__hit:focus-visible,
+.nu-card__hit:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.nu-shot__hit img,
+.nu-card__hit img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.nu-shot__full {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  margin-inline: auto;
+}
+
+.nu-card__name {
+  display: block;
+  padding: 6px 8px;
+  font: var(--md-sys-typescale-label-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nu-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  overflow: hidden;
+}
+
+.nu-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nu-thumb--fail {
+  min-height: 72px;
+}
+
+/* --- models layout ------------------------------------------------------- */
+
+.nu-models {
+  display: grid;
+  grid-template-columns: 1fr minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+
+.nu-models__list {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nu-detail {
+  position: sticky;
+  top: 0;
+  max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
+  overflow: auto;
+}
+
+@media (max-width: 1100px) {
+  .nu-models {
+    grid-template-columns: 1fr;
+  }
+
+  .nu-detail {
+    position: static;
+    max-height: none;
+  }
+}
+
 /* --- snackbar ------------------------------------------------------------ */
 /* md-snackbar does not exist in @material/web 2.5.0, so it is implemented here. */
 
