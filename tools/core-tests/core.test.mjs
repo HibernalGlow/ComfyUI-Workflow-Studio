@@ -224,6 +224,21 @@ test("style: missing style or analysis returns the input untouched", () => {
     assert.equal(style.applyNamedStyle(wf, CATALOG[0], null), wf);
 });
 
+// Keep this test above every `setCachedStyles` call below: `resolveStyleByName` only fetches
+// while the module-level catalog is still null (upstream `_stylesData` had no reset either),
+// so once a test primes it the lazy path can never be observed again.
+test("style: resolving a name loads the catalog once and caches it", async () => {
+    routes.set("/api/wfm/styles", () => json(CATALOG));
+    const found = await style.resolveStyleByName("Templated");
+    assert.deepEqual(found, CATALOG[1]);
+    assert.equal(callsTo("/api/wfm/styles").length, 1);
+    assert.deepEqual(await style.resolveStyleByName("Vivid"), CATALOG[0]);
+    assert.equal(callsTo("/api/wfm/styles").length, 1, "the second resolve must hit the cache");
+    assert.deepEqual(style.getCachedStyles(), CATALOG);
+    assert.equal(await style.resolveStyleByName(""), null, "an empty name never reaches the server");
+    assert.equal(callsTo("/api/wfm/styles").length, 1);
+});
+
 test("style: applyStyleToWorkflow honours the enabled flag", () => {
     style.setCachedStyles(CATALOG);
     const wf = { "1": { inputs: { text: "a cat" } }, "2": { inputs: { text: "lowres" } } };
@@ -918,6 +933,206 @@ test("batch: a sampler run writes each value into the KSampler and keeps the las
 // ===========================================================================
 // gen presets (parity item 7)
 // ===========================================================================
+// ===========================================================================
+// pipeline.js — the generation orchestrator (parity item 3's submission half).
+// `comfyUI` is a plain object literal upstream, so generate/interrupt are
+// replaceable here; nothing in these tests touches a real ComfyUI.
+// ===========================================================================
+const { pipeline } = core;
+const { comfyWorkflow } = core;
+const WORKFLOW_FIXTURE = {
+    "3": { class_type: "KSampler", inputs: { seed: 0, steps: 20 } },
+    "5": { class_type: "CLIPTextEncode", inputs: { text: "original positive" } },
+    "6": { class_type: "CLIPTextEncode", inputs: { text: "original negative" } },
+};
+const ANALYSIS_FIXTURE = {
+    prompt_nodes: [{ id: "5", role: "positive" }, { id: "6", role: "negative" }],
+    sampler_nodes: [{ id: "3" }],
+};
+
+function withClient(stubs, fn) {
+    const keys = ["currentWorkflow", "currentAnalysis", "generating", "generate", "interrupt"];
+    const saved = Object.fromEntries(keys.map((k) => [k, comfyUI[k]]));
+    Object.assign(comfyUI, { currentWorkflow: null, currentAnalysis: null, generating: false, interrupt: async () => {}, ...stubs });
+    return Promise.resolve()
+        .then(fn)
+        .finally(() => {
+            for (const k of keys) comfyUI[k] = saved[k];
+        });
+}
+
+test("pipeline: seed options follow the upstream field semantics", () => {
+    assert.deepEqual(pipeline.resolveSeedOptions("random", null), { seedMode: "random", seedValue: -1 });
+    assert.deepEqual(pipeline.resolveSeedOptions(undefined, 7), { seedMode: "fixed", seedValue: 7 }, "an explicit value forces fixed");
+    assert.deepEqual(pipeline.resolveSeedOptions(undefined, undefined), { seedMode: "random", seedValue: -1 });
+});
+
+test("pipeline: the prompt override writes only the analysed text nodes", () => {
+    const wf = JSON.parse(JSON.stringify(WORKFLOW_FIXTURE));
+    pipeline.applyPromptOverride(wf, ANALYSIS_FIXTURE, { prompt: "a girl", negative: "bad hands" });
+    assert.equal(wf["5"].inputs.text, "a girl");
+    assert.equal(wf["6"].inputs.text, "bad hands");
+    assert.equal(wf["3"].inputs.steps, 20, "the sampler is untouched");
+
+    pipeline.applyPromptOverride(wf, ANALYSIS_FIXTURE, { prompt: null, negative: undefined });
+    assert.equal(wf["5"].inputs.text, "a girl", "null means leave-as-is, not clear-the-field");
+
+    const keyed = { "9": { inputs: { text1: "x" } } };
+    pipeline.applyPromptOverride(keyed, { prompt_nodes: [{ id: "9", role: "positive", textKey: "text1" }] }, { prompt: "via textKey" });
+    assert.equal(keyed["9"].inputs.text1, "via textKey");
+});
+
+test("pipeline: a run returns the frozen contract and leaves the caller's workflow alone", () => {
+    const caller = JSON.parse(JSON.stringify(WORKFLOW_FIXTURE));
+    return withClient({
+        currentWorkflow: caller,
+        currentAnalysis: ANALYSIS_FIXTURE,
+        generate: async (wf, options) => {
+            assert.equal(wf["5"].inputs.text, "typed prompt", "the prompt override reaches the queue");
+            assert.equal(options.seedMode, "fixed");
+            assert.equal(options.seedValue, 123);
+            assert.equal(options.timeoutMs, undefined, "a still-image run keeps the client default timeout");
+            assert.equal(typeof options.onProgress, "function");
+            return { images: [{ type: "output", filename: "a_0001.png" }], seed: 123, svgOutputs: [] };
+        },
+    }, async () => {
+        const seen = [];
+        const res = await pipeline.runGeneration({
+            workflow: caller,
+            prompt: "typed prompt",
+            seedValue: 123,
+            onProgress: (pct, msg) => seen.push([pct, msg]),
+        });
+        assert.deepEqual(Object.keys(res).sort(), ["images", "seed", "svgOutputs", "workflow"]);
+        assert.equal(res.seed, 123);
+        assert.equal(res.images.length, 1);
+        assert.equal(res.workflow["5"].inputs.text, "typed prompt");
+        assert.equal(caller["5"].inputs.text, "original positive", "the caller's object is never mutated");
+        assert.equal(seen[0][0], 0);
+        assert.equal(seen[seen.length - 1][0], 1);
+        assert.match(seen[seen.length - 1][1], /Done \(1 image\)/);
+    });
+});
+
+test("pipeline: a video analysis swaps in the 30 minute timeout", () => {
+    const isVideo = comfyWorkflow.isVideoWorkflow;
+    comfyWorkflow.isVideoWorkflow = () => true;
+    return withClient({
+        currentWorkflow: WORKFLOW_FIXTURE,
+        currentAnalysis: ANALYSIS_FIXTURE,
+        generate: async (_wf, options) => {
+            assert.equal(options.timeoutMs, 30 * 60 * 1000);
+            return { images: [], seed: 1 };
+        },
+    }, async () => {
+        const res = await pipeline.runGeneration({ workflow: WORKFLOW_FIXTURE });
+        assert.deepEqual(res.images, []);
+        assert.deepEqual(res.svgOutputs, [], "a missing svgOutputs still normalises to []");
+        comfyWorkflow.isVideoWorkflow = isVideo;
+    }).finally(() => { comfyWorkflow.isVideoWorkflow = isVideo; });
+});
+
+test("pipeline: refuses to start without a workflow or while one is running", async () => {
+    await assert.rejects(
+        withClient({ currentWorkflow: null, generate: async () => ({}) }, () => pipeline.runGeneration({})),
+        /no workflow loaded/,
+    );
+    await assert.rejects(
+        withClient({
+            currentWorkflow: WORKFLOW_FIXTURE,
+            generating: true,
+            generate: async () => ({})
+        }, () => pipeline.runGeneration({ workflow: WORKFLOW_FIXTURE })),
+        /already running/,
+    );
+});
+
+test("pipeline: an abort interrupts the server and normalises the error to AbortError", async () => {
+    let interrupted = 0;
+    const controller = new AbortController();
+    await withClient({
+        currentWorkflow: WORKFLOW_FIXTURE,
+        currentAnalysis: ANALYSIS_FIXTURE,
+        interrupt: async () => { interrupted++; },
+        generate: async () => {
+            controller.abort();
+            // what ComfyUI reports when the interrupt lands mid-run
+            throw new Error("Execution interrupted");
+        },
+    }, async () => {
+        await assert.rejects(
+            pipeline.runGeneration({ workflow: WORKFLOW_FIXTURE, signal: controller.signal }),
+            (err) => err.name === "AbortError" && /interrupted/i.test(err.message),
+            "a user abort must be distinguishable from a real failure",
+        );
+    });
+    assert.equal(interrupted, 1, "comfyUI.interrupt() is what stops the queue server-side");
+});
+
+test("pipeline: an already-aborted signal never reaches the queue", async () => {
+    let generated = 0;
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+        withClient({
+            currentWorkflow: WORKFLOW_FIXTURE,
+            generate: async () => { generated++; return {}; },
+        }, () => pipeline.runGeneration({ workflow: WORKFLOW_FIXTURE, signal: controller.signal })),
+        (err) => err.name === "AbortError",
+    );
+    assert.equal(generated, 0);
+});
+
+test("pipeline: a failing LoRA auto-inject warns and the generation continues", async () => {
+    routes.set("/api/wfm/lora/apply", () => json({ error: "service down" }, 500));
+    const warn = console.warn;
+    let warned = 0;
+    console.warn = () => { warned++; };
+    try {
+        await withClient({
+            currentWorkflow: WORKFLOW_FIXTURE,
+            currentAnalysis: ANALYSIS_FIXTURE,
+            generate: async () => ({ images: [{ filename: "x.png" }], seed: 5 }),
+        }, async () => {
+            const res = await pipeline.runGeneration({
+                workflow: WORKFLOW_FIXTURE,
+                storyLoras: [{ name: "a.safetensors", active: true }],
+            });
+            assert.equal(res.seed, 5, "an inject failure is upstream behaviour: warn, then generate anyway");
+        });
+        assert.equal(warned, 1);
+    } finally {
+        console.warn = warn;
+    }
+});
+
+test("pipeline: a style is applied before wildcards expand", async () => {
+    // The catalog is primed rather than stubbed: `resolveStyleByName` answers from core/style.js's
+    // module-level cache, and by this point in the file the style block has already filled it, so a
+    // `/api/wfm/styles` handler would never be reached.
+    const previousStyles = style.getCachedStyles();
+    style.setCachedStyles([{ name: "ordering", prompt: "masterpiece, __qual__", negative_prompt: "" }]);
+    routes.set("/api/wfm/wildcards/content", ({ url }) => json(
+        url.searchParams.get("filename") === "qual.txt" ? { content: "hd\n4k" } : { content: "" },
+    ));
+    wildcard.clearWildcardCache("qual");
+    try {
+        await withClient({
+            currentWorkflow: WORKFLOW_FIXTURE,
+            currentAnalysis: ANALYSIS_FIXTURE,
+            generate: async (wf) => {
+                assert.match(wf["5"].inputs.text, /^original positive, masterpiece, /, "the style appends to the node text");
+                assert.doesNotMatch(wf["5"].inputs.text, /__qual__/, "the token the style introduced was expanded too");
+                assert.match(wf["5"].inputs.text, /^original positive, masterpiece, (hd|4k)$/, "exactly one line replaced the token");
+                assert.equal(wf["6"].inputs.text, "original negative", "an empty negative_prompt appends nothing");
+                return { images: [], seed: 1 };
+            },
+        }, () => pipeline.runGeneration({ workflow: WORKFLOW_FIXTURE, styleName: "ordering" }));
+    } finally {
+        style.setCachedStyles(previousStyles);
+        wildcard.clearWildcardCache("qual");
+    }
+});
 test("presets: list, save, apply and delete hit the documented routes", async () => {
     routes.set("/api/wfm/gen_presets", ({ init }) => json(
         (init.method || "GET") === "GET" ? [{ id: "p1", name: "Anima 20" }] : { status: "ok", preset: { id: "p1" } },
