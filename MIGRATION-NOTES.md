@@ -229,6 +229,11 @@ earlier sweeps measured the views in their default state, so the parameter form 
 covered too — but note the sweep navigates without `?workflow=`, so re-run `selfTest()` on a
 loaded workflow whenever the form changes.
 
+Re-run after the presets card, the chip fix and the labelled JSON editor (the newest build):
+12/12 view×theme combinations clean again, 0 failures everywhere, worst 7.21:1 dark / 5.81:1
+light, and `selfTest()` still reports 0 clean vs 5 armed. The console stayed empty through the
+whole sweep.
+
 Explicitly out of scope per brief §5: Nodes, Image Edit, Video, Tagger, Metadata, AI TOOL,
 Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view.
 
