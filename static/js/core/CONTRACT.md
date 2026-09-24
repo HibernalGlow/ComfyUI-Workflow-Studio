@@ -149,6 +149,27 @@ export async function runGeneration(opts)
 
 ---
 
+## 7.5 `widgets.js` — `/object_info` widget metadata (pure)
+
+| Export | Signature | Returns |
+|---|---|---|
+| `widgetKindOf(declared)` | a raw `/object_info` type declaration | `"INT"｜"FLOAT"｜"STRING"｜"BOOLEAN"｜"COMBO"｜"COMFY_DYNAMICCOMBO_V3"｜null` |
+| `widgetNames(objectInfo, classType)` | — | ordered widget input names (required, then optional) |
+| `inputSpec(objectInfo, classType, name)` | — | `{kind, min, max, step, default, options, multiline, label}` or `null` |
+
+Pure functions over a snapshot: the **caller** fetches it through
+`comfyUI.fetchAllObjectInfo()` (the network belongs to `client.js`, not to this module) and
+keeps it in view state, which is what §0's "core stays stateless" rule requires.
+
+The type-resolution rules deliberately mirror upstream `comfyui-workflow.js`
+(`_resolveWidgetType`, `_getWidgetInputNames`), which are module-private and therefore not
+callable. Two behaviours are load-bearing there and covered by tests: a MultiType declaration
+like `"FLOAT,INT"` occupies exactly **one** widget slot (an exact-match test drops it and shifts
+every later widget out of schema order), and `forceInput: true` marks a link-only socket that
+must never become a field. If upstream changes those rules, diff this file against it.
+
+---
+
 ## 8. `index.js`
 
 The only entry point for `newui/`. Namespaced re-exports (`client`, `workflow`, `i18n`,

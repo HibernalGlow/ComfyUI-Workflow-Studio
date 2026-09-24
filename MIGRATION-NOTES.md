@@ -353,5 +353,12 @@ pnpm dev                     # serve static/ + reverse-proxy ComfyUI (default ht
                              # then open http://localhost:8000/wfm_static/newui.html
 pnpm test:core               # node --test tools/core-tests/
 bash tools/check-newui.sh    # every mechanical gate
+bash tools/gate-selftest.sh  # proof the gates can still go red
 RUN_MERGE_DRY=1 bash tools/check-newui.sh
+
+# Contrast / keyboard audit (browser-side; see MIGRATION-NOTES §5.1):
+cp tools/contrast-audit.mjs static/newui/
+#   then in the page console:
+#   const m = await import("/wfm_static/newui/contrast-audit.mjs")
+#   await m.run();  m.progress();  m.results();  m.selfTest()
 ```
