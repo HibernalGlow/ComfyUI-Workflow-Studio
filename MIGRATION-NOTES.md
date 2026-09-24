@@ -168,12 +168,12 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | accessible names | ok — 0 unnamed focusable controls on every view after labelling the Workflow JSON editor (it was a bare `<textarea class="nu-code">`, which the sweep caught as the single nameless control) |
 | keyboard reach of the loaded parameter form | ok — all 62 fields (50 text fields, 9 selects, 3 switch rows) are reachable: every material-web host reports `delegatesFocus: true` with a focusable inside, and focusing it yields `md-outlined-text-field>input` |
 | console | clean — a fresh load swept over all 6 views reported **zero** console messages (no errors, no warnings, no failed requests). An earlier run showed only HTTP-level noise: `404` on `/api/wfm/models/preview` for models with no stored preview (the grid falls back to the `image_not_supported` placeholder), and `502` during the tunnel blip below |
-| rollback entry | ok — the header's "Open the previous interface" reaches `/wfm`, which still mounts `js/app.js` with its own tab strip |
+| rollback entry | ok — the header's "Open the previous interface" reaches `/wfm`, which mounts `js/app.js` and renders with **live data**: all 12 upstream tabs (工作流/节点/模型/生成UI/提示词/图库/Image Edit/Video/Tagger/设置/帮助/AI TOOL), 128 workflow rows, 15 thumbnails, and its own `wfm_*` localStorage keys still in use |
 | dialog focus trap | ok — with `md-dialog` open, Tab from the **last** control (Save) wrapped to the dialog's own input; focus never escaped |
 | dialog focus restore | was **broken**, now ok — Escape used to leave focus on `<body>`; `dialogs.tsx` now hands focus back to the opener after teardown (see §6) |
 | parity item 1 — workflow JSON → parameter form | ok — `Anima文生图.json` and `Anima批量图像出图.json` each yield 44 node sections / 94 editable fields, of which 58 are server-constrained (29 `md-outlined-select` combos, 29 ranged numbers, 8 multiline textareas) |
 | brief §6 12-row parity table | see §5.2 for the per-row ledger — 8 rows closed, 3 gated on a generation run, 1 on a server restart |
-| Models' 18 items (brief §4) | ok for the ones a browser can reach — 8 type tabs (Checkpoint/LoRA/VAE/ControlNet/UNET/TextEncoder/Hypernetwork/Embedding), switching to LoRA loads 48 cards; grid⇄table toggle renders the 9 sortable columns (fav/filename/subdir/civtype/basemodel/ext/tags/memo/enabled) and persists `nu_models_view`; ★ filter, select-mode (checkboxes appear), per-card Batch/Stack chips, detail panel with subdir·ext line, "+ group…", Apply to Generate, Civitai and disable all observed live |
+| Models' 18 items (brief §4) | ok as implemented for all 18, exercised live for 16 — 8 type tabs, grid⇄table (9 sortable columns) + `nu_models_view`, ★/Batch filters, select-mode, per-card Batch/Stack chips, detail panel (subdir·ext, "+ group…", Apply to Generate, Civitai, disable), pagination with a 24/48/96/200 page-size select, lazy previews (an `img` plus the placeholder fallback for the checkpoint that has none), and six filter selects (tag / badge / **dir, fed by `/api/wfm/models/subdirs`** / group / status / page size). Not clicked because they write to the compute box: batch Civitai fetch (item 9) and bulk move-to-subdir (item 18), both unit-covered at the API layer |
 
 Coverage note: an earlier pass of this table ran while `127.0.0.1:8188` was refusing
 connections (the node bridge on `:8000` answered `502` for every API, including
@@ -294,6 +294,12 @@ which needs the user's go-ahead). Everything else is machine-checked.
   worked, which is why it looked like an endpoint bug rather than a header one. The bridge now
   rewrites `Origin` to the target's own origin; proven by sending the *same* POST with the same
   `Origin` header through the unpatched and patched bridges: 403 then 200.
+  **The old UI is hit by it too** — loading `/wfm` against the unpatched bridge logs
+  `403 (Forbidden) … /wfm/gallery/groups/ensure` three times, i.e. a pre-existing write path in
+  upstream code was failing in exactly the same way, which is what confirmed the bridge (not the
+  new UI) as the right layer for the fix. Same page also logs `404`s for `/mask_editor/*`,
+  `/image_loop/*` and `/image_feeder/presets`; those are optional upstream tabs whose services
+  are not registered on this instance, unrelated to this refactor.
 - **`convertUiToApi()` was called without `await` in two views.** Upstream's conversion is
   `async` (it fetches `/object_info` to map widgets), so `Generate.tsx` and `Workflow.tsx` were
   storing a *Promise* as the API graph: `analyzeWorkflow(promise)` returned an empty analysis,
