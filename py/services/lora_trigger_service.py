@@ -119,6 +119,14 @@ _BUILTIN_DEFAULT_RULES = [
         "category": "action"
     },
     {
+        "name": "Artist Bubutuke (ぶぶ漬け)",
+        "path": "anima\\artist\\260924\\style-Bubutuke-Anima-v01.safetensors",
+        "model_weight": 1.0,
+        "clip_weight": 1.0,
+        "triggers": ["bubutuke", "@bubutuke", "bubutsuke"],
+        "category": "artist"
+    },
+    {
         "name": "Artist z3zz",
         "path": "anima\\artist\\260613\\anima_z3zz@z3zz.safetensors",
         "model_weight": 1.0,
