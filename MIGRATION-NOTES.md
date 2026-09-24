@@ -305,7 +305,7 @@ jointly with "the frontend only calls things that exist". The gate is armed insi
 | 4 | storyboard → LoRA auto-inject | ok | unit — active-only payload, `POST /api/wfm/lora/apply` body `{workflow, loras}`, `auto_turbo` key mapping, blank text clears without a request, chip mutations (7 tests) |
 | 5 | Style application | ok | unit — `{prompt}` substitution vs append, enabled flag, batch override, unknown name no-op (7 tests) |
 | 6 | Wildcard expansion | ok | unit — pinned RNG, comments and blank lines, unknown token verbatim, recursion, Impact nodes skipped, no-token identity (7 tests) |
-| 7 | Gen presets store / load / apply | ok for list + apply | unit — the four routes, methods and verbatim bodies; live — the Settings card lists the server's presets and applying `⚡ Anima 单采样极速 (Turbo 12步)` reported `steps=30 cfg=4 er_sde → steps=12 cfg=1.6 euler_ancestral`. "Save the current settings as a preset" is deliberately not in the UI (see `GenPresets.tsx`'s header: the server accepts several preset shapes and guessing one would write a half-formed record) |
+| 7 | Gen presets store / load / apply | list + apply ok; save implemented, live-blocked | unit — the four routes and their verbatim bodies (3 tests) plus 3 tests for `core/presets.js`, whose record shape is checked against the service itself (top-level keys ⊆ the shipped `_DEFAULT_GEN_PRESETS` keys, stage fields ⊆ what `settings.get(...)` reads). live — applying `⚡ Anima 单采样极速 (Turbo 12步)` to a loaded workflow reported `steps=30 cfg=4 er_sde → steps=12 cfg=1.6 euler_ancestral`. The "save current setup" dialog now exists and was driven in the browser: it opened with all 7 fields, the typed values reached React state (`Preset name="gate probe preset"`, `Steps="17"`, `CFG="3.3"`…), and the `POST /api/wfm/gen_presets` fired — and came back **403**, because the user's long-running `:8000` bridge predates the `Origin` rewrite fix in `tools/dev-server.js` (§6). Restarting that process is the user's call, so the round trip is recorded as *waiting on a bridge restart*, not as passed |
 | 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
 | 9 | Results land in Gallery + workflow backfill | partly | unit — the history → `images` / `svgOutputs` extraction (7 client tests) plus 7 `core/image.js` tests: only `type === "output"` gets a metadata POST, the body is `{path, workflow}` with the path built as `<dir>/<subfolder>/<filename>`, a 500 counts as `failed` instead of rejecting, an unknown output directory means zero requests, `applyDefaultCheckpointIfEnabled` touches the three checkpoint-loader spellings and nothing else, `blobToDataUrl` matches the platform base64 encoder on every padding case, and `flattenFolderTree` labels the root. The Gallery list refreshing itself after a run, and clicking a result back into a workflow, still need a real generation (GPU) |
 | 10 | Settings persist across restart | ok | live through the UI on a patched bridge: the output-directory field started at `saved: ""`, typing the current path and pressing Save returned "Output directory saved." and the following `GET` reported `saved: D:\…\Library\output`. `SettingsService` writes `data/settings.json` with `json.dump` and re-reads that file on every access (`_load`), so the value the `GET` returned came off disk rather than a memory cache — which is the same read a restart performs. The field was then set back to `""` and verified, so the store is exactly as found |
@@ -404,6 +404,26 @@ user's go-ahead), and the same applies to the run-half of 12. Everything else is
   alone. `aria-label` on the anchor (same string as the visible label, so WCAG 2.5.3's
   label-in-name still holds) makes it deterministic in both directions: AT reads it whether or not
   it flattens slots, and the scanner agrees.
+- **The user's `:8000` bridge is still running pre-fix code, so browser writes 403 there.**
+  Driving the new save-preset dialog end to end produced exactly the symptom recorded above:
+  the dialog opened, every field carried its typed value into React state, the
+  `POST /api/wfm/gen_presets` really fired, and the console answered `403 Forbidden` — the
+  `Origin` check ComfyUI applies to non-GET requests, which `tools/dev-server.js` now rewrites
+  but which the long-lived process (started before that commit) cannot pick up without a
+  restart. Reads are unaffected, which is why 27 `GET /api/wfm/gen_presets` calls in the same
+  minute all returned 200 and the failure looked like the dialog not saving. Not fixed by me:
+  restarting someone else's dev process is their call. Any write-path verification must
+  therefore happen either after that restart or on a bridge started from current code.
+- **Two console warnings the dialog produces, so nobody re-investigates them as ours.** Closing
+  an `md-dialog` by clicking its action button logs `Blocked aria-hidden on an element because
+  its descendant retained focus` naming `div.focus-trap` — material-web's own trap element, a
+  library-side ordering issue, and the browser is protecting focus rather than reporting our bug.
+  The open animation logs `Invalid keyframe value for property transform: scale(Infinity)`,
+  which reproduces inside @material/web's keyframe computation when the dialog is measured while
+  the tab is backgrounded (the same hidden-tab condition that freezes transitions in §5.1's
+  measurement notes). Both are `warn`, not `error`; the only `error` in that session was the 403
+  above.
+
 - **Package-manager race (self-inflicted).** During the npm→pnpm migration an
   `npm install` started in the background finished *after* `pnpm install`, and rewrote the
   top level of `node_modules` in npm's layout — `vite` disappeared and the next build failed

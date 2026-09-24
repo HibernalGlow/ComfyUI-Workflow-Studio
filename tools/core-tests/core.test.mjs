@@ -73,7 +73,7 @@ afterEach(() => {
 
 // Import AFTER the shims exist. Dynamic import caches, so this happens once.
 const core = await import("../../static/js/core/index.js");
-const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets, lora, batch, comfyUI, image } = core;
+const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets, lora, batch, comfyUI, image, presets } = core;
 
 // ===========================================================================
 // model-constants — pure helpers (no I/O)
@@ -1559,6 +1559,62 @@ function auditRoutes() {
         unmatched: scoped.filter((c) => !routes.some((r) => routeMatches(c, r))),
     };
 }
+
+test("presets: single mode writes the sampler_settings block the applier reads", () => {
+    const preset = presets.buildSamplerPreset(
+        { name: "  my 15  ", description: "", steps: "15", cfg: "2.5", sampler_name: "  ", scheduler: "karras", denoise: "" },
+        { now: 1700000000000 },
+    );
+    assert.equal(preset.id, "custom-1700000000000");
+    assert.equal(preset.name, "my 15", "trimmed, and the view owns the empty-name fallback");
+    assert.equal(preset.sampling_mode, "single");
+    assert.deepEqual(preset.sampler_settings, {
+        steps: 15, cfg: 2.5, sampler_name: "euler_ancestral", scheduler: "karras", denoise: 1,
+    }, "blank fields take the same defaults the Python service uses, numbers are coerced");
+    assert.equal(preset.sampler_stage1, undefined, "single mode must not grow stage keys");
+    assert.deepEqual(preset.loras, []);
+});
+
+test("presets: double mode writes sampler_stage1 and stage2, never sampler_settings", () => {
+    const preset = presets.buildSamplerPreset({
+        name: "two stage", sampling_mode: "double",
+        stage1steps: 5, stage1cfg: 4.6, stage1sampler_name: "er_sde", stage1scheduler: "simple",
+        stage2steps: 12, stage2cfg: 1.6, stage2sampler_name: "dpmpp_2m_sde_gpu", stage2scheduler: "beta57",
+    }, { now: 1, loras: [{ name: "Turbo", model_weight: 0.8, active: true }] });
+    assert.equal(preset.sampler_settings, undefined,
+        "upstream's gen-presets.js sends sampler_settings for double too, which makes the applier fall back to hardcoded 5/4.6/er_sde/simple");
+    assert.deepEqual(preset.sampler_stage1, { steps: 5, cfg: 4.6, sampler_name: "er_sde", scheduler: "simple", denoise: 1 });
+    assert.deepEqual(preset.sampler_stage2, { steps: 12, cfg: 1.6, sampler_name: "dpmpp_2m_sde_gpu", scheduler: "beta57", denoise: 1 });
+    assert.equal(preset.loras.length, 1);
+    assert.deepEqual(presets.presetStageKeys("double").length, 8);
+    assert.deepEqual(presets.presetStageKeys("single").length, 5);
+});
+
+test("presets: a saved record is shaped like the records the service ships and reads", () => {
+    const py = readFs(REPO_ROOT + "py/services/gen_presets_service.py", "utf8");
+    const readKeys = new Set([...py.matchAll(/preset\.get\(\s*["']([a-z0-9_]+)["']/g)].map((m) => m[1]));
+    const defaultKeys = new Set([...py.matchAll(/^ {8}"([a-z0-9_]+)":/gm)].map((m) => m[1]));
+    assert.ok(defaultKeys.size >= 7, `only ${defaultKeys.size} keys parsed out of _DEFAULT_GEN_PRESETS`);
+    assert.ok(readKeys.has("sampling_mode") && readKeys.has("sampler_settings"),
+        "the applier no longer reads the sampler keys this builder exists to write");
+
+    for (const mode of ["single", "double"]) {
+        const written = Object.keys(presets.buildSamplerPreset({ name: "x", sampling_mode: mode }, { now: 1 }));
+        assert.deepEqual(written.filter((k) => !defaultKeys.has(k)), [],
+            `${mode}: a key outside the stored record shape would never be read back`);
+    }
+    const stageKeys = Object.keys(presets.buildSamplerPreset({ name: "x" }, { now: 1 }).sampler_settings);
+    // The stage fields are read off the *settings dict* (`settings.get("steps")`), not off the
+    // preset itself, so they need their own receiver list.
+    const stageRead = new Set(
+        [...py.matchAll(/(?:settings|s1|s2)\.get\(\s*["']([a-z_]+)["']/g)].map((m) => m[1]),
+    );
+    assert.ok(stageRead.size >= 4, `only ${stageRead.size} sampler fields are read back`);
+    assert.deepEqual(stageKeys.filter((k) => !stageRead.has(k)), [],
+        "a sampler field the applier ignores would silently never reach the workflow");
+    assert.ok(stageKeys.includes("steps") && stageKeys.includes("cfg")
+        && stageKeys.includes("sampler_name") && stageKeys.includes("scheduler"));
+});
 
 test("contract: every api.js request lands on a route py/routes actually registers", () => {
     const audit = auditRoutes();
