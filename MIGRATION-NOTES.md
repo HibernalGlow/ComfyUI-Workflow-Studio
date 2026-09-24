@@ -298,7 +298,44 @@ rather than assumed:
 | `Settings.tsx:283,294` — rows skipped for `null`/`object` values | ok: those keys have no scalar to edit; the same settings remain reachable through their own fields |
 | `GenPresets.tsx` — the whole card | was the bug, now renders in every state (see above) |
 
+#### Models fidelity audit against `static/js/models-tab.js` — two fixes, seven open gaps
+
+The 18-item row above was written from the implementation's own reading of the brief. Re-checking
+it item by item against the upstream code (with the render-condition question from §6 in mind)
+found two real defects, now fixed, and seven fidelity gaps that are **not** fixed — recorded here
+so the row above is read as "wired and exercised", not as "identical to upstream".
+
+Fixed:
+
+- switching model type kept the open detail panel. `loadType()` cleared the selection but not
+  `detail`, and the panel's own actions write through the *current* `type` with the *stale*
+  `detail.name` (`commitGroups` → `M.saveGroups(type, …)`, `M.setEnabled(type, detail.name, …)`)
+  — so choosing LoRA while a checkpoint was open could group or disable a name that does not
+  exist in that type. `loadType` now nulls the panel, as upstream's `selectModel`/type switch do.
+- the bulk bar was add-only and could not name a new group: it rendered one `+ group…` select over
+  `Object.keys(groups)`, so §4 item 5 was unusable until a group existed somewhere else. Upstream
+  (`selection-bulk.js`) has a picker plus add **and** remove **and** a free-text
+  "create & add". The React bar now has all four, going through `M.withMembers`, which creates the
+  key when adding.
+
+Open (evidence, and what it costs the user):
+
+| Gap | Where | Consequence |
+|---|---|---|
+| Table view has no per-row ★ / enable / Batch-Stack cells | `Models.tsx` table body vs `grid-view.js:222-243,164-165` | items 12/13 need grid view or select-mode |
+| Bulk badge and bulk group cannot *remove* in the badge case; move cannot create a folder | select handlers vs `selection-bulk.js:95,104,114-115` | item 18 forces an existing subdir (root is offered) |
+| Batch/Stack chips rendered for all 8 types | `Models.tsx:506-515` vs `MC.isBatchType/isStackType` | a non-LoRA model can join a Batch group and the chip then offers no way out (`loadType` neither seeds nor prunes reserved keys, unlike `models-tab.js:280-288`) |
+| "Fetch Civitai" posts the whole filtered list, cached included, no empty guard | `Models.tsx:324-328` vs `detail-panel.js:812-822` | `routes:205` answers 400 for the all-cached case; the `AbortController` has no cancel control |
+| No clear-filters and no refresh control | toolbar vs `models-tab.js:489,540` | filters can only be undone one select at a time; a stale listing needs a page reload |
+| No empty-state placeholder | `Models.tsx:489-519` vs `grid-view.js:39-42` | a type with no matches is a blank region |
+| Apply-to-Generate is positive-only; Civitai row shows only the sha, `M.civitaiUrl` unused; thumbnail has no Civitai-image fallback | `Models.tsx:345,618`, `Thumb` vs `models-tab.js:577`, `helpers.js:36-56` | negative-prompt embedding and the clickable Civitai link are missing |
+
+Also a rule-B1 nit rather than a bug: `Models.tsx:292-293` recomputes group membership inline
+where `M.groupsOf` exists, and `M.withTag`/`renameGroup`/`withoutGroup`/`isEnabled` are still
+unreached from the view.
+
 #### The compute box became unreachable mid-verification, and what that does and does not explain
+
 
 
 `ssh -L 8188:…` was listening locally and `netstat` on the box still showed ComfyUI `LISTENING`

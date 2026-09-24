@@ -108,6 +108,8 @@ export default function Models({ navigate }: ViewProps): ReactElement {
     const [selectMode, setSelectMode] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [detail, setDetail] = useState<Record_ | null>(null);
+    const [bulkGroupName, setBulkGroupName] = useState("");
+    const [newGroupName, setNewGroupName] = useState("");
     const [loading, setLoading] = useState(false);
     const [civitaiProgress, setCivitaiProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -131,6 +133,10 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                 setSubdirs(Array.isArray(sub) ? sub : []);
                 setPage(0);
                 setSelected(new Set());
+                // The detail panel writes through `type` + `detail.name`; keeping a selected model
+                // from the previous type alive would apply groups or enable/disable to a name that
+                // does not exist in this type (upstream nulls the selection on every type change).
+                setDetail(null);
             } catch (err) {
                 snackbar.show({ label: (err as Error).message, tone: "error" });
             } finally {
@@ -255,6 +261,15 @@ export default function Models({ navigate }: ViewProps): ReactElement {
 
     const bulkGroup = async (groupName: string, on: boolean): Promise<void> => {
         await commitGroups(M.withMembers(groups, groupName, [...selected], on));
+    };
+
+    /** §4 item 5: upstream offers a free-text "create a group and add" beside the picker. */
+    const createAndAddGroup = async (): Promise<void> => {
+        const name = newGroupName.trim();
+        if (!name || !selected.size) return;
+        await bulkGroup(name, true);
+        setNewGroupName("");
+        setBulkGroupName(name);
     };
 
     const bulkDelete = async (): Promise<void> => {
@@ -465,10 +480,32 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                     <span className="nu-muted">{selected.size} / {filtered.length}</span>
                     <MdOutlinedButton disabled={!selected.size} onClick={() => void bulkFavorite(true)}>★</MdOutlinedButton>
                     <MdOutlinedButton disabled={!selected.size} onClick={() => void bulkFavorite(false)}>☆</MdOutlinedButton>
-                    <select className="nu-native-select" aria-label="bulk group" defaultValue="" onChange={(e) => { if (e.target.value && selected.size) void bulkGroup(e.target.value, true); }}>
-                        <option value="">+ group…</option>
+                    <select
+                        className="nu-native-select"
+                        aria-label={tr("nu.models.bulkGroupLabel", "Group")}
+                        value={bulkGroupName}
+                        onChange={(e) => setBulkGroupName(e.target.value)}
+                    >
+                        <option value="">{tr("nu.models.pickGroup", "pick group…")}</option>
                         {Object.keys(groups).map((g) => <option key={g} value={g}>{g}</option>)}
                     </select>
+                    <MdOutlinedButton disabled={!selected.size || !bulkGroupName} onClick={() => void bulkGroup(bulkGroupName, true)}>
+                        {tr("nu.action.add", "Add")}
+                    </MdOutlinedButton>
+                    <MdOutlinedButton disabled={!selected.size || !bulkGroupName} onClick={() => void bulkGroup(bulkGroupName, false)}>
+                        {tr("nu.action.remove", "Remove")}
+                    </MdOutlinedButton>
+                    <input
+                        className="nu-native-select"
+                        type="text"
+                        aria-label={tr("nu.models.newGroup", "New group name")}
+                        placeholder={tr("nu.models.newGroup", "New group name")}
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                    />
+                    <MdOutlinedButton disabled={!selected.size || !newGroupName.trim()} onClick={() => void createAndAddGroup()}>
+                        {tr("nu.models.createAdd", "Create & add")}
+                    </MdOutlinedButton>
                     <select className="nu-native-select" aria-label="bulk badge" defaultValue="" onChange={(e) => { if (e.target.value && selected.size) void bulkBadge(e.target.value, true); }}>
                         <option value="">+ badge…</option>
                         {allBadges.map((b) => <option key={b} value={b}>{b}</option>)}
