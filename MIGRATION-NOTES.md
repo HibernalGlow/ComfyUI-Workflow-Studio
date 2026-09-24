@@ -284,7 +284,22 @@ That is a property-level measurement, not axe's verdict, and is not claimed as o
 7-route/0-violation result covers the bundle before this card change; re-running axe over these
 states is owed the next time the tab is in the foreground.
 
+#### Swept the whole React layer for the "hides an entry point" class of bug
+
+The presets bug was not "a card looks bare when empty" but "a control disappears", so every
+conditional render in `frontend/src/**/*.tsx` was enumerated (`return null`,
+`length === 0 ? null`, and the `? null : null` forms) — four sites in total, each classified
+rather than assumed:
+
+| Site | Verdict |
+|---|---|
+| `App.tsx:35` — `ConnectionDot` while `connected === null` | ok: a status dot with nothing to say yet; it is not a control and appears on the first `/system_stats` answer |
+| `Generate.tsx:430` — a node section with zero widget fields | ok, and **not** an un-ported upstream condition: the old UI has no per-node parameter form to copy (`grep` for `render*Param*`, `wfm-param`, `node-param`, `param-section`, `wfm-field` across `static/js/*.js` returns nothing, and neither `generate-tab.js` nor `comfyui-editor.js` contains a widget-skip loop). It is a choice of this UI — a form padded with empty cards is noise — and no entry point disappears, because the node still carries its fields the moment it has any |
+| `Settings.tsx:283,294` — rows skipped for `null`/`object` values | ok: those keys have no scalar to edit; the same settings remain reachable through their own fields |
+| `GenPresets.tsx` — the whole card | was the bug, now renders in every state (see above) |
+
 #### The compute box became unreachable mid-verification, and what that does and does not explain
+
 
 `ssh -L 8188:…` was listening locally and `netstat` on the box still showed ComfyUI `LISTENING`
 on PID 23176, yet `GET http://127.0.0.1:8188/system_stats` hung for its whole 12 s timeout and
