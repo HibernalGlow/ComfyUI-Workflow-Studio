@@ -73,7 +73,7 @@ afterEach(() => {
 
 // Import AFTER the shims exist. Dynamic import caches, so this happens once.
 const core = await import("../../static/js/core/index.js");
-const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets, lora, batch, comfyUI } = core;
+const { wildcard, style, models, settings, api, modelConstants, modelConstants: MC, widgets, lora, batch, comfyUI, image } = core;
 
 // ===========================================================================
 // model-constants — pure helpers (no I/O)
@@ -1133,6 +1133,95 @@ test("pipeline: a style is applied before wildcards expand", async () => {
         wildcard.clearWildcardCache("qual");
     }
 });
+// ===========================================================================
+// image — the "results metadata" half of parity row 9 and Models item 10
+// ===========================================================================
+test("image: the output directory is normalised the way every upstream writer did", () => {
+    assert.equal(image.normalizeOutputDir("D:\\ComfyUI\\output\\"), "D:/ComfyUI/output");
+    assert.equal(image.normalizeOutputDir("/out//"), "/out/");
+    assert.equal(image.normalizeOutputDir(""), "");
+    assert.equal(image.normalizeOutputDir(undefined), "");
+});
+
+test("image: fetchOutputDir reads /settings/output-dir and degrades to an empty string", async () => {
+    routes.set("/api/wfm/settings/output-dir", () => json({ current: "D:\\Library\\output\\", default: "/d", saved: "x" }));
+    assert.equal(await image.fetchOutputDir(), "D:/Library/output");
+    routes.set("/api/wfm/settings/output-dir", () => json({ error: "boom" }, 500));
+    assert.equal(await image.fetchOutputDir(), "", "upstream swallowed the failure so the caller keeps its old value");
+});
+
+test("image: only saved outputs get metadata, and the failing ones are counted not thrown", async () => {
+    const posts = [];
+    routes.set("/api/wfm/settings/output-dir", () => json({ current: "/out" }));
+    routes.set("/wfm/gallery/image/meta", ({ body }) => {
+        posts.push(body);
+        return body.path.includes("bad") ? json({ error: "disk full" }, 500) : json({ status: "ok" });
+    });
+    const workflow = { "3": { class_type: "KSampler", inputs: {} } };
+    const res = await image.saveGeneratedImagesMeta([
+        { filename: "a.png", subfolder: "seed", type: "output" },
+        { filename: "preview.png", type: "temp" },
+        { filename: "bad.png", type: "output" },
+    ], workflow);
+    assert.deepEqual(res, { saved: 1, failed: 1 }, "never rejects, but says what happened");
+    assert.equal(posts.length, 2, "the `temp` preview is not a saved artifact");
+    assert.deepEqual(posts.map((p) => p.path), ["/out/seed/a.png", "/out/bad.png"]);
+    assert.deepEqual(posts[0].workflow, workflow, "the payload key is `workflow`");
+    assert.equal(callsTo("/api/wfm/settings/output-dir").length, 1, "fetched once, then reused for every image");
+});
+
+test("image: with no output directory at all, not a single metadata request is made", async () => {
+    routes.set("/api/wfm/settings/output-dir", () => json({ error: "gone" }, 500));
+    const res = await image.saveGeneratedImagesMeta([{ filename: "a.png", type: "output" }], {});
+    assert.deepEqual(res, { saved: 0, failed: 0 });
+    assert.deepEqual(callsTo("/wfm/gallery/image/meta"), []);
+});
+
+test("image: the default checkpoint replaces only checkpoint loaders", async () => {
+    const settingsRoutes = (payload) => routes.set("/api/wfm/settings", () => json(payload));
+    const wf = () => ({
+        "1": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "old.safetensors" } },
+        "2": { class_type: "Checkpoint Loader", inputs: { ckpt_name: "old.safetensors" } },
+        "3": { class_type: "ImageMetadataPromptLoader", inputs: { ckpt_name: "old.safetensors" } },
+        "4": { class_type: "LoraLoader", inputs: { lora_name: "keepme" } },
+    });
+    settingsRoutes({ default_checkpoint_enabled: false, default_checkpoint_name: "new.safetensors" });
+    const workflow = wf();
+    assert.equal(await image.applyDefaultCheckpointIfEnabled(workflow), null);
+    assert.equal(workflow["1"].inputs.ckpt_name, "old.safetensors", "disabled means untouched");
+
+    settingsRoutes({ default_checkpoint_enabled: true, default_checkpoint_name: "new.safetensors" });
+    const workflow2 = wf();
+    assert.equal(await image.applyDefaultCheckpointIfEnabled(workflow2), "new.safetensors");
+    assert.deepEqual([workflow2["1"], workflow2["2"], workflow2["3"]].map((n) => n.inputs.ckpt_name),
+        ["new.safetensors", "new.safetensors", "new.safetensors"]);
+    assert.equal(workflow2["4"].inputs.lora_name, "keepme", "a LoRA node is not a checkpoint loader");
+
+    routes.set("/api/wfm/settings", () => json({ error: "down" }, 500));
+    assert.equal(await image.applyDefaultCheckpointIfEnabled(wf()), null, "a server error is not fatal");
+});
+
+test("image: blobToDataUrl matches the platform base64 encoder including padding", async () => {
+    for (const bytes of [[0xff], [0x00, 0x10], [1, 2, 3], [72, 101, 108, 108, 111]]) {
+        const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+        const expected = `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
+        assert.equal(await image.blobToDataUrl(blob), expected, `bytes ${bytes}`);
+    }
+    const untyped = new Blob([new Uint8Array([1, 2, 3])]);
+    assert.match(await image.blobToDataUrl(untyped), /^data:application\/octet-stream;base64,/);
+});
+
+test("image: flattenFolderTree labels the root and walks children depth-first", () => {
+    const flat = image.flattenFolderTree({
+        path: "", abs_path: "/out", children: [
+            { path: "a", abs_path: "/out/a", children: [{ path: "a/b", abs_path: "/out/a/b" }] },
+            { path: "c", abs_path: "/out/c" },
+        ],
+    });
+    assert.deepEqual(flat.map((n) => n.path), ["[root]", "a", "a/b", "c"]);
+    assert.equal(flat[1].abs_path, "/out/a");
+});
+
 // ===========================================================================
 // client — the `/prompt` + WebSocket half of parity row 3. `core/client.js` is a bare
 // re-export of upstream `static/js/comfyui-client.js` (A1 keeps it byte-identical), so

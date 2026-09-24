@@ -70,7 +70,7 @@ written 11 times and never read), so §4 item 16 is greenfield, not a port.
 
 | Asset | Size | Fate |
 |---|---|---|
-| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **89 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
+| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **96 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
 | `static/js/core/CONTRACT.md`, `CONTRACT-api.md` | 2 docs | kept, updated to v2 gates |
 | `static/css/newui/m3-tokens.css` + `theme-m3.css` | ~890 lines | **kept and load-bearing** — they supply the `--md-sys-color-*` layer material-web falls back to |
 | `static/css/newui/{m3-layout,m3-components,newui}.css` | ~3.4k lines | discarded; the library owns component styling |
@@ -287,7 +287,7 @@ probe for material-web components (it is correct for the native `.nu-rail__item`
 
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (89 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (96 tests); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
 upstream file is byte-identical.
 
@@ -301,7 +301,7 @@ upstream file is byte-identical.
 | 6 | Wildcard expansion | ok | unit — pinned RNG, comments and blank lines, unknown token verbatim, recursion, Impact nodes skipped, no-token identity (7 tests) |
 | 7 | Gen presets store / load / apply | ok for list + apply | unit — the four routes, methods and verbatim bodies; live — the Settings card lists the server's presets and applying `⚡ Anima 单采样极速 (Turbo 12步)` reported `steps=30 cfg=4 er_sde → steps=12 cfg=1.6 euler_ancestral`. "Save the current settings as a preset" is deliberately not in the UI (see `GenPresets.tsx`'s header: the server accepts several preset shapes and guessing one would write a half-formed record) |
 | 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
-| 9 | Results land in Gallery + workflow backfill | partly | unit — the history → `images` / `svgOutputs` extraction (including the single-char-array repair ComfyUI's `ui` output needs) and `saveGeneratedImagesMeta()` keying to the base workflow are asserted; the Gallery list refreshing itself after a run, and clicking a result back into a workflow, need a real generation (GPU) |
+| 9 | Results land in Gallery + workflow backfill | partly | unit — the history → `images` / `svgOutputs` extraction (7 client tests) plus 7 `core/image.js` tests: only `type === "output"` gets a metadata POST, the body is `{path, workflow}` with the path built as `<dir>/<subfolder>/<filename>`, a 500 counts as `failed` instead of rejecting, an unknown output directory means zero requests, `applyDefaultCheckpointIfEnabled` touches the three checkpoint-loader spellings and nothing else, `blobToDataUrl` matches the platform base64 encoder on every padding case, and `flattenFolderTree` labels the root. The Gallery list refreshing itself after a run, and clicking a result back into a workflow, still need a real generation (GPU) |
 | 10 | Settings persist across restart | ok | live through the UI on a patched bridge: the output-directory field started at `saved: ""`, typing the current path and pressing Save returned "Output directory saved." and the following `GET` reported `saved: D:\…\Library\output`. `SettingsService` writes `data/settings.json` with `json.dump` and re-reads that file on every access (`_load`), so the value the `GET` returned came off disk rather than a memory cache — which is the same read a restart performs. The field was then set back to `""` and verified, so the store is exactly as found |
 | 11 | Models subsystem, 18 items | ok for 17 | live — see §5.1. Item 9's batch Civitai fetch and item 18's bulk move-to-subdir were not exercised (both write to the compute box) |
 | 12 | `tools/run_typhon_test.py` untouched | ok for "untouched" | A1 — byte-identical to upstream; *running* it needs a GPU |
