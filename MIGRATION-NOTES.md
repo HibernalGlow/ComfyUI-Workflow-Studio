@@ -136,18 +136,21 @@ UI-side changes must be hand-ported.
 
 Implemented but not yet at the standard the rest of the app should hold:
 
-1. The Generate parameter form is generated from the workflow's own primitive inputs. It does
-   **not** yet consult ComfyUI `object_info` for per-input min/max/step/combo options, so the
-   numeric widgets are weaker than the old editor's.
-2. Tooltips are not implemented (material-web has none).
-3. `tools/check-newui.sh` scopes the DOM-literal gate to `*.js`, because the brief's literal
+1. Tooltips are not implemented (material-web has none); the header buttons carry native
+   `title`/`aria-label` instead.
+2. `tools/check-newui.sh` scopes the DOM-literal gate to `*.js`, because the brief's literal
    command also matches the words when they appear as *prose* in `CONTRACT.md`. The gate is
    about executable modules; the prose is kept free of the banned identifiers anyway.
 
 Closed since the first draft of this list: `window.confirm`/`window.prompt` became `md-dialog`
 surfaces (gate A5f now fails on any `window.confirm|prompt|alert`); the Batch panel is wired to
 `core/batch.js`; "Apply to GenerateUI" hands off through the `useSyncExternalStore` store
-instead of the `nu_pending_apply` localStorage key.
+instead of the `nu_pending_apply` localStorage key; and the Generate form is now constrained by
+ComfyUI's own `/object_info` — `core/widgets.js` resolves each input to a widget kind with its
+`min`/`max`/`step`/option list, so combos render as `md-outlined-select`, numbers as ranged
+fields with the range shown as supporting text, and multiline strings as textareas. The old
+editor hard-codes its bounds for the handful of sampler/latent fields it knows (`steps` 1–200,
+`width` step 8 …); this reads them from the server for every node.
 
 ### 5.1 Browser verification log — 2026-09-25
 
@@ -167,7 +170,8 @@ Measured against the built bundle at `/wfm_static/newui.html`, not the dev serve
 | dialog focus trap | ok — with `md-dialog` open, Tab from the **last** control (Save) wrapped to the dialog's own input; focus never escaped |
 | dialog focus restore | was **broken**, now ok — Escape used to leave focus on `<body>`; `dialogs.tsx` now hands focus back to the opener after teardown (see §6) |
 | console | no JS exceptions. Only HTTP-level noise: `404` on `/api/wfm/models/preview` for models that have no stored preview (the grid falls back to the `image_not_supported` placeholder, which is why those icons are there), and `502` during the tunnel blip below |
-| brief §6 12-row parity table | **not closed** — rows 3, 8, 9 and 12 require real generation runs (GPU time on the compute box), which were not started without the user's go-ahead |
+| parity item 1 — workflow JSON → parameter form | ok — `Anima文生图.json` and `Anima批量图像出图.json` each yield 44 node sections / 94 editable fields, of which 58 are server-constrained (29 `md-outlined-select` combos, 29 ranged numbers, 8 multiline textareas) |
+| brief §6 12-row parity table | **partly closed** — rows 1, 5, 6 are measured or unit-covered and row 2 is upstream code reused unchanged (gate A1); rows 3, 8, 9 and 12 need real generation runs (GPU time on the compute box), which were not started without the user's go-ahead |
 | Models' 18 items (brief §4) | partially — 8 types, grid+table, pagination, favourite, badges, groups, detail panel, Batch/Stack toggles and Civitai fetch are present and rendered against live data; per-item behaviour has not been walked against upstream one by one |
 
 Coverage note: an earlier pass of this table ran while `127.0.0.1:8188` was refusing
@@ -215,6 +219,16 @@ Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view
   asynchronous `unmount()` had not yet made true. Focusing the opener after `host.remove()`, with no
   guard, is what a real Escape keypress now confirms. Lesson: an async `unmount` makes every
   "the DOM is gone now" assumption in the same tick wrong.
+- **`convertUiToApi()` was called without `await` in two views.** Upstream's conversion is
+  `async` (it fetches `/object_info` to map widgets), so `Generate.tsx` and `Workflow.tsx` were
+  storing a *Promise* as the API graph: `analyzeWorkflow(promise)` returned an empty analysis,
+  `Object.entries(promise)` yielded no nodes, and the parameter form silently rendered nothing —
+  while `setClientGraph()` handed the same Promise to `comfyUI.currentWorkflow`, which would have
+  failed the first real generation. Nothing threw, so nothing was red: no console error, no gate
+  failure, no type error (`comfyWorkflow` is untyped JS behind a facade). It surfaced only when
+  the acceptance run tried to *count the fields of a loaded workflow* — the one check that
+  distinguishes "the view mounted" from "the view works". Every other call site in the repo
+  (upstream and `core/batch.js`) awaits it.
 - **Two rounds of "contrast failures" were my measurement, not the theme.** See §5.1 — shadow-painted
   containers, slotted-text inheritance, and a backgrounded tab freezing `transition: color`. Each one
   produced a confident-looking number (1.31:1 on every filled button; 1.47:1 on the nav icons) that

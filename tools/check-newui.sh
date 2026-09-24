@@ -121,6 +121,13 @@ fi
 must_be_empty "A5f no native blocking dialogs (window.confirm/prompt/alert)" "$GATES_PROBE" \
     rg -n -g '*.ts' -g '*.tsx' "$SRC" -e 'window\.(confirm|prompt|alert)\('
 
+# Upstream `convertUiToApi()` is async (it consults /object_info). Calling it without
+# `await` stores a Promise where the API graph belongs: the analysis comes back empty,
+# the parameter form renders nothing, and the first real generation would fail — all
+# silently, with no type error, because `comfyWorkflow` is untyped JS. See §6.
+must_be_empty "A5g no un-awaited convertUiToApi in the React layer" "$GATES_PROBE" \
+    sh -c 'rg -n -g "*.tsx" -g "*.ts" frontend/src -e "convertUiToApi\(" | awk "/convertUiToApi/ && !/await/ {print; found=1} END {exit found?0:1}"'
+
 # ---------------------------------------------------------------------------
 # T — types and build
 # ---------------------------------------------------------------------------
