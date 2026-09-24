@@ -17,6 +17,7 @@ import {
     MdDivider,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { GenPresetsCard } from "../GenPresets.js";
 import {
     api,
     comfyUI,
@@ -367,6 +368,8 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
                     </MdFilledButton>
                 </div>
             </SettingsCard>
+
+            <GenPresetsCard />
         </div>
     );
 }
