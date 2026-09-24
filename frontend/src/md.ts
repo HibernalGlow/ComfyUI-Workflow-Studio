@@ -158,9 +158,14 @@ export const MdRadio = define<RadioEl, typeof FORM>("md-radio", FORM);
 
 // --- chips -----------------------------------------------------------------
 export const MdAssistChip = define<AssistChipEl, typeof FORM>("md-assist-chip", FORM);
-export const MdFilterChip = define<FilterChipEl, typeof FORM & { onRemove: "remove" }>("md-filter-chip", {
-    ...FORM,
+export const MdFilterChip = define<FilterChipEl, { onRemove: "remove"; onInput: "click" }>("md-filter-chip", {
     onRemove: "remove",
+    // `md-filter-chip` emits neither `input` nor `change` — clicking it only flips the
+    // `selected` property (chips/internal/filter-chip.js declares @fires remove and
+    // @fires update-focus). Binding onInput to the click that caused the flip is what
+    // makes `<MdFilterChip onInput=…>` fire at all; the native click has already run the
+    // component's own handler by the time it reaches the host, so `selected` is current.
+    onInput: "click",
 });
 export const MdInputChip = define<InputChipEl, typeof FORM & { onRemove: "remove" }>("md-input-chip", {
     ...FORM,
