@@ -266,11 +266,23 @@ each case, which is the only way to reach these states while the compute box is 
 | empty (`[]`) | count `0` + "No presets stored yet. Save the current sampler settings to create one." |
 | one row | count `1` + that preset's Apply and Delete buttons |
 
-Still open on this change: an axe re-pass over the *new* states. Two attempts to load
-`axe.min.js` and run it in this session timed out because the tab is hidden (its timers and
-`requestAnimationFrame` are throttled, which is the same effect §5.1's note 3 records for
-transitions), so the accessibility verdict for the loading/error markup is *not yet measured* —
-the earlier 7-route/0-violation result covers the built bundle before this card change.
+Still open on this change: an axe re-pass over the *new* states. `axe.min.js` could not be
+loaded and run at all in this session — the tab is backgrounded, so even the `<script>` `onload`
+and `axe.run`'s own scheduling exceed the 15 s per-call budget (three attempts: two load
+timeouts, one background runner that never started before its own timeout). The same throttling
+is what §5.1's note 3 records for colour transitions, and it is also why no screenshot was
+possible. So the rules at stake were measured directly on the live DOM of each state instead:
+
+| State | Direct probe of what axe would have checked |
+|---|---|
+| loading | one `md-linear-progress`; the host **and** its inner `role="progressbar"` both carry `aria-label="Loading"` → the `aria-progressbar-name` condition holds |
+| error | 0 buttons without an accessible name; the retry control reads `Retry` |
+| rows | 0 unnamed buttons; the row's controls read `Apply to loaded workflow` and `Delete` |
+| empty | the explanatory note renders and the Save entry point is present |
+
+That is a property-level measurement, not axe's verdict, and is not claimed as one. The earlier
+7-route/0-violation result covers the bundle before this card change; re-running axe over these
+states is owed the next time the tab is in the foreground.
 
 #### The compute box became unreachable mid-verification, and what that does and does not explain
 
