@@ -60,6 +60,20 @@ const proxy = httpProxy.createProxyServer({
     xfwd: true
 });
 
+// ComfyUI validates the `Origin` header on mutating requests and answers 403 with an empty
+// body when it does not match its own host. `changeOrigin` only rewrites `Host`, so a page
+// served from this bridge (`http://127.0.0.1:8000`) posting to a backend on `:8188` gets
+// every write rejected — saving a workflow, metadata or a preset alike. Present the target's
+// own origin, which is what a same-machine reverse proxy is.
+proxy.on("proxyReq", (proxyReq, req) => {
+    if (!req.headers.origin) return;
+    try {
+        proxyReq.setHeader("Origin", new URL(comfyUrl).origin);
+    } catch {
+        /* leave the header alone if the target URL is unparsable */
+    }
+});
+
 proxy.on("error", (err, req, res) => {
     console.error(`❌ Proxy error forwarding to ${comfyUrl}:`, err.message);
     if (res && res.writeHead && !res.headersSent) {
