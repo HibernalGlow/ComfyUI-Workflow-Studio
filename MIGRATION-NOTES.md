@@ -136,18 +136,66 @@ UI-side changes must be hand-ported.
 
 Implemented but not yet at the standard the rest of the app should hold:
 
-1. `window.confirm` / `window.prompt` still back delete, rename and badge-palette editing.
-   These must become `md-dialog` — they are the last non-M3 interaction left in the UI.
-2. The Generate parameter form is generated from the workflow's own primitive inputs. It does
+1. The Generate parameter form is generated from the workflow's own primitive inputs. It does
    **not** yet consult ComfyUI `object_info` for per-input min/max/step/combo options, so the
-   numeric widgets are weaker than the old editor's. The Batch panel is **not wired**
-   (`core/batch.js` is complete and tested; the view side is missing).
-3. "Apply to GenerateUI" from Models hands off through `localStorage` (`nu_pending_apply`)
-   rather than a shared store. Functional, not clean.
-4. Tooltips are not implemented (material-web has none).
-5. `tools/check-newui.sh` scopes the DOM-literal gate to `*.js`, because the brief's literal
+   numeric widgets are weaker than the old editor's.
+2. Tooltips are not implemented (material-web has none).
+3. `tools/check-newui.sh` scopes the DOM-literal gate to `*.js`, because the brief's literal
    command also matches the words when they appear as *prose* in `CONTRACT.md`. The gate is
    about executable modules; the prose is kept free of the banned identifiers anyway.
+
+Closed since the first draft of this list: `window.confirm`/`window.prompt` became `md-dialog`
+surfaces (gate A5f now fails on any `window.confirm|prompt|alert`); the Batch panel is wired to
+`core/batch.js`; "Apply to GenerateUI" hands off through the `useSyncExternalStore` store
+instead of the `nu_pending_apply` localStorage key.
+
+### 5.1 Browser verification log — 2026-09-25
+
+Measured against the built bundle at `/wfm_static/newui.html`, not the dev server.
+
+| Item | Result |
+|---|---|
+| 6 views mount (`#/workflow…#/settings`) | ok — each renders `.nu-view` |
+| m3-dark contrast, all 6 views | ok — 0 failures, worst 7.21:1 (255 text samples) |
+| m3-light contrast, all 6 views | ok — 0 failures, worst 5.81:1 (130 samples, **coverage is not equal to the dark pass** — see the caveat below) |
+| audit armed, foreground side | ok — forcing `.nu-rail__item{color:#cac4d0}` in m3-light gives 5 failures at 1.46:1 naming the right icons; removing it gives 0 again |
+| audit armed, background side | ok — forcing `.nu-rail{background:primary}` gives 5 failures at 1.45:1 |
+| tab order | ok — DOM order, no positive `tabindex`, no `role=button` outside the native focus order |
+| visible focus ring | ok — a *real* Tab puts a `2px solid primary` outline on the rail item and `:focus-visible` matches |
+| accessible names | ok — rail items read 工作流/生成UI/模型/提示词/图库/设置, header buttons carry `aria-label` |
+| rollback entry | ok — the header's "Open the previous interface" reaches `/wfm`, which still mounts `js/app.js` with its own tab strip |
+| dialog focus trap + restore | **not re-verified** — every flow that opens a dialog (delete / rename / model detail) needs server data, and the backend was down during this run |
+| brief §6 12-row parity table, Models' 18 items | **not verified in this run** — same reason |
+
+Coverage caveat: the ComfyUI server on `127.0.0.1:8188` went down during this run (the bridge
+on `:8000` answered every API call with `502 Bad Gateway`, including `/object_info` and
+`/prompt`, while still serving the static bundle). The dark pass ran against the workflow list
+that had already loaded; by the light pass that list was empty, so `#/workflow` contributed 17
+samples instead of 142. The light-theme numbers are real but thinner — re-run both passes once
+the backend is up, and treat the parity table below as unverified until then.
+
+Three rounds of the contrast audit reported failures that turned out to be artifacts of the
+audit rather than of the design. They are recorded because anyone re-measuring will hit them
+again:
+
+1. **Shadow-painted backgrounds.** `@material/web` paints a control's container colour on a
+   `.background` box inside its own shadow root, which is a *sibling* of the label and never an
+   ancestor. Walking up from the text therefore lands on the page body and reports ~1.4:1 for
+   tokens that are fine. The audit must descend into `shadowRoot` and composite the boxes that
+   geometrically cover the text, multiplying each one's `opacity`.
+2. **Slotted text inherits through the flat tree.** The rendered label colour comes from the
+   shadow element that owns the *receiving* `<slot>` (`.label`), not from the light-DOM host.
+   Reading `getComputedStyle(host).color` yields the inherited page colour (on-surface) and
+   makes every filled button look like a catastrophic failure. Pick the slot that actually
+   receives the text node — `querySelector('slot')` returns the icon slot first.
+3. **A backgrounded tab freezes transitions and `requestAnimationFrame`.** `.nu-rail__item`
+   declares `transition: color …`, so switching `data-theme` from a script in a hidden tab left
+   the colour part-way between themes — serialised as `oklab(…)`, unlike the `lab(…)` tokens —
+   and reported the *previous* theme indefinitely. Inject `transition:none; animation:none` for
+   the duration of the audit and wait on timers, never on `rAF`.
+
+Disabled controls are excluded per WCAG 1.4.3's exemption for inactive UI, and counted
+separately (6–8 per view) so the exemption cannot silently hide a real failure.
 
 Explicitly out of scope per brief §5: Nodes, Image Edit, Video, Tagger, Metadata, AI TOOL,
 Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view.
