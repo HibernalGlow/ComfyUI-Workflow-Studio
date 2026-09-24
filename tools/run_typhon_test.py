@@ -231,6 +231,22 @@ if __name__ == "__main__":
         loras = [turbo_lora, aesthetic_lora, artist_lora, typhoeus_base]
         pos = f"masterpiece, best quality, aesthetic, highly detailed, @z3zz, typhoeusendfield\n\n{typhon_prompt_core}"
         prefix = "TEST3_base_with_base_lora"
+    elif test_mode == "4":
+        print("\n=== TEST 4: Normal v2.3 SilverMoon + Bubutuke Artist + Base Typhoeus LoRA ===")
+        unet = "silvermoonmixAnima_v23_INT8.safetensors"
+        bubutuke_lora = ("Artist Bubutuke", "anima\\artist\\260924\\style-Bubutuke-Anima-v01.safetensors", 1.0, 1.0)
+        typhoeus_base = ("Typhoeus Base", "anima\\chara\\endfield\\typhoeus_anima_base_v2.safetensors", 1.1, 1.0)
+        loras = [turbo_lora, aesthetic_lora, bubutuke_lora, typhoeus_base]
+        pos = f"masterpiece, best quality, aesthetic, highly detailed, bubutuke, uncensored, typhoeusendfield\n\n{typhon_prompt_core}"
+        prefix = "TEST4_v23_bubutuke"
+    elif test_mode == "5":
+        print("\n=== TEST 5: 2.9B SilverMoon + Bubutuke Artist + 2.9B Typhoeus LoRA ===")
+        unet = "silvermoonmixAnima29B_v23_INT8.safetensors"
+        bubutuke_lora = ("Artist Bubutuke", "anima\\artist\\260924\\style-Bubutuke-Anima-v01.safetensors", 1.0, 1.0)
+        typhoeus_29b = ("Typhoeus 2.9B", "anima\\chara\\endfield\\typhoeus_anima_v2_29b.safetensors", 1.1, 1.0)
+        loras = [turbo_lora, aesthetic_lora, bubutuke_lora, typhoeus_29b]
+        pos = f"masterpiece, best quality, aesthetic, highly detailed, bubutuke, uncensored, typhoeusendfield\n\n{typhon_prompt_core}"
+        prefix = "TEST5_29B_bubutuke"
     else:
         print("Unknown test mode")
         sys.exit(1)
