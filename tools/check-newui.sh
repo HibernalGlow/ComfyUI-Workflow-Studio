@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# tools/check-newui.sh — mechanical acceptance checks for the core+newui refactor.
+# tools/check-newui.sh — mechanical acceptance gates for the core + newui refactor.
 #
-# Covers the greppable items of FRONTEND-OPTIMIZATION-BRIEF.md §8.
-# Items that need a browser (6, 7, 9, 10) print a manual-verification reminder.
+# Route v2: the UI is React + @material/web, written in TypeScript under frontend/src,
+# built by Vite into static/ (gitignored). The framework-free logic layer stays in
+# static/js/core/** and is reached only through static/js/core/index.js.
+#
+# Every grep gate fails LOUDLY when its target tree is missing: a grep over an empty
+# directory is not evidence, so each one is preceded by a `probe` that must succeed.
 #
 # Usage:  bash tools/check-newui.sh
-# Exit code: number of failed checks (0 = all mechanical checks pass).
+#         RUN_MERGE_DRY=1 bash tools/check-newui.sh   # + upstream merge dry run
+# Exit status: number of failed gates.
 
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -15,173 +20,256 @@ FAIL=0
 fail() { printf '\n[FAIL] %s\n' "$1"; FAIL=$((FAIL + 1)); }
 pass() { printf '[ ok ] %s\n' "$1"; PASS=$((PASS + 1)); }
 
-# Run a grep that must produce NO output.
+if ! command -v rg >/dev/null 2>&1; then
+    echo "rg (ripgrep) is required — these gates are written against rg, not GNU grep." >&2
+    exit 1
+fi
+
+# must_be_empty LABEL PROBE rg-args...
 must_be_empty() {
-    local label="$1"; shift
+    local label="$1" probe="$2"; shift 2
+    if ! eval "$probe" >/dev/null 2>&1; then
+        fail "$label — probe failed, source tree missing"
+        return
+    fi
     local out
     out="$("$@" 2>/dev/null)"
     if [ -z "$out" ]; then
         pass "$label"
     else
         fail "$label"
-        printf '%s\n' "$out" | head -25
+        printf '%s\n' "$out" | head -20
         printf '       (%s matching lines)\n' "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
     fi
 }
 
+SRC=frontend/src
+GATES_PROBE="ls $SRC/main.tsx"
+
 # ---------------------------------------------------------------------------
-# A1 — core/ contains zero DOM
+# 0. the trees these gates describe must exist
+# ---------------------------------------------------------------------------
+for p in static/js/core "$SRC" static/css/newui/m3-tokens.css static/css/newui/theme-m3.css; do
+    if [ -e "$p" ]; then pass "required path: $p"; else fail "required path missing: $p"; fi
+done
+
+if [ -d static/js/newui ]; then
+    fail "static/js/newui still ships — the discarded hand-written layer must not be served"
+else
+    pass "hand-written component layer is out of the served tree"
+fi
+
+# ---------------------------------------------------------------------------
+# A3 — core/ is DOM-free (the seam the whole refactor rests on)
 # ---------------------------------------------------------------------------
 must_be_empty "A3  core zero DOM" \
-    grep -rnE '\bdocument\.|\bwindow\.|getElementById|querySelector|innerHTML' static/js/core/ \
-        --include='*.js'
+    "ls static/js/core/index.js" \
+    rg -n --glob '*.js' '\bdocument\.|\bwindow\.|getElementById|querySelector|innerHTML' static/js/core
 
 # ---------------------------------------------------------------------------
-# A4 — newui never imports an upstream UI module
+# A4 — the React layer reaches logic only through core/index.js
 # ---------------------------------------------------------------------------
-must_be_empty "A4  newui independent of upstream UI" \
-    grep -rE 'from "\.\.?/(generate-tab|gallery-tab|workflow-tab|settings-tab|comfyui-editor|prompt-|models-tab|models/|app)' \
-        static/js/newui/ --include='*.js'
+must_be_empty "A4a React layer imports no upstream UI module" "$GATES_PROBE" \
+    rg -n "$SRC" -e 'from "\.\.?/(generate-tab|gallery-tab|workflow-tab|settings-tab|comfyui-editor|prompt-|models-tab|models/|app)'
+
+must_be_empty "A4b React layer never deep-imports a core module" "$GATES_PROBE" \
+    rg -n --pcre2 "$SRC" -e 'from "[^"]*core/(?!index\.js)'
+
+must_be_empty "A4c no bare import of an upstream static/js module" "$GATES_PROBE" \
+    rg -n "$SRC" -e 'from "\.\./\.\./(util|i18n|comfyui-client|comfyui-workflow|json-highlight)\.js"'
+
+must_be_empty "A4d views reach core through the alias, not a relative path" "$GATES_PROBE" \
+    rg -n "$SRC/views" -e 'from "\.\./\.\./core'
 
 # ---------------------------------------------------------------------------
-# A5 — newui carries none of the old technical debt
+# A5 — none of the old technical debt is repeated
 # ---------------------------------------------------------------------------
-must_be_empty "A5a newui has no hard-coded colours (JS)" \
-    grep -rnE '#[0-9a-fA-F]{3,8}\b|rgba?\(' static/js/newui/ --include='*.js'
+must_be_empty "A5a no colour literals in the TS source" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' "$SRC" -e '#[0-9a-fA-F]{3,8}\b|rgba?\('
 
-must_be_empty "A5b newui has no bare backend fetch" \
-    grep -rn 'fetch("/api/wfm' static/js/newui/ --include='*.js'
+must_be_empty "A5b no bare backend fetch" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' "$SRC" -e 'fetch\((["'"'"'`])/api/wfm'
 
-must_be_empty "A5c newui CSS has no !important" \
-    grep -rn '!important' static/css/newui/ --include='*.css'
+must_be_empty "A5c no .wfm-* class names" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' -g '*.css' "$SRC" -e '\bwfm-'
 
-must_be_empty "A5d newui uses no .wfm-* class names" \
-    grep -rnE '\.wfm-|class(Name)?\s*[:=]\s*"[^"]*\bwfm-' static/js/newui/ static/newui.html --include='*.js'
+must_be_empty "A5d no old-UI localStorage keys in the React layer" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' "$SRC" -e 'wfm_models_view|wfm_models_badge_palette|wfm_civitai_host|wfm_views'
 
-# Colour literals in the new CSS are allowed ONLY in the token layer.
-must_be_empty "A5e newui CSS colours only in the token layer" \
-    grep -rnE '#[0-9a-fA-F]{3,8}\b|rgba?\(' \
-        static/css/newui/m3-layout.css static/css/newui/m3-components.css static/css/newui/newui.css
-
-# ---------------------------------------------------------------------------
-# A5f — newui never touches an old-UI storage key
-# ---------------------------------------------------------------------------
-must_be_empty "A5f no old-UI localStorage keys" \
-    grep -rnE 'wfm_models_view|wfm_models_badge_palette|wfm_civitai_host' static/js/newui/ --include='*.js'
-
-# ---------------------------------------------------------------------------
-# A1b — upstream-owned files are untouched
-# ---------------------------------------------------------------------------
-if git rev-parse --git-dir >/dev/null 2>&1; then
-    if git rev-parse --verify -q upstream/main >/dev/null; then
-        upstream_new=$(( $(git ls-files --others --exclude-standard | grep -cE '^(static/js/core/|static/js/newui/|static/css/newui/|static/newui\.html$)' || true) ))
-        n=$(git diff --numstat upstream/main...main -- py static/js/comfyui-client.js static/js/comfyui-workflow.js \
-             static/js/i18n.js static/js/util.js static/js/json-highlight.js static/js/generate-tab.js \
-             static/js/gallery-tab.js static/js/settings-tab.js static/js/workflow-tab.js static/js/app.js \
-             static/js/models-tab.js static/js/models static/js/prompt-tab.js static/js/prompt-table.js \
-             static/js/prompt-styles.js static/js/prompt-wildcards.js static/js/prompt-presets.js \
-             static/js/prompt-ai-chat.js static/css/main.css templates/index.html | wc -l | tr -d ' ')
-        printf '[info] upstream-owned files touched by the fork: %s (this number must not grow)\n' "$n"
-        printf '[info] new untracked newui files: %s\n' "$upstream_new"
-        pass "A1  upstream files unchanged vs the recorded baseline (see git_py_baseline.txt)"
+# !important is tolerated only in the prefers-reduced-motion override, which has to
+# beat transitions declared elsewhere.
+if [ -f "$SRC/theme.css" ]; then
+    rm_line=$(rg -n 'prefers-reduced-motion' "$SRC/theme.css" | head -1 | cut -d: -f1)
+    imp_lines=$(rg -n '!important' "$SRC/theme.css" | cut -d: -f1)
+    imp_bad=0
+    for n in $imp_lines; do
+        if [ -n "${rm_line:-}" ] && [ "$n" -gt "$rm_line" ]; then continue; fi
+        imp_bad=$((imp_bad + 1))
+    done
+    if [ -z "$imp_lines" ]; then
+        pass "A5e no !important anywhere in the app CSS"
+    elif [ "$imp_bad" -eq 0 ]; then
+        pass "A5e !important confined to the prefers-reduced-motion block"
     else
-        printf '[warn] upstream/main not fetched; skipping A1\n'
-    fi
-fi
-
-# ---------------------------------------------------------------------------
-# A2 — upstream merge dry run leaves zero conflicts
-# ---------------------------------------------------------------------------
-if [ "${RUN_MERGE_DRY:-0}" = "1" ]; then
-    printf '\n[info] running upstream merge dry run (RUN_MERGE_DRY=1)...\n'
-    git fetch -q upstream || true
-    out=$(git merge-tree --write-tree --name-only upstream/main HEAD 2>&1) || true
-    conflicts=$(printf '%s\n' "$out" | grep -cE '^(CONFLICT|Auto-merging.*CONFLICT)' || true)
-    if [ "$conflicts" -eq 0 ]; then pass "A2 merge dry run: 0 conflicts"; else fail "A2 merge dry run: $conflicts conflicts"; fi
-else
-    printf '[skip] A2 merge dry run (set RUN_MERGE_DRY=1 to run)\n'
-fi
-
-# ---------------------------------------------------------------------------
-# P0/P1 — the contract files exist
-# ---------------------------------------------------------------------------
-for f in static/js/core/CONTRACT.md static/js/core/index.js static/newui.html \
-         static/css/newui/newui.css static/css/newui/m3-tokens.css static/css/newui/theme-m3.css \
-         static/css/newui/m3-layout.css static/css/newui/m3-components.css; do
-    if [ -f "$f" ]; then pass "deliverable present: $f"; else fail "missing deliverable: $f"; fi
-done
-
-# ---------------------------------------------------------------------------
-# Structure — the modules named in the brief exist
-# ---------------------------------------------------------------------------
-missing=0
-for f in static/js/core/client.js static/js/core/workflow.js static/js/core/i18n.js \
-         static/js/core/settings.js static/js/core/json.js static/js/core/model-constants.js \
-         static/js/core/api.js static/js/core/pipeline.js static/js/core/style.js \
-         static/js/core/wildcard.js static/js/core/lora.js static/js/core/batch.js \
-         static/js/core/models.js static/js/core/image.js; do
-    [ -f "$f" ] || { printf '[miss] %s\n' "$f"; missing=$((missing + 1)); }
-done
-[ "$missing" -eq 0 ] && pass "core/ has all 14 modules" || fail "core/ is missing $missing module(s)"
-
-missing=0
-for f in static/js/newui/main.js static/js/newui/router.js static/js/newui/store.js \
-         static/js/newui/a11y.js static/js/newui/ripple.js static/js/newui/snackbar.js \
-         static/js/newui/dialog.js static/js/newui/views/workflow.js static/js/newui/views/generate.js \
-         static/js/newui/views/prompt.js static/js/newui/views/gallery.js static/js/newui/views/settings.js \
-         static/js/newui/views/models/index.js; do
-    [ -f "$f" ] || { printf '[miss] %s\n' "$f"; missing=$((missing + 1)); }
-done
-[ "$missing" -eq 0 ] && pass "newui/ has all shell modules + 6 views" || fail "newui/ is missing $missing module(s)"
-
-missing=0
-for c in Button IconButton Fab TextField Select Slider Switch Checkbox Radio Chip Card \
-         Dialog Menu Tooltip Snackbar Tabs NavigationRail List DataTable Progress SegmentedButtons; do
-    [ -f "static/js/newui/components/$c.js" ] || { printf '[miss] components/%s.js\n' "$c"; missing=$((missing + 1)); }
-done
-[ "$missing" -eq 0 ] && pass "all 22 components exist" || fail "$missing component(s) missing"
-
-# ---------------------------------------------------------------------------
-# Syntax — every new JS module parses
-# ---------------------------------------------------------------------------
-bad=0
-while IFS= read -r f; do
-    node --check "$f" >/dev/null 2>&1 || { printf '[syntax] %s\n' "$f"; bad=$((bad + 1)); }
-done < <(find static/js/core static/js/newui -name '*.js' 2>/dev/null)
-[ "$bad" -eq 0 ] && pass "all core/ + newui/ modules parse" || fail "$bad module(s) fail node --check"
-
-# ---------------------------------------------------------------------------
-# Nav scope — exactly the 6 allowed views, none of the retired ones
-# ---------------------------------------------------------------------------
-if [ -f static/newui.html ]; then
-    must_be_empty "nav scope: no retired tabs" \
-        grep -nE '>(Nodes|Image Edit|Video|Tagger|Metadata|AI TOOL|Feeder|Help)<' static/newui.html
-fi
-
-# ---------------------------------------------------------------------------
-# Unit tests
-# ---------------------------------------------------------------------------
-if [ -d tools/core-tests ]; then
-    if node --test tools/core-tests/ >/tmp/wfm-core-tests.log 2>&1; then
-        pass "core unit tests (node --test tools/core-tests/)"
-        grep -E '^# (pass|fail|tests)' /tmp/wfm-core-tests.log | sed 's/^/       /'
-    else
-        fail "core unit tests"
-        tail -40 /tmp/wfm-core-tests.log | sed 's/^/       /'
+        fail "A5e !important outside the reduced-motion override ($imp_bad occurrence(s))"
+        rg -n '!important' "$SRC/theme.css" | head -10
     fi
 else
-    printf '[skip] core unit tests (tools/core-tests/ absent)\n'
+    fail "A5e $SRC/theme.css missing"
+fi
+
+# ---------------------------------------------------------------------------
+# T — types and build
+# ---------------------------------------------------------------------------
+if [ -e node_modules/.bin/tsc ]; then
+    if out=$(node_modules/.bin/tsc --noEmit 2>&1); then
+        pass "T1  tsc --noEmit clean"
+    else
+        fail "T1  tsc --noEmit reported errors"
+        printf '%s\n' "$out" | head -20
+    fi
+else
+    fail "T1  typescript not installed (run pnpm install) — cannot gate on types"
+fi
+
+if [ -f static/newui.html ] && [ -d static/newui ]; then
+    assets=$(find static/newui -type f | wc -l | tr -d ' ')
+    stale=$(find static/newui -name '*.js' | wc -l | tr -d ' ')
+    referenced=$(rg -o 'newui/[A-Za-z0-9._-]+\.(js|css)' -N static/newui.html | sort -u | wc -l | tr -d ' ')
+    if [ "$assets" -gt 0 ]; then
+        pass "T2  build output: static/newui.html + $assets file(s), $referenced referenced by the entry (js chunks: $stale)"
+    else
+        fail "T2  static/newui is empty — run pnpm build"
+    fi
+    if rg -q 'static/newui' .gitignore; then
+        pass "T2b built output is gitignored (dist is not committed)"
+    else
+        fail "T2b built output is NOT gitignored — the route requires dist to stay out of the repo"
+    fi
+    if rg -q 'static/newui\.html' .gitignore; then
+        pass "T2c built entry is gitignored"
+    else
+        fail "T2c static/newui.html is tracked but generated — add it to .gitignore"
+    fi
+else
+    fail "T2  no build output (static/newui.html / static/newui) — run pnpm build"
+fi
+
+# ---------------------------------------------------------------------------
+# A1/A2 — upstream-owned files untouched, merge stays conflict-free
+# ---------------------------------------------------------------------------
+# A1 — every tracked file the refactor does not own must still match its baseline hash.
+# This is the machine-checked form of "upstream-owned files are untouched": the earlier
+# version only printed a count and always passed, which is not a gate.
+BASELINE=tools/upstream-baseline.txt
+if [ -f "$BASELINE" ]; then
+    changed=""; vanished=""; checked=0; deleted_known=0
+    while IFS=$'\t' read -r hash path; do
+        case "$hash" in
+            \#DELETED*) deleted_known=$((deleted_known + 1)); continue ;;
+            \#*) continue ;;
+        esac
+        [ -z "${hash:-}" ] && continue
+        checked=$((checked + 1))
+        if [ ! -f "$path" ]; then
+            vanished="${vanished}${path}\n"
+        elif [ "$(git hash-object "$path")" != "$hash" ]; then
+            changed="${changed}${path}\n"
+        fi
+    done < <(sed 's/# DELETED\t/#DELETED\t/' "$BASELINE")
+
+    printf '[info] A1 checked %d baseline entry(s); %d recorded deletion(s)\n' "$checked" "$deleted_known"
+    if [ -z "$changed" ] && [ -z "$vanished" ]; then
+        pass "A1  no upstream-owned file was modified or removed"
+    else
+        [ -n "$changed" ] && { fail "A1  upstream-owned files CHANGED"; printf "$changed" | head -20; }
+        [ -n "$vanished" ] && { fail "A1  upstream-owned files MISSING"; printf "$vanished" | head -20; }
+        printf '       fix the code, or re-record the baseline deliberately:\n'
+        printf '         bash tools/gen-upstream-baseline.sh\n'
+    fi
+else
+    fail "A1  $BASELINE is missing — run bash tools/gen-upstream-baseline.sh"
+fi
+
+if git rev-parse --verify -q upstream/main >/dev/null 2>&1; then
+    if [ "${RUN_MERGE_DRY:-0}" = "1" ]; then
+        git fetch -q upstream || true
+        # `merge-tree --write-tree` exits 0 for a clean merge and 1 when it conflicts,
+        # printing only the resulting tree OID on success. The exit code is the signal;
+        # grepping the output is not (an empty result reads as "0 conflicts" either way).
+        if git merge-tree --write-tree --name-only HEAD upstream/main >/tmp/wfm-merge.out 2>&1; then
+            pass "A2  merge dry run: clean (0 conflicts)"
+        else
+            fail "A2  merge dry run reported conflicts"
+            rg -n 'CONFLICT|<<<<<<<' /tmp/wfm-merge.out | head -20
+        fi
+    else
+        printf '[skip] A2  merge dry run (set RUN_MERGE_DRY=1)\n'
+    fi
+else
+    printf '[warn] upstream/main unavailable — A2 not measured\n'
+fi
+
+# ---------------------------------------------------------------------------
+# U — core tests. A green run that asserted nothing is NOT a pass.
+# ---------------------------------------------------------------------------
+log=/tmp/wfm-core-tests.log
+if [ -f tools/core-tests/core.test.mjs ]; then
+    if node --test tools/core-tests/ >"$log" 2>&1; then
+        passed=$(awk '/ pass /{v=$NF} END{print v+0}' "$log")
+        failed=$(awk '/ fail /{v=$NF} END{print v+0}' "$log")
+        if [ "${passed:-0}" -ge 40 ] && [ "${failed:-1}" -eq 0 ]; then
+            pass "U1  core unit tests: $passed passed, 0 failed"
+        else
+            fail "U1  core tests did not really run (pass=${passed:-?} fail=${failed:-?})"
+            tail -25 "$log"
+        fi
+    else
+        fail "U1  core unit tests failed"
+        tail -30 "$log"
+    fi
+else
+    fail "U1  tools/core-tests/core.test.mjs is missing"
+fi
+
+if [ -f tools/core-tests/import-check.mjs ]; then
+    if node tools/core-tests/import-check.mjs >/tmp/wfm-import-check.log 2>&1; then
+        pass "U2  core import + api-symbol integration check"
+    else
+        fail "U2  core import/integration check"
+        tail -20 /tmp/wfm-import-check.log
+    fi
+else
+    fail "U2  tools/core-tests/import-check.mjs is missing"
+fi
+
+# Operational files must not point at the discarded tree. MIGRATION-NOTES.md is exempt by
+# design: naming the path that was removed is the whole point of the record.
+must_be_empty "S1  no stale reference to the discarded static/js/newui tree" \
+    "ls tools/check-newui.sh" \
+    rg -n --glob '!check-newui.sh' --glob '!MIGRATION-NOTES.md' 'static/js/newui' tools static/js/core static/css frontend/src 2>/dev/null
+
+if [ -f tools/gate-selftest.sh ]; then
+    if bash tools/gate-selftest.sh >/tmp/wfm-gate-selftest.log 2>&1; then
+        pass "S2  gate self-test: every sampled gate can still go red"
+    else
+        fail "S2  a gate lost its teeth (self-test failed)"
+        tail -20 /tmp/wfm-gate-selftest.log
+    fi
+else
+    fail "S2  tools/gate-selftest.sh is missing"
 fi
 
 # ---------------------------------------------------------------------------
 printf '\n================ %s passed, %s failed ================\n' "$PASS" "$FAIL"
 cat <<'EOF'
-Remaining checks need a live ComfyUI + browser (brief §8):
-  6. open /wfm_static/newui.html: connects via wfm_settings.comfyuiUrl, 6 nav items switch
-     with no 404 and no console errors, rail collapses to icons at 800px width.
-  7. /wfm (old UI) still fully functional — 12-item parity table green there too.
-  9. accessibility: full keyboard operation, dialog focus trap + focus restore, visible
-     :focus-visible rings, axe DevTools over 6 views with 0 critical issues.
- 10. theme: m3-dark and m3-light, all text contrast >= 4.5:1.
+Still needs a live ComfyUI + browser (brief §8):
+  6. http://localhost:8000/wfm_static/newui.html — connects via wfm_settings.comfyuiUrl,
+     6 nav items switch, no 404, no console error, rail collapses to icons at 800px.
+  7. /wfm old UI fully functional.
+  8. the 12-row parity table incl. the 18 models sub-items.
+  9. keyboard-only operation, dialog focus trap + restore, visible focus rings,
+     axe over the 6 views with 0 critical issues.
+ 10. m3-dark / m3-light contrast >= 4.5:1.
 EOF
 exit "$FAIL"

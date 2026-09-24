@@ -117,41 +117,56 @@ try {
     bad(`core/index.js failed to import: ${err.message}`);
 }
 
-// --- 5: newui must not import anything but core/index.js and its own files ---
-const NEWUI = resolve(here, "../../static/js/newui");
-const ALLOWED_UPSTREAM = /from\s+"\.\.\/core\/index\.js"|from\s+"\.\.\/\.\.\/core\/index\.js"/;
-let newuiFiles = [];
+// --- 5: the React layer may reach logic only through the `core` alias -------
+const SRC = resolve(here, "../../frontend/src");
+const ALLOWED_BARE = /^(core|react|react-dom|@lit\/react|@material\/web|material-symbols)/;
+const SOURCE_EXT = /\.(ts|tsx)$/;
+let srcFiles = [];
 try {
     const walk = (dir) => {
         for (const e of readdirSync(dir, { withFileTypes: true })) {
             const p = join(dir, e.name);
             if (e.isDirectory()) walk(p);
-            else if (e.name.endsWith(".js")) newuiFiles.push(p);
+            else if (SOURCE_EXT.test(e.name)) srcFiles.push(p);
         }
     };
-    walk(NEWUI);
-} catch { /* newui not present yet */ }
+    walk(SRC);
+} catch {
+    bad(`frontend/src is missing — the React layer must exist for these gates to mean anything`);
+}
+if (!srcFiles.length) bad("frontend/src contains no .ts/.tsx files — nothing to check");
 
 let violations = 0;
-for (const p of newuiFiles) {
+for (const p of srcFiles) {
     const src = readFileSync(p, "utf8");
     for (const m of src.matchAll(/from\s+"([^"]+)"/g)) {
         const spec = m[1];
-        if (!spec.startsWith(".")) { violations++; bad(`${p} imports a bare specifier "${spec}"`); continue; }
-        if (spec.includes("/core/") && !ALLOWED_UPSTREAM.test(`from "${spec}"`)) {
-            violations++; bad(`${p} bypasses core/index.js with "${spec}"`);
+        if (!spec.startsWith(".")) {
+            if (!ALLOWED_BARE.test(spec)) {
+                violations++; bad(`${p} imports the unapproved package "${spec}"`);
+            }
+            continue;
+        }
+        // Reaching into static/js by relative path means bypassing core/index.js.
+        if (/\.\.\/\.\.\/static\/js/.test(spec) || /core\/index\.js$/.test(spec)) {
+            violations++; bad(`${p} bypasses the core alias with "${spec}"`);
+        }
+        if (/\/core\/(?!index\.js)/.test(spec)) {
+            violations++; bad(`${p} deep-imports a core module: "${spec}"`);
         }
     }
 }
-if (newuiFiles.length && violations === 0) ok(`all ${newuiFiles.length} newui modules import only core/index.js + their own tree`);
+if (srcFiles.length && violations === 0) {
+    ok(`all ${srcFiles.length} React modules reach logic only through the core alias`);
+}
 
 // --- 6: the upstream-UI import ban ------------------------------------------
-const BANNED = /from\s+"\.\.?\/(generate-tab|gallery-tab|workflow-tab|settings-tab|comfyui-editor|prompt-|models-tab|models\/|app)/;
+const BANNED = /from\s+"[^"]*\/(generate-tab|gallery-tab|workflow-tab|settings-tab|comfyui-editor|prompt-[a-z]|models-tab|models\/state|app)(\.js)?"/;
 let banned = 0;
-for (const p of newuiFiles) {
+for (const p of srcFiles) {
     if (BANNED.test(readFileSync(p, "utf8"))) { banned++; bad(`${p} imports an upstream UI module`); }
 }
-if (newuiFiles.length && banned === 0) ok("no newui module imports an upstream UI module");
+if (srcFiles.length && banned === 0) ok("no React module imports an upstream UI module");
 
 void createRequire;
 console.log(`\n${problems} problem(s)`);
