@@ -35,7 +35,7 @@ _BUILTIN_DEFAULT_RULES = [
         "path": "anima\\chara\\endfield\\siAnimaTE.safetensors",
         "model_weight": 1.3,
         "clip_weight": 1.0,
-        "triggers": ["si \\(arknights\\)", "si (arknights)", "si"],
+        "triggers": ["si \\(arknights\\)", "si (arknights)"],
         "category": "character"
     },
     {
@@ -113,10 +113,18 @@ _BUILTIN_DEFAULT_RULES = [
     {
         "name": "Age Slider Old",
         "path": "anima\\action\\age\\age_slider_old-step00000300-1.5.safetensors",
-        "model_weight": -0.8,
+        "model_weight": -1.35,
         "clip_weight": 1.0,
         "triggers": ["age regression", "age down", "age difference"],
         "category": "action"
+    },
+    {
+        "name": "Artist Villainchin (男爵风)",
+        "path": "anima\\artist\\260924\\@style_villainchin-v2.0-000012.safetensors",
+        "model_weight": 0.8,
+        "clip_weight": 1.0,
+        "triggers": ["villainchin", "@style_villainchin", "@villainchin"],
+        "category": "artist"
     },
     {
         "name": "Artist Bubutuke (ぶぶ漬け)",
@@ -315,6 +323,32 @@ class LoraTriggerService:
         logger.info("Scanned %d trigger files from lora directories", len(scanned))
         return scanned
 
+    @staticmethod
+    def _trigger_hit(trig: str, search_text: str, cleaned_search: str) -> bool:
+        """Boundary-aware trigger match.
+
+        Plain substring matching is unsafe here: the trigger ``si \\(arknights\\)``
+        is a substring of ``rossi \\(arknights\\)`` ("ros-si"), so the Si character
+        LoRA used to load on every Rossi page at weight 1.3 and washed out the
+        stirrup footjob LoRAs. Require non-alphanumeric boundaries instead.
+        """
+        t_lower = trig.lower().strip()
+        if not t_lower:
+            return False
+
+        def bounded(needle: str, haystack: str) -> bool:
+            if not needle:
+                return False
+            pattern = r"(?<![a-z0-9])" + re.escape(needle) + r"(?![a-z0-9])"
+            return re.search(pattern, haystack) is not None
+
+        if bounded(t_lower, search_text):
+            return True
+
+        clean_trig = re.sub(r"[\\()@,_]", " ", t_lower)
+        clean_trig = re.sub(r"\s+", " ", clean_trig).strip()
+        return bounded(clean_trig, cleaned_search)
+
     def match_text(
         self,
         raw_text: str,
@@ -368,6 +402,7 @@ class LoraTriggerService:
 
         # Clean search text for robust fuzzy keyword matching
         cleaned_search = re.sub(r"[\\()@,_]", " ", search_text)
+        cleaned_search = re.sub(r"\s+", " ", cleaned_search)
 
         # 2. Check user-defined rules (highest priority, retains multi-LoRA blend & exact weights)
         matched_rule_triggers = set()
@@ -379,16 +414,7 @@ class LoraTriggerService:
             triggers = rule.get("triggers", [])
             hit_trigger = None
             for trig in triggers:
-                t_lower = trig.lower().strip()
-                if not t_lower:
-                    continue
-                # Exact in search_text
-                if t_lower in search_text:
-                    hit_trigger = trig
-                    break
-                # Stripped in cleaned_search
-                clean_trig = re.sub(r"[\\()@,_]", " ", t_lower).strip()
-                if clean_trig and clean_trig in cleaned_search:
+                if self._trigger_hit(trig, search_text, cleaned_search):
                     hit_trigger = trig
                     break
 
@@ -414,14 +440,7 @@ class LoraTriggerService:
                 continue
             hit_trigger = None
             for trig in triggers:
-                t_lower = trig.lower().strip()
-                if not t_lower:
-                    continue
-                if t_lower in search_text:
-                    hit_trigger = trig
-                    break
-                clean_trig = re.sub(r"[\\()@,_]", " ", t_lower).strip()
-                if clean_trig and clean_trig in cleaned_search:
+                if self._trigger_hit(trig, search_text, cleaned_search):
                     hit_trigger = trig
                     break
 
@@ -461,24 +480,46 @@ class LoraTriggerService:
 
         # Check if UI format workflow (contains top-level 'nodes' array)
         if isinstance(wf, dict) and "nodes" in wf and isinstance(wf["nodes"], list):
+            stack_nodes = [n for n in wf["nodes"] if n.get("type") == "CR LoRA Stack"]
+            capacity = len(stack_nodes) * 3
+            if len(enabled_loras) > capacity:
+                logger.warning(
+                    "UI workflow has %d CR LoRA Stack node(s) = %d slots but %d LoRAs matched; "
+                    "%d LoRA(s) will be dropped: %s",
+                    len(stack_nodes),
+                    capacity,
+                    len(enabled_loras),
+                    len(enabled_loras) - capacity,
+                    ", ".join(l.get("name", "?") for l in enabled_loras[capacity:]),
+                )
+            # Chunk the list across stack nodes (each node holds 3 slots);
+            # previously every node got the same first 3 LoRAs and everything
+            # beyond the third was silently discarded.
+            for idx, n in enumerate(stack_nodes):
+                chunk = enabled_loras[idx * 3 : (idx + 1) * 3]
+                widgets = []
+                for slot in range(3):
+                    if slot < len(chunk):
+                        item = chunk[slot]
+                        widgets.extend([
+                            "On",
+                            item["path"].replace("/", "\\"),
+                            float(item["model_weight"]),
+                            float(item["clip_weight"]),
+                        ])
+                    else:
+                        widgets.extend(["Off", "None", 1.0, 1.0])
+                n["widgets_values"] = widgets
+                n["mode"] = 0
             for n in wf["nodes"]:
-                if n.get("type") == "CR LoRA Stack":
-                    widgets = []
-                    for slot in range(3):
-                        if slot < len(enabled_loras):
-                            item = enabled_loras[slot]
-                            widgets.extend([
-                                "On",
-                                item["path"].replace("/", "\\"),
-                                float(item["model_weight"]),
-                                float(item["clip_weight"])
-                            ])
-                        else:
-                            widgets.extend(["Off", "None", 1.0, 1.0])
-                    n["widgets_values"] = widgets
+                if n.get("type") == "CR Apply LoRA Stack":
                     n["mode"] = 0
-                elif n.get("type") == "CR Apply LoRA Stack":
-                    n["mode"] = 0
+            logger.info(
+                "Injected %d LoRAs into %d UI CR LoRA Stack node(s): %s",
+                min(len(enabled_loras), capacity),
+                len(stack_nodes),
+                ", ".join(f'{l.get("name")}@{l.get("model_weight")}' for l in enabled_loras),
+            )
             return wf
 
         # Check for CR LoRA Stack pattern in API-format workflow
@@ -536,7 +577,12 @@ class LoraTriggerService:
 
             # Connect final stack to CR Apply LoRA Stack
             apply_node["inputs"]["lora_stack"] = [str(prev_stack_id), 0]
-            logger.info("Injected %d LoRAs across %d CR LoRA Stack nodes", len(enabled_loras), num_stacks_needed)
+            logger.info(
+                "Injected %d LoRAs across %d CR LoRA Stack nodes: %s",
+                len(enabled_loras),
+                num_stacks_needed,
+                ", ".join(f'{l.get("name")}@{l.get("model_weight")}' for l in enabled_loras),
+            )
             return wf
 
         # Check for Power Lora Loader (rgthree)
