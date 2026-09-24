@@ -275,19 +275,28 @@ class LoraTriggerService:
     ) -> Dict[str, Any]:
         """Parse tags/caption and match active LoRAs with tuned weights."""
         # 1. Parse [tags] and [caption]
-        tags_m = re.search(r"\[tags\]\s*(.*?)\s*(?:\[caption\]|$)", raw_text, re.DOTALL | re.IGNORECASE)
-        caption_m = re.search(r"\[caption\]\s*(.*)", raw_text, re.DOTALL | re.IGNORECASE)
+        tags_m = re.search(r"\[tags\]\s*(.*?)(?=\[caption\]|$)", raw_text, re.DOTALL | re.IGNORECASE)
+        caption_m = re.search(r"\[caption\]\s*(.*?)(?=\[/caption\]|$)", raw_text, re.DOTALL | re.IGNORECASE)
 
         tags = tags_m.group(1).strip() if tags_m else ""
         caption = caption_m.group(1).strip() if caption_m else ""
 
+        # If [caption] was present but [tags] header was omitted, take preceding text as tags
+        if not tags and caption_m:
+            before_caption = raw_text[:caption_m.start()].strip()
+            if before_caption:
+                tags = before_caption
+
+        # If neither [tags] nor [caption] tag found
         if not tags and not caption:
-            # Plain text prompt
-            main_prompt = raw_text.strip()
-            search_text = raw_text.lower()
-        else:
-            main_prompt = f"{tags}\n\n{caption}".strip() if caption else tags
-            search_text = f"{tags} {caption}".lower()
+            tags = raw_text.strip()
+
+        # Clean tags and caption
+        tags = re.sub(r"^\[tags\]\s*", "", tags, flags=re.IGNORECASE).strip()
+        caption = re.sub(r"\[/?caption\]", "", caption, flags=re.IGNORECASE).strip()
+
+        main_prompt = f"{tags}\n\n{caption}".strip() if (tags and caption) else (tags or caption)
+        search_text = raw_text.lower()
 
         # Combine with quality prefix
         combined_positive = f"{quality_prefix}\n\n{main_prompt}".strip() if quality_prefix else main_prompt
@@ -313,6 +322,7 @@ class LoraTriggerService:
         cleaned_search = re.sub(r"[\\()@,_]", " ", search_text)
 
         # 2. Check user-defined rules (highest priority, retains multi-LoRA blend & exact weights)
+        matched_rule_triggers = set()
         for rule in self._rules:
             path = rule.get("path", "")
             if not path or path.lower() in seen_paths:
@@ -345,6 +355,7 @@ class LoraTriggerService:
                     "active": True
                 })
                 seen_paths.add(path.lower())
+                matched_rule_triggers.add(hit_trigger.lower())
 
         # 3. Check scanned .trigger.txt files for any additional unconfigured LoRAs
         if not self._scanned_triggers:
@@ -367,6 +378,7 @@ class LoraTriggerService:
                     break
 
             if hit_trigger:
+                is_covered = hit_trigger.lower() in matched_rule_triggers
                 matched_loras.append({
                     "name": Path(path).stem,
                     "path": path,
@@ -374,7 +386,7 @@ class LoraTriggerService:
                     "clip_weight": 1.0,
                     "trigger": hit_trigger,
                     "category": "auto-scanned",
-                    "active": True
+                    "active": not is_covered
                 })
                 seen_paths.add(path.lower())
 
