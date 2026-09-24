@@ -219,6 +219,7 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
                     <MdDivider />
                     <textarea
                         className="nu-code"
+                        aria-label={tr("nu.workflow.jsonLabel", "Workflow JSON")}
                         spellCheck={false}
                         value={json}
                         onInput={(e) => {
