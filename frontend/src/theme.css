@@ -574,6 +574,68 @@ body {
   }
 }
 
+/* --- batch panel ----------------------------------------------------------- */
+
+.nu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-lg);
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.nu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.nu-row--indent {
+  padding-inline-start: 28px;
+}
+
+.nu-row--wrap {
+  flex-wrap: wrap;
+}
+
+.nu-ellip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.nu-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.nu-log li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--md-sys-typescale-body-small);
+}
+
+.nu-log__fail md-icon {
+  color: var(--md-sys-color-error);
+}
+
+.nu-log__ok md-icon {
+  color: var(--md-sys-color-primary);
+}
+
 /* --- snackbar ------------------------------------------------------------ */
 /* md-snackbar does not exist in @material/web 2.5.0, so it is implemented here. */
 

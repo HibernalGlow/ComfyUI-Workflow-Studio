@@ -9,12 +9,15 @@ import {
     MdDivider,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { BatchPanel } from "../BatchPanel.js";
+import { useApp, clearApplyTarget, clearPromptAppend } from "../store.js";
 import { setClientGraph, getClientGraph, type ApiWorkflow, type Analysis } from "../coreBridge.js";
 import {
     api,
     comfyUI,
     comfyWorkflow,
     runGeneration,
+    models,
     style as styleCore,
     image as imageCore,
     tr,
@@ -56,6 +59,39 @@ export default function Generate({ params }: ViewProps): ReactElement {
     const [results, setResults] = useState<GenResult[]>([]);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+
+    // Models → Generate: a slot request lands here and is written into the graph,
+    // never into another view's DOM (brief §4 note 2).
+    const { applyTarget, promptAppend } = useApp();
+    const lastApplied = useRef<number>(0);
+    const lastAppend = useRef<number>(0);
+    useEffect(() => {
+        if (!promptAppend || promptAppend.token === lastAppend.current) return;
+        lastAppend.current = promptAppend.token;
+        setPrompt(models.appendEmbedding(prompt, promptAppend.value));
+        clearPromptAppend();
+    }, [promptAppend, prompt, models]);
+    useEffect(() => {
+        if (!applyTarget || applyTarget.token === lastApplied.current || !apiWorkflow) return;
+        lastApplied.current = applyTarget.token;
+        const next = JSON.parse(JSON.stringify(apiWorkflow)) as ApiWorkflow;
+        let hit = 0;
+        for (const node of Object.values(next)) {
+            if (node?.inputs && applyTarget.inputKey in node.inputs) {
+                node.inputs[applyTarget.inputKey] = applyTarget.value;
+                hit += 1;
+            }
+        }
+        setClientGraph(next, getClientGraph().analysis);
+        setApiWorkflow(next);
+        snackbar.show({
+            label: hit
+                ? `${applyTarget.value} → ${applyTarget.inputKey} (${hit} node${hit > 1 ? "s" : ""})`
+                : `${tr("nu.generate.noSlot", "No node in this workflow accepts")} ${applyTarget.inputKey}`,
+            tone: hit ? "neutral" : "error",
+        });
+        clearApplyTarget();
+    }, [applyTarget, apiWorkflow, snackbar]);
 
     useEffect(() => {
         void (async () => {
@@ -311,6 +347,15 @@ export default function Generate({ params }: ViewProps): ReactElement {
                     </div>
                 </MdOutlinedCard>
             ) : null}
+
+            <BatchPanel
+                workflow={apiWorkflow}
+                filename={chosen}
+                seedMode={seedMode}
+                seedValue={seedValue}
+                styleCatalog={styles}
+                onItemDone={() => void load(chosen)}
+            />
 
             {results.length ? (
                 <MdOutlinedCard>

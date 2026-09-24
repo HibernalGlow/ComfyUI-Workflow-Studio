@@ -9,6 +9,7 @@ import {
     MdDivider,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { useApp, clearWorkflowHandoff } from "../store.js";
 import { api, comfyWorkflow, highlightJSON, tr } from "core";
 import type { ViewProps } from "../App.js";
 
@@ -49,6 +50,18 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
     useEffect(() => {
         void refresh();
     }, [refresh]);
+
+    // Gallery → Workflow: adopt the restored workflow for editing.
+    const { workflowHandoff } = useApp();
+    const lastHandoff = useRef<number>(0);
+    useEffect(() => {
+        if (!workflowHandoff || workflowHandoff.token === lastHandoff.current) return;
+        lastHandoff.current = workflowHandoff.token;
+        setSelected(workflowHandoff.path);
+        setJson(workflowHandoff.json);
+        setDirty(true);
+        clearWorkflowHandoff();
+    }, [workflowHandoff]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();

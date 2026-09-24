@@ -11,6 +11,7 @@ import {
     MdFilterChip,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { requestWorkflow } from "../store.js";
 import { api, tr } from "core";
 import type { ViewProps } from "../App.js";
 
@@ -114,7 +115,7 @@ export default function Gallery({ navigate }: ViewProps): ReactElement {
 
     const restoreWorkflow = (): void => {
         if (!preview || !previewWorkflow) return;
-        window.localStorage.setItem("nu_pending_workflow", JSON.stringify({ path: preview.path, workflow: previewWorkflow }));
+        requestWorkflow(preview.path, previewWorkflow);
         navigate("workflow");
         snackbar.show({ label: tr("nu.gallery.restored", "Workflow handed to the Workflow view.") });
     };

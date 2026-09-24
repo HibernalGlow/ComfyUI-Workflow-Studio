@@ -23,6 +23,7 @@ import {
     MdChipSet,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { requestApply, requestPromptAppend } from "../store.js";
 import {
     api,
     models as M,
@@ -75,7 +76,7 @@ function Thumb({ src, alt }: { src: string; alt: string }): ReactElement {
     );
 }
 
-export default function Models(_props: ViewProps): ReactElement {
+export default function Models({ navigate }: ViewProps): ReactElement {
     const snackbar = useSnackbar();
     const [type, setType] = useState<string>("checkpoint");
     const [view, setView] = useState<ViewMode>(() =>
@@ -315,18 +316,24 @@ export default function Models(_props: ViewProps): ReactElement {
         }
     };
 
+    /** §4 item 14: a pure core call + a store update, never a cross-view DOM poke. */
     const applyToGenerate = (r: Record_): void => {
         const target = M.genUiTarget(type);
         if (!target || target.mode !== "slot") {
-            window.localStorage.setItem("nu_pending_embedding", r.name);
-            snackbar.show({ label: tr("nu.models.embeddingQueued", "Embedding queued for the prompt.") });
+            requestPromptAppend(M.appendEmbedding("", r.name));
+            snackbar.show({
+                label: `${M.embeddingPromptToken(r.name)} ${tr("nu.models.queuedPrompt", "appended in Generate")}`,
+                actionLabel: tr("nu.action.open", "Open"),
+                onAction: () => navigate("generate"),
+            });
             return;
         }
-        window.localStorage.setItem(
-            "nu_pending_apply",
-            JSON.stringify({ slot: target.slot, inputKey: target.inputKey, value: r.name }),
-        );
-        snackbar.show({ label: `${r.name} → ${target.slot}` });
+        requestApply(type, { slot: target.slot, inputKey: target.inputKey, value: r.name });
+        snackbar.show({
+            label: `${r.name} → ${target.inputKey}`,
+            actionLabel: tr("nu.action.open", "Open"),
+            onAction: () => navigate("generate"),
+        });
     };
 
     const switchView = (next: ViewMode): void => {
