@@ -171,14 +171,39 @@ Anima 模型通常经量化转换后以 UNet 形式运行，使用 `OTUNetLoader
 | :--- | :--- |
 | `tools/dev-server.js` | 本地轻量 Node.js 开发代理服务（支持 HTTP & WebSocket 双向透传） |
 | `package.json` | 前端项目工程定义，统一使用 `yarn` 管理依赖与脚本 |
+| `static/js/gen-presets.js` | 生成预设管理 UI（一键切换单/双采样、参数装配、保存弹窗） |
 | `static/js/prompt-story-lora.js` | 分镜导入解析、LoRA 芯片组件渲染、权重调整与规则弹窗 |
 | `static/js/comfyui-workflow.js` | 工作流分析器、UI 格式与 API 格式互转、节点 Bypass 逻辑 |
 | `static/js/generate-tab.js` | Generate 选项卡核心控制器，负责生成前拦截并注入 LoRA |
+| `py/services/gen_presets_service.py` | 预设持久化存储与工作流参数一键装配（采样器/调度器/LoRA） |
 | `py/services/lora_trigger_service.py` | 触发词扫描、正则分镜提取、CR LoRA Stack 串联分配算法 |
+| `data/gen_presets.json` | 用户与系统预设库文件 |
 | `data/lora_rules.json` | 持久化自训 LoRA 触发词与精调权重数据库 |
 
-### 编码与开发原则
-1. **包管理约束**：必须统一使用 `yarn`（禁止在前端引入 npm/pnpm 锁文件）。
-2. **渐进式加载**：前端全部采用原生 ESM（`import / export`），避免复杂编译打包工具链，确保开箱即用。
-3. **保持后端兼容**：在 `lora_trigger_routes.py` 等接口中，请求体参数保持向下兼容（同时支持 `loras` 与 `active_loras`）。
-4. **工作流安全**：在修改节点连接时，严禁使用固定写死的新节点 ID，必须通过扫描计算最大空闲 ID 防止覆盖用户原始节点。
+---
+
+## 7. 生成预设体系（Generation Presets）与自动化规范
+
+为避免创作者与 AI 助手反复手动调整采样步数、CFG、单双采样切换与 LoRA 权重，系统引入了全局预设机制。
+
+### 内置核心预设
+1. **⚡ Anima 单采样极速 (`anima-single-turbo`)**：
+   - 模式：`single`（单采样）
+   - 步数与 CFG：`steps: 12`, `cfg: 1.6`, `sampler: euler_ancestral`, `scheduler: beta57`
+   - 搭配 LoRA：Turbo 0.8 + 美学高清提升 0.48
+   - 适用：日常快速分镜审图，1~2秒快速出图且画面结构工整。
+2. **🎭 Anima 双层精细采样 (`anima-two-stage-standard`)**：
+   - 模式：`double`（双层采样）
+   - 第一层（粗采）：`steps: 5`, `cfg: 4.6`, `sampler: er_sde`, `scheduler: simple`
+   - 第二层（精修）：`steps: 12`, `cfg: 1.6`, `sampler: dpmpp_2m_sde_gpu`, `scheduler: beta57`
+   - 适用：多角色、复杂透视和大场景精细刻画。
+3. **🎨 Anima 原生全扩散 (`anima-native-30`)**：
+   - 模式：`single`（单采样无 Turbo）
+   - 步数与 CFG：`steps: 30`, `cfg: 4.0`, `sampler: er_sde`, `scheduler: beta57`
+   - 适用：追求传统纯扩散厚重笔触和渐变质感。
+4. **🦶 梨诺镫袜足交全套混合 (`liino-footjob-suite`)**：
+   - 装配经过反复验证的 6 个特定 LoRA 及其实测黄金权重比例。
+
+### 创作者保存与 AI 调用方式
+- **网页端操作**：在 GenerateUI 顶部点击【💾 保存当前】，输入预设名即可将当前界面调试好的步数、CFG 和 LoRA 权重固化为新预设。
+- **AI 助手直接调用**：后续只需向 `POST /api/wfm/gen_presets/apply` 发送预设 ID，即可一键把全部最佳参数装配进工作流，彻底免去繁琐的手动调试！
