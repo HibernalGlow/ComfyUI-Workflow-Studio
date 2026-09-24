@@ -2,6 +2,22 @@
 
 ---
 
+## v0.7.3（2026-09-24）
+
+### GenerateUIタブにQwen Image 2.1（TextEncodeQwenImage21）対応を追加
+
+Comfy-Orgのnightly workflowテンプレート`qwen_image2.1_t2i.json`系（`TextEncodeQwenImage21`ノードでprompt/negative_prompt/resolutionとimage_1〜image_10参照画像を一手に扱う、T2IとEdit兼用のsubgraph構成）をGenerateUIタブで使えるようにした。
+
+**変更内容**: `comfyui-workflow.js`の`analyzeWorkflow()`に`TextEncodeQwenImage21`の分岐を追加。`TextEncodeBooguEdit`と同じ「1ノードにprompt/negative_prompt両方を持ち、ロールは固定（KSampler側の配線をたどらない）」パターンで`prompt_nodes`へ登録し、Input タブのPositive/Negative Prompt欄に反映されるようにした。あわせて`_getWidgetMapping()`に`TextEncodeQwenImage21: ["prompt", "negative_prompt", "resolution"]`を追加し、Settings欄からの書き戻しにも対応。
+
+**調査で判明した既存アーキテクチャ**: GenerateUIのModel/Diffusion Model/Text Encoder/VAE/KSampler/EmptyLatentImage検出は元々ノードタイプ非依存の汎用ロジックなので、UNETLoader＋CLIPLoader＋VAELoaderの3分割ロード構成（Flux/Qwen Image系で共通）は無改修でそのまま動作した。また画像アップロードUI（Input タブのImageサブパネル）は`generate-tab.js`ではなく`comfyui-editor.js`が担当しており、`analysis.load_image_nodes`に載る全LoadImageノード（1個に限らず）に対して個別カードを描画する汎用実装だったため、Qwen Image 2.1の複数参照画像編集（image_1・image_2をそれぞれ別のLoadImageで接続したワークフロー）もコード変更なしでそのまま動作した——ユーザー提供のI2Iテストワークフローで実機確認済み。
+
+**How to apply**: 新しい「1ノードでprompt+negative_prompt+複数画像入力」型の text-encoder ノードをGenerateUIに対応させる際は、まず`analyzeWorkflow()`のprompt_nodes検出だけ確認すればよい場合が多い——モデルロード・サンプラー・LoadImageカードは大抵ノードタイプに依存しない汎用ロジックが既にカバーしている。画像アップロードUIを探すときは`generate-tab.js`ではなく`comfyui-editor.js`を見ること（両者は別ファイル）。
+
+関連: [[project_v071_unsloth_ssrf_fix_and_outer_gitignore]]
+
+---
+
 ## v0.7.2（2026-09-18）
 
 ### Workflowタブにソート機能追加（Date/Name 昇順降順）

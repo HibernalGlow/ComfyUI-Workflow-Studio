@@ -1296,6 +1296,28 @@ export const comfyWorkflow = {
                 }
             }
 
+            // TextEncodeQwenImage21 (Qwen Image 2.1 unified T2I/Edit encoder) — prompt +
+            // negative_prompt in one node (fixed roles, same shape as TextEncodeBooguEdit).
+            // Also carries a "resolution" pixel-budget int (not width/height) and up to 10
+            // optional images.image_N reference inputs (image_1 is the edit target when wired;
+            // with no images connected the node behaves as pure T2I). The reference images
+            // themselves need no special handling here — they arrive as ordinary LoadImage
+            // nodes already picked up generically by the load_image_nodes pass below.
+            if (ct === "TextEncodeQwenImage21") {
+                if (typeof inputs.prompt === "string") {
+                    result.prompt_nodes.push({
+                        id, type: ct, title: `${title} [positive]`, role: "positive",
+                        text: inputs.prompt, textKey: "prompt",
+                    });
+                }
+                if (typeof inputs.negative_prompt === "string") {
+                    result.prompt_nodes.push({
+                        id, type: ct, title: `${title} [negative]`, role: "negative",
+                        text: inputs.negative_prompt, textKey: "negative_prompt",
+                    });
+                }
+            }
+
             // Mage-Flow text encoder — prompt + negative_prompt in one node (fixed roles,
             // unlike KSampler-derived getRole() since both wires originate from this node)
             if (ct === "TextEncodeMageFlowEdit") {
@@ -1651,6 +1673,7 @@ function _getWidgetMapping(nodeType) {
         ImpactWildcardProcessor: ["wildcard_text"],
         ImpactWildcardEncode: ["wildcard_text"],
         WFS_PromptText: ["positive", "negative"],
+        TextEncodeQwenImage21: ["prompt", "negative_prompt", "resolution"],
     };
     return mappings[nodeType] || null;
 }
