@@ -4,7 +4,8 @@
  */
 
 import { comfyUI } from "./comfyui-client.js";
-import { showToast, escapeHtml } from "./util.js";
+import { showToast } from "./app.js";
+import { escapeHtml } from "./util.js";
 import { t } from "./i18n.js";
 
 export const storyLoraState = {

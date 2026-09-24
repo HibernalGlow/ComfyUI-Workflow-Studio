@@ -76,6 +76,16 @@ const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = decodeURIComponent(url.pathname);
 
+    // Set CORS headers
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+
+    if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        return res.end();
+    }
+
     // 1. Root redirect to /wfm
     if (pathname === "/" || pathname === "/wfm/") {
         res.writeHead(302, { Location: "/wfm" });
@@ -87,6 +97,7 @@ const server = http.createServer((req, res) => {
         const indexPath = path.join(TEMPLATES_DIR, "index.html");
         fs.readFile(indexPath, "utf8", (err, data) => {
             if (err) {
+                console.error("❌ Error reading index.html:", err);
                 res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
                 return res.end("Error reading index.html: " + err.message);
             }

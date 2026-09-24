@@ -165,6 +165,38 @@ _BUILTIN_DEFAULT_RULES = [
         "clip_weight": 1.0,
         "triggers": ["kincora"],
         "category": "artist"
+    },
+    {
+        "name": "Highres Aesthetic Boost (美学高清提升)",
+        "path": "anima\\beauty\\anima-highres-aesthetic-boost.safetensors",
+        "model_weight": 0.48,
+        "clip_weight": 1.0,
+        "triggers": ["aesthetic", "highres", "boost", "aesthetic boost", "quality"],
+        "category": "aesthetic"
+    },
+    {
+        "name": "Masterpiece V51 (大师美学修正)",
+        "path": "anima\\beauty\\anima-base-1-masterpiece-v51.safetensors",
+        "model_weight": 1.0,
+        "clip_weight": 1.0,
+        "triggers": ["very aesthetic", "masterpiece v51", "quality modifiers"],
+        "category": "aesthetic"
+    },
+    {
+        "name": "Solidline Markinson (实体线条强化)",
+        "path": "anima\\beauty\\solidline_markinson_anima.safetensors",
+        "model_weight": 1.0,
+        "clip_weight": 1.0,
+        "triggers": ["@solidline", "@markinson", "solidline", "markinson"],
+        "category": "aesthetic"
+    },
+    {
+        "name": "Saturation V6 (色彩饱和增强)",
+        "path": "anima\\beauty\\saturation_v6.safetensors",
+        "model_weight": 0.6,
+        "clip_weight": 1.0,
+        "triggers": ["saturation", "vivid colors", "color boost"],
+        "category": "aesthetic"
     }
 ]
 
