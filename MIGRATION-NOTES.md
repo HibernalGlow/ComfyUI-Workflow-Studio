@@ -240,7 +240,7 @@ upstream file is byte-identical.
 | 4 | storyboard → LoRA auto-inject | ok | unit — active-only payload, `POST /api/wfm/lora/apply` body `{workflow, loras}`, `auto_turbo` key mapping, blank text clears without a request, chip mutations (7 tests) |
 | 5 | Style application | ok | unit — `{prompt}` substitution vs append, enabled flag, batch override, unknown name no-op (7 tests) |
 | 6 | Wildcard expansion | ok | unit — pinned RNG, comments and blank lines, unknown token verbatim, recursion, Impact nodes skipped, no-token identity (7 tests) |
-| 7 | Gen presets store / load / apply | partly | unit — list/save/apply/delete routes, methods, verbatim bodies. The UI walk "save → reload → compare sampler params" is not done |
+| 7 | Gen presets store / load / apply | ok for list + apply | unit — the four routes, methods and verbatim bodies; live — the Settings card lists the server's presets and applying `⚡ Anima 单采样极速 (Turbo 12步)` reported `steps=30 cfg=4 er_sde → steps=12 cfg=1.6 euler_ancestral`. "Save the current settings as a preset" is deliberately not in the UI (see `GenPresets.tsx`'s header: the server accepts several preset shapes and guessing one would write a half-formed record) |
 | 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
 | 9 | Results land in Gallery + workflow backfill | **not verified** | needs a real generation run (GPU) |
 | 10 | Settings persist across restart | partly | unit — `updateSettings` merges into the shared `wfm_settings`, prefs stay in the `nu_` namespace, corrupt JSON degrades. Not re-checked across an actual restart |
@@ -273,6 +273,14 @@ live walk left. Everything else is machine-checked.
   component (the native click has already run the component's own handler by the time it
   reaches the host, so `selected` is current). `md-tabs` has the same shape (it emits
   `change`, not `input`) but its tabs bind `onClick`, so they were never affected.
+- **Every browser write through the dev bridge was 403.** ComfyUI validates the `Origin` header
+  on mutating requests and answers `403` with an *empty* body when it does not match its own
+  host. `tools/dev-server.js` proxied with `changeOrigin: true`, which rewrites `Host` only — so
+  a page served from `:8000` posting to a backend on `:8188` had every write rejected: apply
+  preset, save workflow, save metadata, save settings. `curl` (no `Origin`) and `GET` both
+  worked, which is why it looked like an endpoint bug rather than a header one. The bridge now
+  rewrites `Origin` to the target's own origin; proven by sending the *same* POST with the same
+  `Origin` header through the unpatched and patched bridges: 403 then 200.
 - **`convertUiToApi()` was called without `await` in two views.** Upstream's conversion is
   `async` (it fetches `/object_info` to map widgets), so `Generate.tsx` and `Workflow.tsx` were
   storing a *Promise* as the API graph: `analyzeWorkflow(promise)` returned an empty analysis,
