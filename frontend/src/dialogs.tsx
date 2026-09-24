@@ -3,14 +3,18 @@
  *
  * These replace `window.confirm` and `window.prompt`, which block the main thread,
  * ignore the colour scheme and cannot be styled — exactly the kind of rough edge
- * this refactor exists to remove. `md-dialog` supplies the focus trap, scrim,
- * Escape handling and focus restoration, so none of that is reimplemented here.
+ * this refactor exists to remove. `md-dialog` supplies the focus trap, scrim and Escape
+ * handling, so none of that is reimplemented here.
  *
  * Verified against the compiled component (node_modules/@material/web/dialog/internal/dialog.js):
  * slots are `icon` / `headline` / `content` / `actions`; the buttons sit inside the
  * `actions` slot; and it closes imperatively via `close(returnValue)` — there is no
  * declarative `dialogAction` to lean on, so every action calls `close(value)` and the
  * promise resolves from the `close` event by reading `returnValue`.
+ *
+ * Focus restoration is *not* left to the component: this portal is torn down as soon as
+ * the dialog settles, which removes the node before md-dialog can hand focus back, and
+ * measured behaviour was Escape leaving focus on `<body>`. `mount()` remembers the opener.
  */
 
 import { createRef } from "react";
@@ -38,19 +42,24 @@ function mount<T>(render: (finish: (value: T) => void) => React.ReactElement): P
     return new Promise<T>((resolve) => {
         const host = document.createElement("div");
         host.className = "nu-dialog-portal";
+        const returnTo = document.activeElement as HTMLElement | null;
         document.body.append(host);
         let root: Root | null = null;
         let closed = false;
         const settle = (value: T): void => {
             if (closed) return;
             closed = true;
-            // The dialog is inert once closed; a microtask avoids leaking the node when
-            // the closing animation never fires (reduced motion, or a fast unmount).
+            resolve(value);
+            // Restore focus *after* the dialog is gone. While it is still open md-dialog
+            // marks the rest of the page inert, and focusing an inert element fails
+            // silently; doing it before teardown left focus on <body>. The node removal
+            // happens in a microtask so a closing animation that never fires (reduced
+            // motion, or a fast unmount) cannot leak the portal.
             queueMicrotask(() => {
                 root?.unmount();
                 host.remove();
+                if (returnTo?.isConnected) returnTo.focus({ preventScroll: true });
             });
-            resolve(value);
         };
         root = createRoot(host);
         root.render(render(settle));
