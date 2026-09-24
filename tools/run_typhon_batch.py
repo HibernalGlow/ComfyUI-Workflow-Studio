@@ -54,47 +54,26 @@ LORAS = [
 OUTPUT_SUBDIR = "明日方舟_提丰"   # SaveImage 文件名前缀目录名
 
 # ─── 触发式动作 LoRA 自动补挂 ─────────────────────────────────
-# 背景：LORAS 是“手选基线”（加速/品质/画师/角色）。镫袜足交、子宫口、
-# 降龄等动作 LoRA 不应写死，否则像 RS003 这类页子会根本没挂 ustirrup，
-# 底模自己画脚丫 → 看起来“镫袜 LoRA 没应用”。这里按分镜文本从
-# data/lora_rules.json 自动匹配并追加 action / repair 类 LoRA。
+# 背景：LORAS 是"手选基线"（加速/品质/画师/角色）。动作 LoRA 不应写死，
+# 否则像 RS003 这类页子会根本没挂 ustirrup，底模自己画脚丫
+# → 看起来"镫袜 LoRA 没应用"。这里按分镜文本从规则库自动匹配并追加。
+#
+# 具体数值全部由作品级 TOML 配置驱动（见 story_config.py / batch.toml），
+# 引擎本身不再写死任何作品相关常量。
 LORA_RULES_FILE = Path(__file__).resolve().parent.parent / "data" / "lora_rules.json"
 AUTO_ACTION_LORAS = True
 AUTO_LORA_CATEGORIES = {"action", "repair"}
 
-# ── 镫袜足交固定捆绑 ───────────────────────────────────────────
-# 照 Studio 预设 "liino-footjob-suite"（梨诺镫袜足交全套）里 **权重天然 ≤1**
-# 的两个 stirrup 件：
-#     Ustirrup 2000 (副调)   0.88
-#     Stirrup 3-1  (鞋履包裹) 0.63
-# 原先照 E:\...\manga\260723 工作流槽位挂的 ustirrup1500(1.2) / stirrupjob50(1.1)
-# / throughfoot(1.0) 权重顶得太高，会把 healthyman 画风带脏，已全部撤掉。
-# 足部修复(0.88)/降龄 不在此捆绑内，仍按规则库各自生效。
-STIRRUP_BUNDLE_TRIGGERS = ["ustirrup", "stirrupjob", "footjob", "under-stirrup footjob"]
-STIRRUP_BUNDLE = [
-    ("On", "Ustirrup 2000", r"anima\action\footjob\ustirrup\ustirrup-step00002000.safetensors", 0.88, 1.0),
-    ("On", "Stirrup 3-1",   r"anima\stirrup3-1(preview0.2).safetensors",                        0.63, 1.0),
-]
-STIRRUP_BUNDLE_PATHS = {Path(p).name.lower() for _s, _n, p, _m, _c in STIRRUP_BUNDLE}
-# 同族其余 checkpoint 一律不放行：避免 ustirrup1500(1.2)/stirrupjob50(1.1)/
-# throughfoot(1.0)/ustirrup-000049(1.25) 之类又顺手被规则库匹配回来把画风压脏。
-STIRRUP_FAMILY_KEYWORDS = ("ustirrup", "stirrupjob", "throughfoot", "stirrup3")
-
-# 命中镫袜捆绑的页改用这个预设（例 "anima-native-30"）；None = 全批统一用命令行预设。
-# 依据：镫袜这个动作 LoRA 在 turbo 少步数下不够吃，切到原生 30 步（无 Turbo）更稳。
-# LoRA 名单/权重/seed/尺寸都不变，只换采样。
-STIRRUP_PRESET = None
-
-# 镫袜页是否「只挂捆绑那两个」：
-#   True  = 镫袜页 = 基线 + 捆绑 2 个（不含 footRepair / age_slider / cervical）
-#           —— 复现你确认过的那张 Z3-native30
-#   False = 镫袜页 = 基线 + 捆绑 2 个 + 规则库照常匹配出的动作 LoRA
-STIRRUP_BUNDLE_ONLY = True
-
-# 明确不放的规则：发交(hairop)、足部修复(footRepair)。
-# footRepair 统一不开 —— 与参考工作流 260723 一致（那个槽位也是关的）。
-# 按名称/路径关键字匹配，避免全名对不上。
-AUTO_EXCLUDE_KEYWORDS = {"hairop", "footrepair"}
+# 逐页规则，形如：
+#   {"name": "镫袜足交",
+#    "when_triggers": ["ustirrup", ...],
+#    "preset": "anima-native-30",      # 命中后换这个采样预设（None=不换）
+#    "bundle_only": True,              # 只挂基线+本规则 loras，不再叠自动规则
+#    "exclude_family": ["ustirrup", ...],  # 同族 checkpoint 一律不放行
+#    "loras": [("On", name, path, model_w, clip_w), ...]}
+PAGE_RULES = []
+# 全局排除：名称/路径含这些关键字就不挂（例：hairop / footrepair）
+AUTO_EXCLUDE_KEYWORDS = set()
 
 
 def _trigger_hit(trig: str, text: str) -> bool:
@@ -111,13 +90,39 @@ def _trigger_hit(trig: str, text: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(clean) + r"(?![a-z0-9])", text) is not None
 
 
+def match_page_rule(positive_text: str):
+    """返回第一条命中的逐页规则（没命中返回 None）。"""
+    text = (positive_text or "").lower()
+    for rule in PAGE_RULES:
+        if any(_trigger_hit(t, text) for t in rule.get("when_triggers", [])):
+            return rule
+    return None
+
+
+def _rule_lora_basenames() -> set:
+    out = set()
+    for rule in PAGE_RULES:
+        for _s, _n, p, _m, _c in rule.get("loras", []):
+            out.add(Path(p).name.lower())
+    return out
+
+
+def _family_keywords() -> tuple:
+    out = []
+    for rule in PAGE_RULES:
+        out.extend(rule.get("exclude_family", []))
+    return tuple(out)
+
+
 def _load_action_rules():
-    """读取 Studio 的 LoRA 规则库（只取动作/修复类，剔除镫袜捆绑与排除项）。"""
+    """读取 Studio 的 LoRA 规则库（只取指定类别，剔除页规则内的与排除项）。"""
     try:
         rules = json.loads(LORA_RULES_FILE.read_text(encoding="utf-8"))
     except Exception as e:
         print(f"   ⚠️  读不到 {LORA_RULES_FILE.name}，跳过动作 LoRA 自动补挂（{e}）")
         return []
+    bundle_paths = _rule_lora_basenames()
+    family       = _family_keywords()
     out = []
     for r in rules:
         if r.get("category") not in AUTO_LORA_CATEGORIES:
@@ -125,9 +130,9 @@ def _load_action_rules():
         if not r.get("path"):
             continue
         base = Path(r["path"]).name.lower()
-        if base in STIRRUP_BUNDLE_PATHS:                   # 捆绑内的，跳过
+        if base in bundle_paths:                       # 已由页规则注入，跳过
             continue
-        if any(k in base for k in STIRRUP_FAMILY_KEYWORDS):  # 同族其余一律不放
+        if family and any(k in base for k in family):  # 同族其余一律不放
             continue
         hay = f"{r.get('name','')} {r['path']}".lower()
         if any(k in hay for k in AUTO_EXCLUDE_KEYWORDS):
@@ -137,22 +142,22 @@ def _load_action_rules():
 
 
 def auto_action_loras(positive_text: str, existing_paths: set):
-    """按本页文本补挂动作 LoRA：镫袜足交走固定捆绑，其余走规则库匹配。"""
+    """按本页文本补挂动作 LoRA：先走逐页规则，其余走规则库匹配。"""
     if not AUTO_ACTION_LORAS:
         return []
     text = positive_text.lower()
     extra = []
 
-    # 1) 镫袜足交捆绑：命中任一触发词就整组注入（照参考工作流的 enabled 槽位）
-    is_stirrup = any(_trigger_hit(t, text) for t in STIRRUP_BUNDLE_TRIGGERS)
-    if is_stirrup:
-        for _sw, _nm, path, mw, cw in STIRRUP_BUNDLE:
+    # 1) 逐页规则：命中后整组注入该规则的 loras
+    rule = match_page_rule(positive_text)
+    if rule:
+        for _sw, _nm, path, mw, cw in rule.get("loras", []):
             if path.lower() in existing_paths:
                 continue
             extra.append(("On", _nm, path, float(mw), float(cw)))
             existing_paths.add(path.lower())
-        if STIRRUP_BUNDLE_ONLY:
-            return extra      # 镫袜页只挂捆绑，不再叠规则库的动作 LoRA
+        if rule.get("bundle_only", False):
+            return extra      # 该页只挂基线+本规则，不再叠规则库的动作 LoRA
 
     # 2) 其余动作/修复类规则照旧按触发词匹配
     for r in _load_action_rules():
@@ -418,16 +423,15 @@ def main():
 
         try:
             positive = parse_txt(page)
-            # 逐页选预设：命中镫袜捆绑的页改用 STIRRUP_PRESET（如 native-30），
-            # 其余页回到命令行给的 base 预设。两者 LoRA 名单完全一致，只换采样。
-            if STIRRUP_PRESET:
-                is_stirrup = any(_trigger_hit(t, positive.lower())
-                                 for t in STIRRUP_BUNDLE_TRIGGERS)
-                want = STIRRUP_PRESET if is_stirrup else base_preset_id
-                if want:
-                    apply_preset(want, quiet=True)
-                    print(f"      ⚙️  {'镫袜页 → ' if is_stirrup else '常规页 → '}{want} "
-                          f"({STEPS}步 CFG{CFG} {SAMPLER}/{SCHEDULER} Turbo={TURBO_ENABLED})")
+            # 逐页选预设：命中的页规则若指定了 preset 就换过去（如 native-30），
+            # 其余页回到命令行给的 base 预设。LoRA 名单由同一条规则决定。
+            rule = match_page_rule(positive)
+            if rule and rule.get("preset"):
+                apply_preset(rule["preset"], quiet=True)
+                print(f"      ⚙️  [{rule.get('name')}] → {rule['preset']} "
+                      f"({STEPS}步 CFG{CFG} {SAMPLER}/{SCHEDULER} Turbo={TURBO_ENABLED})")
+            elif base_preset_id and rule:
+                apply_preset(base_preset_id, quiet=True)
             workflow = build_workflow(positive, prefix)
             pid      = queue_prompt(workflow)
             print(f"      → 已投递 prompt_id={pid[:8]}…")
