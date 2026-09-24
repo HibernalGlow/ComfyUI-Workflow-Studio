@@ -118,6 +118,9 @@ else
     fail "A5e $SRC/theme.css missing"
 fi
 
+must_be_empty "A5f no native blocking dialogs (window.confirm/prompt/alert)" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' "$SRC" -e 'window\.(confirm|prompt|alert)\('
+
 # ---------------------------------------------------------------------------
 # T — types and build
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import {
     MdDivider,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { confirmDialog, promptDialog } from "../dialogs.js";
 import { useApp, clearWorkflowHandoff } from "../store.js";
 import { api, comfyWorkflow, highlightJSON, tr } from "core";
 import type { ViewProps } from "../App.js";
@@ -96,7 +97,7 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
 
     const rename = async (): Promise<void> => {
         if (!selected) return;
-        const next = window.prompt(tr("nu.workflow.renamePrompt", "New name"), selected.replace(/\.json$/i, ""));
+        const next = await promptDialog({ title: tr("nu.workflow.renamePrompt", "New name"), value: selected.replace(/\.json$/i, "") });
         if (!next) return;
         try {
             await api.renameWorkflow(selected, next);
@@ -110,7 +111,7 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
 
     const remove = async (): Promise<void> => {
         if (!selected) return;
-        if (!window.confirm(tr("nu.workflow.deleteConfirm", "Delete this workflow?"))) return;
+        if (!(await confirmDialog({ title: tr("nu.workflow.deleteConfirm", "Delete this workflow?"), danger: true, confirmLabel: tr("nu.action.delete", "Delete") }))) return;
         try {
             await api.deleteWorkflow(selected);
             setSelected(null);

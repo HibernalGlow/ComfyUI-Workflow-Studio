@@ -11,6 +11,7 @@ import {
     MdFilterChip,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { confirmDialog } from "../dialogs.js";
 import { requestWorkflow } from "../store.js";
 import { api, tr } from "core";
 import type { ViewProps } from "../App.js";
@@ -141,7 +142,7 @@ export default function Gallery({ navigate }: ViewProps): ReactElement {
     };
 
     const removeSelected = async (): Promise<void> => {
-        if (!window.confirm(tr("nu.gallery.deleteConfirm", "Delete the selected images?"))) return;
+        if (!(await confirmDialog({ title: tr("nu.gallery.deleteConfirm", "Delete the selected images?"), body: `${selected.size} →`, danger: true, confirmLabel: tr("nu.action.delete", "Delete") }))) return;
         try {
             await api.deleteGalleryImages([...selected]);
             await loadImages();

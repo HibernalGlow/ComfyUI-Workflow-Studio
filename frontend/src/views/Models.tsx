@@ -24,6 +24,7 @@ import {
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
 import { requestApply, requestPromptAppend } from "../store.js";
+import { confirmDialog, promptDialog } from "../dialogs.js";
 import {
     api,
     models as M,
@@ -256,7 +257,7 @@ export default function Models({ navigate }: ViewProps): ReactElement {
     };
 
     const bulkDelete = async (): Promise<void> => {
-        if (!window.confirm(tr("nu.models.deleteConfirm", "Delete the selected model files?"))) return;
+        if (!(await confirmDialog({ title: tr("nu.models.deleteConfirm", "Delete the selected model files?"), body: `${selected.size} file(s)`, danger: true, confirmLabel: tr("nu.action.delete", "Delete") }))) return;
         try {
             const res = (await api.deleteModels(type, [...selected])) as { errors?: unknown[] };
             snackbar.show({ label: `${tr("nu.models.deleted", "Deleted")} (${(res?.errors || []).length} errors)` });
@@ -592,11 +593,15 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                     />
                 ))}
                 <MdOutlinedButton
-                    onClick={() => {
-                        const label = window.prompt("badge label");
+                    onClick={async () => {
+                        const label = await promptDialog({ title: tr("nu.models.badgeLabel", "New badge label") });
                         if (!label) return;
-                        const color = window.prompt("badge colour (any CSS colour)", "currentColor") || "currentColor";
-                        const next = { ...palette, [label]: color };
+                        const color = await promptDialog({
+                            title: tr("nu.models.badgeColor", "Badge colour"),
+                            body: tr("nu.models.badgeColorHint", "Any CSS colour value; it is applied to the badge text."),
+                            value: "currentColor",
+                        });
+                        const next = { ...palette, [label]: color ?? "currentColor" };
                         setPalette(next);
                         M.saveBadgePalette(next);
                     }}

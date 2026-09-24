@@ -762,3 +762,49 @@ body {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* --- dialogs --------------------------------------------------------------- */
+/* md-dialog supplies the scrim, focus trap and Escape handling; only its slotted
+   content is styled here. */
+
+.nu-dialog-portal {
+  display: contents;
+}
+
+.nu-dialog__body {
+  font: var(--md-sys-typescale-body-medium);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.nu-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.nu-dialog__input {
+  width: 100%;
+  margin-block-start: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-xs);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-large);
+}
+
+.nu-dialog__input:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
+}
+
+/* Destructive confirmation, expressed through the error role rather than a
+   hard-coded colour. */
+md-filled-button.nu-btn--danger {
+  --md-filled-button-container-color: var(--md-sys-color-error);
+  --md-filled-button-label-text-color: var(--md-sys-color-on-error);
+  --md-filled-button-hover-state-layer-color: var(--md-sys-color-on-error);
+  --md-filled-button-focus-state-layer-color: var(--md-sys-color-on-error);
+  --md-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error);
+}

@@ -9,6 +9,7 @@ import {
     MdTextButton,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { confirmDialog, promptDialog } from "../dialogs.js";
 import { api, wildcard as WC, style as styleCore, tr } from "core";
 import type { ViewProps } from "../App.js";
 
@@ -66,7 +67,7 @@ export default function Prompt(_props: ViewProps): ReactElement {
     };
 
     const remove = async (id: string): Promise<void> => {
-        if (!window.confirm(tr("nu.prompt.deleteConfirm", "Delete this prompt?"))) return;
+        if (!(await confirmDialog({ title: tr("nu.prompt.deleteConfirm", "Delete this prompt?"), danger: true, confirmLabel: tr("nu.action.delete", "Delete") }))) return;
         try {
             await api.deletePrompt(id);
             await refresh();
@@ -86,7 +87,7 @@ export default function Prompt(_props: ViewProps): ReactElement {
     const editWildcard = async (name: string): Promise<void> => {
         try {
             const data = (await api.getWildcardContent(name)) as { content?: string };
-            const next = window.prompt(`${name}`, String(data?.content ?? ""));
+            const next = await promptDialog({ title: name, body: tr("nu.prompt.wildcardHint", "One entry per line. Lines starting with # are comments."), value: String(data?.content ?? "") });
             if (next === null) return;
             await api.saveWildcard(name, next);
             snackbar.show({ label: tr("nu.prompt.wildcardSaved", "Wildcard saved.") });
