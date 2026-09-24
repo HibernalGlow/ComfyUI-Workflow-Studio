@@ -3,6 +3,9 @@ import {
     MdFilledButton,
     MdOutlinedButton,
     MdOutlinedTextField,
+    MdOutlinedSelect,
+    MdSelectOption,
+    MdSwitch,
     MdOutlinedCard,
     MdLinearProgress,
     MdIcon,
@@ -20,6 +23,7 @@ import {
     models,
     style as styleCore,
     image as imageCore,
+    widgets,
     tr,
 } from "core";
 import type { ViewProps } from "../App.js";
@@ -44,6 +48,100 @@ function editableInputs(node: WorkflowNode) {
     });
 }
 
+type InputSpec = ReturnType<typeof widgets.inputSpec>;
+type ObjectInfo = Record<string, { input?: { required?: Record<string, unknown>; optional?: Record<string, unknown> } }>;
+
+/**
+ * One workflow input. `object_info` supplies the widget kind and its numeric range when the
+ * node class is known; the raw workflow value still wins over the spec default, because the
+ * point is editing *this* workflow, not creating a fresh node. Unknown classes fall back to
+ * the primitive the JSON actually holds.
+ */
+function Field({ name, value, spec, onChange }: {
+    name: string;
+    value: unknown;
+    spec: InputSpec;
+    onChange: (next: unknown) => void;
+}): ReactElement {
+    if (spec && spec.kind === "boolean") {
+        return (
+            <label className="nu-switch-row" key={name}>
+                <MdSwitch
+                    selected={value === true}
+                    onChange={(e) => onChange((e.target as unknown as { selected: boolean }).selected)}
+                />
+                <span>{name}</span>
+            </label>
+        );
+    }
+
+    if (spec && spec.kind === "combo" && spec.options && spec.options.length > 0) {
+        const current = String(value);
+        // Keep a value the server no longer lists (a deleted file, an uninstalled node)
+        // visible and selectable instead of silently rewriting the workflow.
+        const choices = spec.options.includes(current) ? spec.options : [current, ...spec.options];
+        return (
+            <MdOutlinedSelect
+                key={name}
+                label={name}
+                value={current}
+                onChange={(e) => onChange((e.target as unknown as { value: string }).value)}
+            >
+                {choices.map((option) => (
+                    <MdSelectOption key={option} value={option}>
+                        {option}
+                    </MdSelectOption>
+                ))}
+            </MdOutlinedSelect>
+        );
+    }
+
+    if (spec && (spec.kind === "int" || spec.kind === "float")) {
+        const range = spec.min !== null && spec.max !== null ? `${spec.min} – ${spec.max}` : undefined;
+        return (
+            <MdOutlinedTextField
+                key={name}
+                label={name}
+                type="number"
+                value={String(value)}
+                min={spec.min !== null ? String(spec.min) : undefined}
+                max={spec.max !== null ? String(spec.max) : undefined}
+                step={spec.step !== null ? String(spec.step) : undefined}
+                supportingText={range}
+                onInput={(e) => onChange(Number((e.target as HTMLInputElement).value))}
+            />
+        );
+    }
+
+    if (spec && spec.kind === "string") {
+        return (
+            <MdOutlinedTextField
+                key={name}
+                label={name}
+                type={spec.multiline ? "textarea" : "text"}
+                rows={spec.multiline ? 4 : undefined}
+                value={String(value)}
+                onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+            />
+        );
+    }
+
+    const long = typeof value === "string" && value.length > 60;
+    return (
+        <MdOutlinedTextField
+            key={name}
+            label={name}
+            type={typeof value === "number" ? "number" : long ? "textarea" : "text"}
+            rows={long ? 3 : undefined}
+            value={String(value)}
+            onInput={(e) => {
+                const el = e.target as HTMLInputElement;
+                onChange(typeof value === "number" ? Number(el.value) : el.value);
+            }}
+        />
+    );
+}
+
 export default function Generate({ params }: ViewProps): ReactElement {
     const snackbar = useSnackbar();
     const [workflows, setWorkflows] = useState<Array<{ filename: string }>>([]);
@@ -58,6 +156,22 @@ export default function Generate({ params }: ViewProps): ReactElement {
     const [progress, setProgress] = useState<number | null>(null);
     const [results, setResults] = useState<GenResult[]>([]);
     const [error, setError] = useState<string | null>(null);
+    // The node catalog behind every widget constraint. Fetched once per session; when it
+    // is unavailable (or a class is missing from it) the form degrades to the workflow's
+    // own primitives rather than blocking.
+    const [objectInfo, setObjectInfo] = useState<ObjectInfo | null>(null);
+
+    useEffect(() => {
+        let live = true;
+        comfyUI.fetchAllObjectInfo()
+            .then((info: ObjectInfo) => {
+                if (live) setObjectInfo(info);
+            })
+            .catch(() => undefined);
+        return () => {
+            live = false;
+        };
+    }, []);
     const abortRef = useRef<AbortController | null>(null);
 
     // Models → Generate: a slot request lands here and is written into the graph,
@@ -112,7 +226,7 @@ export default function Generate({ params }: ViewProps): ReactElement {
             try {
                 const raw = await api.loadWorkflow(filename);
                 const format = comfyWorkflow.detectFormat(raw, filename);
-                const apiForm = format === "api" ? raw : comfyWorkflow.convertUiToApi(raw);
+                const apiForm = format === "api" ? raw : await comfyWorkflow.convertUiToApi(raw);
                 const analysis = comfyWorkflow.analyzeWorkflow(apiForm);
                 setClientGraph(apiForm as ApiWorkflow, analysis as Analysis);
                 setApiWorkflow(apiForm as ApiWorkflow);
@@ -317,29 +431,15 @@ export default function Generate({ params }: ViewProps): ReactElement {
                                         {node.class_type} <span className="nu-muted">#{id}</span>
                                     </h3>
                                     <div className="nu-fields">
-                                        {fields.map(([key, value]) =>
-                                            typeof value === "boolean" ? (
-                                                <label key={key} className="nu-switch-row">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={value}
-                                                        onChange={(e) => setField(id, key, e.target.checked)}
-                                                    />
-                                                    <span>{key}</span>
-                                                </label>
-                                            ) : (
-                                                <MdOutlinedTextField
-                                                    key={key}
-                                                    label={key}
-                                                    type={typeof value === "number" ? "number" : "text"}
-                                                    value={String(value)}
-                                                    onInput={(e) => {
-                                                        const el = e.target as HTMLInputElement;
-                                                        setField(id, key, typeof value === "number" ? Number(el.value) : el.value);
-                                                    }}
-                                                />
-                                            ),
-                                        )}
+                                        {fields.map(([key, value]) => (
+                                            <Field
+                                                key={key}
+                                                name={key}
+                                                value={value}
+                                                spec={widgets.inputSpec(objectInfo, node.class_type ?? "", key)}
+                                                onChange={(next) => setField(id, key, next)}
+                                            />
+                                        ))}
                                     </div>
                                 </section>
                             );

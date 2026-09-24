@@ -135,12 +135,12 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
     };
 
     /** Parity item 1/2 evidence: how many editable fields the graph yields. */
-    const inspect = (): void => {
+    const inspect = async (): Promise<void> => {
         if (!json) return;
         try {
             const parsed = JSON.parse(json) as Record<string, unknown>;
             const format = comfyWorkflow.detectFormat(parsed, selected ?? undefined);
-            const apiForm = format === "api" ? parsed : comfyWorkflow.convertUiToApi(parsed);
+            const apiForm = format === "api" ? parsed : await comfyWorkflow.convertUiToApi(parsed);
             const analysis = comfyWorkflow.analyzeWorkflow(apiForm);
             const counts = Object.entries(analysis as Record<string, unknown>)
                 .filter(([, v]) => Array.isArray(v))
