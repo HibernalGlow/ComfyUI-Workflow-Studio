@@ -204,6 +204,23 @@ again:
 Disabled controls are excluded per WCAG 1.4.3's exemption for inactive UI, and counted
 separately (6–8 per view) so the exemption cannot silently hide a real failure.
 
+The audit is now a committed, self-arming tool — `tools/contrast-audit.mjs`:
+
+```
+cp tools/contrast-audit.mjs static/newui/          # gitignored build dir; served by /wfm_static
+# in the page console:
+const m = await import("/wfm_static/newui/contrast-audit.mjs");
+await m.run();            // sweeps 6 views × 2 themes; poll with m.progress()
+m.results();              // one line per view/theme, with the worst offenders
+m.selfTest();             // forces a bad colour and proves the audit can go red
+```
+
+`selfTest()` was run against a *loaded* workflow form (20 node sections / 62 fields) in
+m3-light: 0 failures clean, 5 failures once `.nu-rail__item` is forced to `#cac4d0`. The
+earlier sweeps measured the views in their default state, so the parameter form itself is now
+covered too — but note the sweep navigates without `?workflow=`, so re-run `selfTest()` on a
+loaded workflow whenever the form changes.
+
 Explicitly out of scope per brief §5: Nodes, Image Edit, Video, Tagger, Metadata, AI TOOL,
 Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view.
 
