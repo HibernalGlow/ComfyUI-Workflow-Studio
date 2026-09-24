@@ -324,8 +324,8 @@ Open (evidence, and what it costs the user):
 |---|---|---|
 | Table view has no per-row ★ / enable / Batch-Stack cells | `Models.tsx` table body vs `grid-view.js:222-243,164-165` | items 12/13 need grid view or select-mode |
 | Bulk badge and bulk group cannot *remove* in the badge case; move cannot create a folder | select handlers vs `selection-bulk.js:95,104,114-115` | item 18 forces an existing subdir (root is offered) |
-| Batch/Stack chips rendered for all 8 types | `Models.tsx:506-515` vs `MC.isBatchType/isStackType` | a non-LoRA model can join a Batch group and the chip then offers no way out (`loadType` neither seeds nor prunes reserved keys, unlike `models-tab.js:280-288`) |
-| "Fetch Civitai" posts the whole filtered list, cached included, no empty guard | `Models.tsx:324-328` vs `detail-panel.js:812-822` | `routes:205` answers 400 for the all-cached case; the `AbortController` has no cancel control |
+| ~~Batch/Stack chips rendered for all 8 types~~ **fixed** | `Models.tsx` chips now gated by `MC.isBatchType` / `MC.isStackType` | a non-LoRA model can no longer be pushed into a group the loader never seeds |
+| ~~"Fetch Civitai" posts the whole filtered list, cached included, no empty guard~~ **half fixed** | `Models.tsx:fetchAll` now skips cached models, refuses an empty batch, and exposes a Cancel next to the progress bar | the 400 case is gone; the SSE reader's own error surfacing still needs a live run to observe |
 | No clear-filters and no refresh control | toolbar vs `models-tab.js:489,540` | filters can only be undone one select at a time; a stale listing needs a page reload |
 | No empty-state placeholder | `Models.tsx:489-519` vs `grid-view.js:39-42` | a type with no matches is a blank region |
 | Apply-to-Generate is positive-only; Civitai row shows only the sha, `M.civitaiUrl` unused; thumbnail has no Civitai-image fallback | `Models.tsx:345,618`, `Thumb` vs `models-tab.js:577`, `helpers.js:36-56` | negative-prompt embedding and the clickable Civitai link are missing |

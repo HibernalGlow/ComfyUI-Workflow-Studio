@@ -110,6 +110,7 @@ export default function Models({ navigate }: ViewProps): ReactElement {
     const [detail, setDetail] = useState<Record_ | null>(null);
     const [bulkGroupName, setBulkGroupName] = useState("");
     const [newGroupName, setNewGroupName] = useState("");
+    const [cancelFetch, setCancelFetch] = useState<(() => void) | null>(null);
     const [loading, setLoading] = useState(false);
     const [civitaiProgress, setCivitaiProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -335,12 +336,20 @@ export default function Models({ navigate }: ViewProps): ReactElement {
     };
 
     const fetchAll = async (): Promise<void> => {
+        // Upstream skips models already in the Civitai cache and refuses an empty batch: the
+        // route answers 400 for a nameless list, which the previous version guaranteed.
+        const targets = filtered.filter((r) => !cache[r.name]);
+        if (targets.length === 0) {
+            snackbar.show({ label: tr("nu.models.civitaiAllCached", "Every model in this view already has cached Civitai metadata") });
+            return;
+        }
         const controller = new AbortController();
-        setCivitaiProgress({ current: 0, total: filtered.length });
+        setCancelFetch(() => controller.abort());
+        setCivitaiProgress({ current: 0, total: targets.length });
         try {
             await M.batchFetchCivitai(
                 type,
-                filtered.map((r) => r.name),
+                targets.map((r) => r.name),
                 (p: { current: number; total: number }) => setCivitaiProgress({ current: p.current, total: p.total }),
                 controller.signal,
             );
@@ -350,6 +359,7 @@ export default function Models({ navigate }: ViewProps): ReactElement {
             snackbar.show({ label: (err as Error).message, tone: "error" });
         } finally {
             setCivitaiProgress(null);
+            setCancelFetch(null);
         }
     };
 
@@ -390,10 +400,17 @@ export default function Models({ navigate }: ViewProps): ReactElement {
 
             {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
             {civitaiProgress ? (
-                <MdLinearProgress
-                    value={civitaiProgress.total ? civitaiProgress.current / civitaiProgress.total : 0}
-                    aria-label={tr("nu.models.civitaiProgress", "Civitai metadata")}
-                />
+                <div className="nu-row">
+                    <MdLinearProgress
+                        value={civitaiProgress.total ? civitaiProgress.current / civitaiProgress.total : 0}
+                        aria-label={tr("nu.models.civitaiProgress", "Civitai metadata")}
+                    />
+                    {cancelFetch ? (
+                        <MdOutlinedButton onClick={() => cancelFetch()}>
+                            {tr("nu.action.cancel", "Cancel")}
+                        </MdOutlinedButton>
+                    ) : null}
+                </div>
             ) : null}
 
             <div className="nu-view__toolbar">
@@ -540,16 +557,23 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                                         <MdIcon aria-hidden="true">{r.favorite ? "star" : "star_border"}</MdIcon>
                                         <MdTextButton onClick={() => void setFavorite(r)}>★</MdTextButton>
                                         <MdSwitch selected={r.enabled} aria-label="enabled" onChange={() => void setEnabled(r, !r.enabled)} />
-                                        <MdFilterChip
-                                            label="Batch"
-                                            selected={(groups.Batch ?? []).includes(r.name)}
-                                            onInput={() => void toggleReserved("Batch", r)}
-                                        />
-                                        <MdFilterChip
-                                            label="Stack"
-                                            selected={(groups.Stack ?? []).includes(r.name)}
-                                            onInput={() => void toggleReserved("Stack", r)}
-                                        />
+                                        {/* §4 item 13: only checkpoints join Batch and only LoRAs
+                                            stack (MC.isBatchType/isStackType) — a chip rendered for a
+                                            type whose group the loader never seeds strands the file. */}
+                                        {MC.isBatchType(type) ? (
+                                            <MdFilterChip
+                                                label="Batch"
+                                                selected={(groups.Batch ?? []).includes(r.name)}
+                                                onInput={() => void toggleReserved("Batch", r)}
+                                            />
+                                        ) : null}
+                                        {MC.isStackType(type) ? (
+                                            <MdFilterChip
+                                                label="Stack"
+                                                selected={(groups.Stack ?? []).includes(r.name)}
+                                                onInput={() => void toggleReserved("Stack", r)}
+                                            />
+                                        ) : null}
                                     </div>
                                 </MdOutlinedCard>
                             ))}
