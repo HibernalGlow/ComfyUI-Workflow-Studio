@@ -23,6 +23,14 @@ _BUILTIN_DEFAULT_RULES = [
         "category": "character"
     },
     {
+        "name": "Typhoeus (提丰 / 2.9B专属)",
+        "path": "anima\\chara\\endfield\\typhoeus_anima_v2_29b.safetensors",
+        "model_weight": 1.1,
+        "clip_weight": 1.0,
+        "triggers": ["typhon", "typhoeus", "typhoeusendfield", "typhon \\(arknights\\)", "typhon (arknights)", "提丰"],
+        "category": "character"
+    },
+    {
         "name": "Si (塞希/斯)",
         "path": "anima\\chara\\endfield\\siAnimaTE.safetensors",
         "model_weight": 1.3,
