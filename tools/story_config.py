@@ -83,10 +83,35 @@ def load_story(toml_path) -> tuple:
     if out.get("wait_timeout"):
         rtb.WAIT_TIMEOUT = int(out["wait_timeout"])
 
-    # --- base LoRA 栈 + 默认预设 ---
+    # --- base LoRA 栈 + 默认预设 + 底模 / 架构 ---
     base = cfg.get("base", {})
     rtb.LORAS = _loras(base.get("loras", []), base_dir)
     base_preset = base.get("preset")
+    if base.get("unet"):
+        rtb.UNET_NAME = base["unet"]
+    if base.get("arch"):
+        rtb.ARCH = base["arch"]
+    if base.get("ckpt"):
+        rtb.CKPT_NAME = base["ckpt"]
+    if base.get("width"):
+        rtb.WIDTH = int(base["width"])
+    if base.get("height"):
+        rtb.HEIGHT = int(base["height"])
+
+    # --- 采样参数强制覆盖（illus 线没有对应 Studio 预设，直接在这里给）---
+    if cfg.get("sampling"):
+        rtb.SAMPLING_OVERRIDE = dict(cfg["sampling"])
+
+    # --- 提示词替换（分镜标签 → LoRA 实际训练触发词）---
+    rtb.PROMPT_REPLACE = [(r["from"], r["to"])
+                          for r in (prompt.get("replace") or [])]
+
+    # 立即应用一次架构强制 + [sampling] 覆盖。
+    # 必须在这里（而不是只在 apply_preset 里）—— 否则「没写 preset」的作品配上
+    # 那些「只在有 preset 时才调 apply_preset」的脚本（run_insert / run_*_artists /
+    # run_recognition_test）时，[sampling] 会被静默忽略，跑出引擎模块默认值
+    # （12步 CFG1.6 beta57）而不报错。
+    rtb._apply_sampling_overrides()
 
     # --- 逐页规则 ---
     rtb.PAGE_RULES = []

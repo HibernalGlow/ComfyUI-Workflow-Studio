@@ -21,7 +21,29 @@ PAGES_DIR = Path("/Users/glow/Base/Works/ComfyUI/Workflows/wild/storyboard/明�
 PAGE_GLOB = "TP*.txt"   # 页面文件名模式（各作品前缀不同：提丰=TP，洛茜=R）
 
 # ─── 固定配置 ────────────────────────────────────────────────
+# 底模。可由作品 TOML 的 [base] unet 覆盖（不写则用这里这个）。
+# 已注册可选：silvermoonmixAnima_v23_INT8.safetensors（默认） /
+#             kirazuriAnima_v40\anima-kirazuri-v4-int8-convrot.safetensors /
+#             anima-base-v1.0.safetensors / silvermoonmixAnima_v20_INT8.safetensors …
 UNET_NAME       = "silvermoonmixAnima_v23_INT8.safetensors"
+
+# ─── 架构开关（由作品 TOML [base] arch 覆盖）─────────────────
+#   "anima"（默认）：OTUNetLoaderW8A8 + qwen CLIP/VAE + FLS_SamplerV4 + CR LoRA Stack
+#   "illus"        ：CheckpointLoaderSimple + LoraLoader 链 + KSampler（SDXL/Illustrious）
+# 两条线的图结构不通用：anima 的 LoRA 挂不上 SDXL checkpoint，反之亦然。
+ARCH       = "anima"
+CKPT_NAME  = "zukiAnimeILL_best.safetensors"   # illus 线的 checkpoint
+WIDTH      = 832                                # anima 默认分辨率
+HEIGHT     = 1216
+
+# TOML [sampling] 覆盖：优先级高于采样预设，且因在 apply_preset 内部而逐页都成立。
+# 用途：illus 线没有对应的 Studio 预设（那些预设自带 anima-turbo LoRA），直接在这里给定。
+SAMPLING_OVERRIDE = {}
+
+# 提示词替换表 [(from, to)]，由 TOML [[prompt.replace]] 提供。
+# 用途：分镜里的标签与 LoRA 实际训练的触发词不一致时（常见于同一皮肤的两种英译），
+# 在这里把前者换成后者，否则 LoRA 的概念不会被激活。
+PROMPT_REPLACE = []
 QUALITY_PREFIX  = "masterpiece, best quality, aesthetic, highly detailed, bubutuke, uncensored, typhoeusendfield"
 NEGATIVE        = "worst quality, low quality, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, watermark, text"
 SEED            = 88888888   # 固定种子对比
@@ -263,6 +285,30 @@ def preset_turbo_enabled(preset: dict) -> bool:
                for l in preset.get("loras", []) if l.get("active", True))
 
 
+def _apply_sampling_overrides():
+    """架构强制 + TOML [sampling] 覆盖。
+
+    apply_preset() 与 main()（作品没写 preset 时）都要调它，
+    否则「不写 preset」的配置会拿不到 [sampling] 里的采样参数。
+    """
+    global STEPS, CFG, SAMPLER, SCHEDULER, TURBO_ENABLED, SAMPLING_MODE
+
+    # Illustrious 线：anima 的 FLS 双层采样与 anima-turbo 都不适用
+    if ARCH == "illus":
+        SAMPLING_MODE = "single"
+        TURBO_ENABLED = False
+
+    # 覆盖优先级高于预设；写在 apply_preset 内部，所以逐页都成立
+    if SAMPLING_OVERRIDE:
+        STEPS         = int(SAMPLING_OVERRIDE.get("steps", STEPS))
+        CFG           = float(SAMPLING_OVERRIDE.get("cfg", CFG))
+        SAMPLER       = SAMPLING_OVERRIDE.get("sampler", SAMPLER)
+        SCHEDULER     = SAMPLING_OVERRIDE.get("scheduler", SCHEDULER)
+        SAMPLING_MODE = SAMPLING_OVERRIDE.get("mode", SAMPLING_MODE)
+        if "turbo" in SAMPLING_OVERRIDE:
+            TURBO_ENABLED = bool(SAMPLING_OVERRIDE["turbo"])
+
+
 def apply_preset(preset_id: str, quiet: bool = False) -> dict:
     """把 Studio 预设写进模块级采样参数。供 main() 与各预览脚本共用。"""
     global STEPS, CFG, SAMPLER, SCHEDULER, TURBO_ENABLED, SAMPLING_MODE, STAGE1
@@ -288,6 +334,8 @@ def apply_preset(preset_id: str, quiet: bool = False) -> dict:
     SCHEDULER     = s.get("scheduler", SCHEDULER)
     TURBO_ENABLED = preset_turbo_enabled(preset)
 
+    _apply_sampling_overrides()
+
     if not quiet:
         print(f"📌 应用 Studio 预设：{preset.get('name')}  [{preset.get('id')}]  mode={SAMPLING_MODE}")
         if SAMPLING_MODE == "double":
@@ -312,83 +360,121 @@ def parse_txt(path: Path):
     tags    = re.sub(r"^\[tags\]\s*", "", tags,    flags=re.IGNORECASE).strip()
     caption = re.sub(r"\[/?caption\]", "", caption, flags=re.IGNORECASE).strip()
     body    = f"{tags}\n\n{caption}".strip() if (tags and caption) else (tags or caption)
+    for _from, _to in PROMPT_REPLACE:
+        body = body.replace(_from, _to)
     return f"{QUALITY_PREFIX}\n\n{body}".strip()
 
 def build_workflow(positive_text: str, filename_prefix: str) -> dict:
-    """构造纯净 API 格式工作流。"""
+    """构造纯净 API 格式工作流。按 ARCH 分流 anima / illus 两种图结构。"""
     prompt = {}
 
-    prompt["1"] = {"class_type": "OTUNetLoaderW8A8", "inputs": {
-        "unet_name": UNET_NAME, "weight_dtype": "default",
-        "model_type": "anima", "on_the_fly_quantization": False,
-        "enable_convrot": True, "lora_mode": "None"
-    }}
-    prompt["2"] = {"class_type": "CLIPLoader", "inputs": {
-        "clip_name": "qwen_3_06b_base.safetensors",
-        "type": "stable_diffusion", "device": "cpu"
-    }}
-    prompt["3"] = {"class_type": "VAELoader",  "inputs": {"vae_name": "qwen_image_vae.safetensors"}}
-    prompt["4"] = {"class_type": "EmptyLatentImage", "inputs": {"width": 832, "height": 1216, "batch_size": 1}}
+    # --- 模型装载：两条线完全不同 ---
+    if ARCH == "illus":
+        # Illustrious/SDXL：checkpoint 自带 CLIP 与 VAE
+        prompt["1"] = {"class_type": "CheckpointLoaderSimple",
+                       "inputs": {"ckpt_name": CKPT_NAME}}
+        base_model_ref, clip_ref, vae_ref = ["1", 0], ["1", 1], ["1", 2]
+    else:
+        prompt["1"] = {"class_type": "OTUNetLoaderW8A8", "inputs": {
+            "unet_name": UNET_NAME, "weight_dtype": "default",
+            "model_type": "anima", "on_the_fly_quantization": False,
+            "enable_convrot": True, "lora_mode": "None"
+        }}
+        prompt["2"] = {"class_type": "CLIPLoader", "inputs": {
+            "clip_name": "qwen_3_06b_base.safetensors",
+            "type": "stable_diffusion", "device": "cpu"
+        }}
+        prompt["3"] = {"class_type": "VAELoader",  "inputs": {"vae_name": "qwen_image_vae.safetensors"}}
+        base_model_ref, clip_ref, vae_ref = ["1", 0], ["2", 0], ["3", 0]
 
-    # --- CR LoRA Stack（最多 3 个槽 per 节点，自动扩展）---
+    prompt["4"] = {"class_type": "EmptyLatentImage",
+                   "inputs": {"width": int(WIDTH), "height": int(HEIGHT), "batch_size": 1}}
+
+    # --- LoRA ---
     # 基线 LoRA + 本页按文本匹配到的动作 LoRA（镫袜/子宫口/降龄/发交…）
     base_paths = {l[2].lower() for l in LORAS}
-    page_loras = list(LORAS) + auto_action_loras(positive_text, base_paths)
-    chunks = [page_loras[i:i+3] for i in range(0, max(len(page_loras), 1), 3)]
-    if not chunks:
-        chunks = [[]]
-    last_stack_id = None
-    for s_idx, chunk in enumerate(chunks):
-        sid = str(10 + s_idx)
-        inp = {}
-        if last_stack_id is not None:
-            inp["lora_stack"] = [last_stack_id, 0]
-        for slot in range(1, 4):
-            if slot - 1 < len(chunk):
-                sw, nm, path, mw, cw = chunk[slot-1]
-                if not TURBO_ENABLED and nm == TURBO_LORA_NAME:
-                    sw = "Off"
-                inp[f"switch_{slot}"]       = sw
-                inp[f"lora_name_{slot}"]    = path.replace("/", "\\")
-                inp[f"model_weight_{slot}"] = float(mw)
-                inp[f"clip_weight_{slot}"]  = float(cw)
-            else:
-                inp[f"switch_{slot}"]       = "Off"
-                inp[f"lora_name_{slot}"]    = "None"
-                inp[f"model_weight_{slot}"] = 1.0
-                inp[f"clip_weight_{slot}"]  = 1.0
-        prompt[sid] = {"class_type": "CR LoRA Stack", "inputs": inp}
-        last_stack_id = sid
+    page_loras = [(sw, nm, path, mw, cw) for (sw, nm, path, mw, cw)
+                  in list(LORAS) + auto_action_loras(positive_text, base_paths)
+                  if sw == "On" and not (not TURBO_ENABLED and nm == TURBO_LORA_NAME)]
 
-    prompt["20"] = {"class_type": "CR Apply LoRA Stack", "inputs": {
-        "model":      ["1",  0],
-        "clip":       ["2",  0],
-        "lora_stack": [last_stack_id, 0]
-    }}
-    prompt["30"] = {"class_type": "CLIPTextEncode", "inputs": {"text": positive_text, "clip": ["20", 1]}}
-    prompt["31"] = {"class_type": "CLIPTextEncode", "inputs": {"text": NEGATIVE,      "clip": ["20", 1]}}
-    def _sampler(model_ref, latent_ref, steps, cfg, sampler, scheduler):
-        return {"class_type": "FLS_SamplerV4", "inputs": {
-            "model": model_ref, "positive": ["30", 0], "negative": ["31", 0],
-            "latent_image": latent_ref,
-            "seed": SEED, "steps": int(steps), "cfg": float(cfg),
-            "sampler_name": sampler, "scheduler": scheduler, "denoise": 1.0,
-            "fovea_strength": 3.0, "sharpness": 0.5, "mask_inertia": 0.85
-        }}
-
-    if SAMPLING_MODE == "double":
-        # Stage 1：底模裸跑（不带 LoRA）粗采定骨架
-        prompt["40"] = _sampler(["1", 0], ["4", 0],
-                                STAGE1["steps"], STAGE1["cfg"],
-                                STAGE1["sampler_name"], STAGE1["scheduler"])
-        # Stage 2：套 LoRA 精修，latent 接 Stage 1 输出
-        prompt["41"] = _sampler(["20", 0], ["40", 0], STEPS, CFG, SAMPLER, SCHEDULER)
-        last_latent = ["41", 0]
+    model_ref = base_model_ref
+    if ARCH == "illus":
+        # LoraLoader 链 —— Illustrious 线实际在用的写法（见 Outputs/光辉_沙足测试 的图）
+        for _i, (_sw, _nm, path, mw, cw) in enumerate(page_loras, 1):
+            nid = str(100 + _i)
+            prompt[nid] = {"class_type": "LoraLoader", "inputs": {
+                "model": model_ref, "clip": clip_ref,
+                "lora_name": path.replace("/", "\\"),
+                "strength_model": float(mw), "strength_clip": float(cw),
+            }}
+            model_ref, clip_ref = [nid, 0], [nid, 1]
     else:
-        prompt["40"] = _sampler(["20", 0], ["4", 0], STEPS, CFG, SAMPLER, SCHEDULER)
-        last_latent = ["40", 0]
+        # CR LoRA Stack（最多 3 个槽 per 节点，自动扩展）
+        chunks = [page_loras[i:i+3] for i in range(0, max(len(page_loras), 1), 3)]
+        if not chunks:
+            chunks = [[]]
+        last_stack_id = None
+        for s_idx, chunk in enumerate(chunks):
+            sid = str(10 + s_idx)
+            inp = {}
+            if last_stack_id is not None:
+                inp["lora_stack"] = [last_stack_id, 0]
+            for slot in range(1, 4):
+                if slot - 1 < len(chunk):
+                    sw, nm, path, mw, cw = chunk[slot-1]
+                    inp[f"switch_{slot}"]       = sw
+                    inp[f"lora_name_{slot}"]    = path.replace("/", "\\")
+                    inp[f"model_weight_{slot}"] = float(mw)
+                    inp[f"clip_weight_{slot}"]  = float(cw)
+                else:
+                    inp[f"switch_{slot}"]       = "Off"
+                    inp[f"lora_name_{slot}"]    = "None"
+                    inp[f"model_weight_{slot}"] = 1.0
+                    inp[f"clip_weight_{slot}"]  = 1.0
+            prompt[sid] = {"class_type": "CR LoRA Stack", "inputs": inp}
+            last_stack_id = sid
 
-    prompt["50"] = {"class_type": "VAEDecode",  "inputs": {"samples": last_latent, "vae": ["3", 0]}}
+        prompt["20"] = {"class_type": "CR Apply LoRA Stack", "inputs": {
+            "model":      base_model_ref,
+            "clip":       clip_ref,
+            "lora_stack": [last_stack_id, 0]
+        }}
+        model_ref, clip_ref = ["20", 0], ["20", 1]
+
+    prompt["30"] = {"class_type": "CLIPTextEncode", "inputs": {"text": positive_text, "clip": clip_ref}}
+    prompt["31"] = {"class_type": "CLIPTextEncode", "inputs": {"text": NEGATIVE,      "clip": clip_ref}}
+    if ARCH == "illus":
+        # Illustrious 线：单 KSampler（与 Outputs/光辉_沙足测试 的实际图一致）
+        prompt["40"] = {"class_type": "KSampler", "inputs": {
+            "model": model_ref, "positive": ["30", 0], "negative": ["31", 0],
+            "latent_image": ["4", 0],
+            "seed": SEED, "steps": int(STEPS), "cfg": float(CFG),
+            "sampler_name": SAMPLER, "scheduler": SCHEDULER, "denoise": 1.0
+        }}
+        last_latent = ["40", 0]
+    else:
+        def _sampler(model_ref_, latent_ref, steps, cfg, sampler, scheduler):
+            return {"class_type": "FLS_SamplerV4", "inputs": {
+                "model": model_ref_, "positive": ["30", 0], "negative": ["31", 0],
+                "latent_image": latent_ref,
+                "seed": SEED, "steps": int(steps), "cfg": float(cfg),
+                "sampler_name": sampler, "scheduler": scheduler, "denoise": 1.0,
+                "fovea_strength": 3.0, "sharpness": 0.5, "mask_inertia": 0.85
+            }}
+
+        if SAMPLING_MODE == "double":
+            # Stage 1：底模裸跑（不带 LoRA）粗采定骨架
+            prompt["40"] = _sampler(base_model_ref, ["4", 0],
+                                    STAGE1["steps"], STAGE1["cfg"],
+                                    STAGE1["sampler_name"], STAGE1["scheduler"])
+            # Stage 2：套 LoRA 精修，latent 接 Stage 1 输出
+            prompt["41"] = _sampler(model_ref, ["40", 0], STEPS, CFG, SAMPLER, SCHEDULER)
+            last_latent = ["41", 0]
+        else:
+            prompt["40"] = _sampler(model_ref, ["4", 0], STEPS, CFG, SAMPLER, SCHEDULER)
+            last_latent = ["40", 0]
+
+    prompt["50"] = {"class_type": "VAEDecode",  "inputs": {"samples": last_latent, "vae": vae_ref}}
     prompt["60"] = {"class_type": "SaveImage",  "inputs": {"images": ["50", 0], "filename_prefix": filename_prefix}}
     return prompt
 
@@ -497,6 +583,11 @@ def main():
     base_preset_id = preset_id
     if preset_id:
         apply_preset(preset_id)
+    else:
+        # 作品没写 [base] preset（illus 线常见）也要让 [sampling] 生效
+        _apply_sampling_overrides()
+        print(f"📌 无预设，用 TOML [sampling]：{STEPS}步 CFG{CFG} {SAMPLER}/{SCHEDULER} "
+              f"mode={SAMPLING_MODE} Turbo={'On' if TURBO_ENABLED else 'Off'}")
 
     out_subdir = f"{OUTPUT_SUBDIR}{tag}"
 

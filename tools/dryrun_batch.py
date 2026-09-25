@@ -54,6 +54,7 @@ def main() -> int:
     print(f"📄 {toml}")
     print(f"   作品：{cfg.get('story', {}).get('name')}｜页面：{rtb.PAGES_DIR}")
     print(f"   匹配 {rtb.PAGE_GLOB}：{len(pages)} 页")
+    print(f"   底模：{rtb.UNET_NAME}")
     print(f"   基线预设：{base_preset}｜基线 LoRA：{' / '.join(l[1] for l in rtb.LORAS)}")
     print(f"   正向前缀：{rtb.QUALITY_PREFIX}")
     print("=" * 78)
