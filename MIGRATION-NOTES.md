@@ -347,8 +347,10 @@ completed after that point, and any "the card shows loading" observation in the 
 partly a product of it. Nothing on the box was restarted, interrupted, or probed with a
 state-changing request.
 
-One stray process of mine is still running: the reverse-forward tunnel (pid 71683). The
-`:8002` probe bridge was stopped (`/bin/kill 86927`, port confirmed closed).
+One stray process of mine was still running at that point: the reverse-forward tunnel (pid 71683),
+superseded since by the auto-restarting tunnel loop (bash 22243 → ssh 22245, still up). The
+`:8002` probe bridge was stopped (`/bin/kill 86927`, port confirmed closed) and started again later
+to close parity row 7 — see the next-but-one section for the current process list.
 
 Explicitly out of scope per brief §5: Nodes, Image Edit, Video, Tagger, Metadata, AI TOOL,
 Feeder, Help, plus the Generate view's `Lab` sub-tab and the Prompt `Table` view.
@@ -394,9 +396,82 @@ probe for material-web components (it is correct for the native `.nu-rail__item`
 
 ---
 
+#### The link came back up after a ComfyUI restart — what was re-measured, and one upstream defect it exposed
+
+The box was restarted by the user, so every box-gated claim below was re-taken rather than
+carried over. Reads, all through the `:8002` bridge started from current code:
+
+| Probe | Value |
+|---|---|
+| `GET :8188/system_stats` | 200 (it was a hang before the restart) |
+| `GET :8188/queue` | `{"queue_running": [], "queue_pending": []}` — nothing was interrupted |
+| `GET /api/wfm/workflows` | 63 workflows |
+| `GET /api/object_info` | 3218 classes, 16 973 206 bytes, 32 s over the tunnel |
+| cold UI→API convert of `animanga-liino-clean.json` in the browser | 15 nodes, **73 s**, then 34 form fields |
+
+That last row is a UX fact worth keeping: the first workflow load in a fresh page pays the whole
+`object_info` fetch, so "the Generate view is slow to show fields" is the tunnel bandwidth, not the
+form builder. The §8 note about a 9 s floor for axe routes is the same measurement seen from the
+other side.
+
+**My own leftover, cleaned.** The earlier round trip had written one probe record into the user's
+`gen_presets.json` (`custom-1770000000001`, "round trip probe") and the box had been unreachable
+before it could be deleted. It is now gone: `DELETE /api/wfm/gen_presets/custom-1770000000001` →
+`{"status":"ok","deleted":true}`, store 6 → 5. The sixth entry, `illus-zuki-native` ("🌟 光辉
+Illustrious 原生"), is *not* mine and was left untouched.
+
+**Parity row 7 closed end-to-end** (see the ledger below): save through the dialog → list re-read
+→ apply moves the live graph → delete through the confirm dialog, and `curl` of the store before
+and after compares **byte-identical** (`cmp`, 6344 bytes).
+
+**One thing that round trip made visible.** The apply readout printed
+`denoise=dpmpp_2m_sde_gpu`, which looks like our code writing a sampler name into a denoise field.
+It isn't — it is what the converted API graph actually contains, so `samplerSnapshot` was changed
+to print a linked input as `link(929:3)` instead of `String(["929",3])`: the old formatting hid
+that applying a preset overwrites two wires with literals, and made a real defect look like a
+typo. Verified after the change:
+
+```
+⚡ Anima 单采样极速 (Turbo 12步): steps=12 cfg=1.6 sampler_name=link(929:3) scheduler=link(929:4)
+  denoise=dpmpp_2m_sde_gpu cfg=8  →  steps=12 cfg=1.6 sampler_name=euler_ancestral
+  scheduler=beta57 denoise=dpmpp_2m_sde_gpu cfg=8
+```
+
+**The defect itself, pinned (upstream, inherited by both UIs).** `FLS_SamplerV4` node 724 in
+`animanga-liino-clean.json` stores `widgets_values =
+[706020072129535, "randomize", 12, 1.6, "dpmpp_2m_sde_gpu", "simple", 1, 3, 0.5, 0.85]` while its
+`sampler_name`/`scheduler` are wired from node 929 (`KSampler Config (rgthree)`). Upstream's
+widget-mapping loop (`static/js/comfyui-workflow.js:727-738`) `continue`s without advancing
+`wIdx` for a linked widget that owns a UI slot, on the assumption that a linked widget leaves no
+entry in `widgets_values`. This file keeps the stale combo values anyway, so every widget after
+the wired pair shifts by two slots. The result of the real conversion, all four surviving entries
+wrong:
+
+| Input | object_info type | Converted value | Correct value |
+|---|---|---|---|
+| `denoise` | `FLOAT` (0–1) | `"dpmpp_2m_sde_gpu"` | `1` |
+| `fovea_strength` | `FLOAT` | `"simple"` | `3` |
+| `sharpness` | `FLOAT` | `1` | `0.5` |
+| `mask_inertia` | `FLOAT` | `3` | `0.85` |
+
+The rescue that would have caught a string in a numeric slot is
+`_isExtraWidgetValue` (`:192-200`), which only skips tokens in `_CONTROL_AFTER_GENERATE`
+("fixed"/"randomize"/…), so the mismatch is written out verbatim. Consequence for the run-half of
+rows 3/9/12: `POST /prompt` with this graph should fail ComfyUI validation on node 724 — a string
+in a `FLOAT` — and the failure will look like the refactor broke the pipeline. It is not the
+refactor: `core/workflow.js` is a bare `export { comfyWorkflow }` and gate A1 proves
+`comfyui-workflow.js` is byte-identical to upstream, so `/wfm` inherits the identical payload.
+Three ways forward, none taken unilaterally: fix upstream's loop (breaks the "upstream files are
+not rewritten" rule and the A1 baseline unless the user overturns it), add a *read-only* validator
+in this layer that refuses to send a graph whose widget types don't match `object_info` and names
+the node, or re-save the workflow with those two wires removed so `widgets_values` stops carrying
+the stale combo entries.
+
+
+
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (99 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (102 tests); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
 upstream file is byte-identical. Two of those tests are a **cross-language route gate**: they
 parse every `request()` path/method out of `core/api.js` (93 call sites, 9 of them templated)
@@ -413,7 +488,7 @@ jointly with "the frontend only calls things that exist". The gate is armed insi
 | 4 | storyboard → LoRA auto-inject | ok | unit — active-only payload, `POST /api/wfm/lora/apply` body `{workflow, loras}`, `auto_turbo` key mapping, blank text clears without a request, chip mutations (7 tests) |
 | 5 | Style application | ok | unit — `{prompt}` substitution vs append, enabled flag, batch override, unknown name no-op (7 tests) |
 | 6 | Wildcard expansion | ok | unit — pinned RNG, comments and blank lines, unknown token verbatim, recursion, Impact nodes skipped, no-token identity (7 tests) |
-| 7 | Gen presets store / load / apply | list + apply ok; save implemented, live-blocked | unit — the four routes and their verbatim bodies (3 tests) plus 3 tests for `core/presets.js`, whose record shape is checked against the service itself (top-level keys ⊆ the shipped `_DEFAULT_GEN_PRESETS` keys, stage fields ⊆ what `settings.get(...)` reads). live — applying `⚡ Anima 单采样极速 (Turbo 12步)` to a loaded workflow reported `steps=30 cfg=4 er_sde → steps=12 cfg=1.6 euler_ancestral`. The "save current setup" dialog now exists and was driven in the browser: it opened with all 7 fields, the typed values reached React state (`Preset name="gate probe preset"`, `Steps="17"`, `CFG="3.3"`…), and the `POST /api/wfm/gen_presets` fired — and came back **403**, because the user's long-running `:8000` bridge predates the `Origin` rewrite fix in `tools/dev-server.js` (§6). Restarting that process is the user's call, so the round trip is recorded as *waiting on a bridge restart*, not as passed. The diagnosis was made machine-exact: an identical `DELETE /api/wfm/gen_presets/__probe__` with an `Origin` header returns **403 through the old `:8000` process** and **200 `{"status":"ok","deleted":false}` through a bridge started from current code on `:8002`** — same request, same header, only the code differs. (That probe bridge was mine and has since been stopped; the compute box then stopped answering on `:8188`, `:8000` and `:8002` alike, so no write round trip completed in this session. Static hosting is unaffected: `:8000/wfm_static/newui.html` still serves 200.) |
+| 7 | Gen presets store / load / apply | ok | unit — the four routes and their verbatim bodies (3 tests) plus 3 tests for `core/presets.js`, whose record shape is checked against the service itself (top-level keys ⊆ the shipped `_DEFAULT_GEN_PRESETS` keys, stage fields ⊆ what `settings.get(...)` reads). live — **the whole write cycle now closed in the browser, through the card and nothing else**: "Save current setup" opened the dialog with 7 fields, the typed values survived into the stored record (`{steps:13, cfg:1.7, sampler_name:"euler", scheduler:"normal", denoise:0.9}`, `sampling_mode:"single"` — so `numOf`'s empty-string rule and the single-vs-stage key choice are both observed on real bytes, not just in a unit test), the list re-read it, "Apply to loaded workflow" moved the live graph (`steps=12 cfg=1.6 sampler_name=euler_ancestral scheduler=beta57 → steps=13 cfg=1.7 sampler_name=euler scheduler=normal denoise=0.9`), and "Delete" through the confirm dialog took the store back to 5 entries — `curl` of `/api/wfm/gen_presets` before and after compared **byte-identical** (6344 bytes, `cmp` clean). This ran through a bridge started from current code on `:8002`, not the user's `:8000`: the old process predates the `Origin` rewrite in `tools/dev-server.js` and 403s every write (§6), and restarting it is the user's call. The A/B that made that machine-exact: identical `DELETE /api/wfm/gen_presets/__probe__` → **403 on the old `:8000`**, **200 `{"status":"ok","deleted":false}` on `:8002`**. |
 | 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
 | 9 | Results land in Gallery + workflow backfill | partly | unit — the history → `images` / `svgOutputs` extraction (7 client tests) plus 7 `core/image.js` tests: only `type === "output"` gets a metadata POST, the body is `{path, workflow}` with the path built as `<dir>/<subfolder>/<filename>`, a 500 counts as `failed` instead of rejecting, an unknown output directory means zero requests, `applyDefaultCheckpointIfEnabled` touches the three checkpoint-loader spellings and nothing else, `blobToDataUrl` matches the platform base64 encoder on every padding case, and `flattenFolderTree` labels the root. The Gallery list refreshing itself after a run, and clicking a result back into a workflow, still need a real generation (GPU) |
 | 10 | Settings persist across restart | ok | live through the UI on a patched bridge: the output-directory field started at `saved: ""`, typing the current path and pressing Save returned "Output directory saved." and the following `GET` reported `saved: D:\…\Library\output`. `SettingsService` writes `data/settings.json` with `json.dump` and re-reads that file on every access (`_load`), so the value the `GET` returned came off disk rather than a memory cache — which is the same read a restart performs. The field was then set back to `""` and verified, so the store is exactly as found |
@@ -427,13 +502,16 @@ user's go-ahead), and the same applies to the run-half of 12. Everything else is
 
 ### 5.3 Handoff — what stands, what is parked, and the exact next move
 
-Captured at the end of the session that produced commits `f637f53 … 6dc0da2` (test count 46 →
-102). Everything below is reproducible from the repo; nothing depends on this conversation.
+Captured at the end of the session that produced commits `f637f53 … 9b4f614` (test count 46 →
+102), and re-verified on 2026-09-25 after the compute box came back. Everything below is
+reproducible from the repo; nothing depends on this conversation.
 
-Standing state, verified in this state: `bash tools/check-newui.sh` → 26/26; `node --test
-tools/core-tests/` → 102/102; `tsc --noEmit` clean; gate A1 green, so `py/` and every
+Standing state, verified in this state: `node --test tools/core-tests/` → 102/102; `pnpm build`
+(tsc + vite) clean; `bash tools/check-newui.sh` → 26/26; gate A1 green, so `py/` and every
 upstream-owned file are byte-identical; `git ls-files static/newui static/newui.html` → 0, so no
-build output is committed; nothing has been pushed.
+build output is committed. The earlier commits were pushed to `origin/main` by the user, and
+`b9ce815` on top of them is the user's own work (a batch tool plus `lora_trigger_{routes,service}`)
+— not mine, and not to be reverted.
 
 Parked, in the order that unblocks the most:
 
@@ -442,23 +520,33 @@ Parked, in the order that unblocks the most:
    move-to-*new* folder, a clear-filters and a refresh control, an empty-state placeholder, and
    Apply-to-Generate for negative prompts plus `M.civitaiUrl` and the thumbnail's Civitai-image
    fallback.
-2. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box. The box
-   has been unreachable since ~23:20 (`:8188` answers nothing while both ends show a listener, so
-   ComfyUI on the Windows side is hung); `bash tools/live-verify.sh` re-diagnoses in seconds and
-   exits 2 until it is back. Requires the user's go-ahead for GPU time.
-3. Parity row 7's write round trip (save → apply → delete a preset) needs the `:8000` bridge
-   restarted: the long-running process predates the `Origin` rewrite in `tools/dev-server.js`, so
-   browser writes 403 there while reads work. Proven by A/B: identical `DELETE` → 403 on the old
-   process, 200 on a bridge started from current code.
+2. The upstream UI→API widget-shift defect described in §5.1 blocks a *successful* first run, not
+   just an unverified one: `animanga-liino-clean.json` reaches `POST /prompt` with a string in
+   `FLS_SamplerV4.denoise`. The three options are listed there; none is taken unilaterally, because
+   two of them either rewrite an upstream file (and the A1 baseline with it) or change what gets
+   sent to the box.
+3. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box. The link
+   is live again (`:8188/system_stats` 200, queue empty, 63 workflows, 3218 `object_info` classes)
+   and `bash tools/live-verify.sh` exits 0; what is missing is the user's go-ahead for GPU time, and
+   item 2 above should be settled first so the run isn't blamed on the refactor.
 4. An axe re-pass over the presets card's new states, and any screenshot check. Both need the
    browser tab in the foreground: a backgrounded tab throttles timers, freezes transitions and
    `requestAnimationFrame`, offers no visible surface, and made even `axe.min.js`'s `onload`
-   exceed a 15 s call budget here.
+   exceed a 15 s call budget here. This session's tab reported `visibilityState: "hidden"` too, so
+   the preset round trip was verified by DOM state, request outcomes and the store bytes — not by
+   axe or a screenshot.
 
-Process footprints left behind, both mine and both disposable: the reverse-forward
-`ssh -N -L 8188:127.0.0.1:8188 win30902` (pid 71683) is still up, and `static/newui/axe.min.js`
-plus `static/newui/contrast-audit.mjs` sit in the gitignored build dir, where the next
-`pnpm build` deletes them anyway.
+Parity row 7 is no longer parked: the save → list → apply → delete cycle completed in the browser
+against a bridge running current code, and the preset store was compared byte-identical before and
+after (§5.1, §5.2).
+
+Process footprints left behind, all mine and all disposable: the tunnel loop (bash pid 22243
+keeping `ssh -N -L 8188:127.0.0.1:8188 win30902`, pid 22245, alive), and my own bridge
+`PORT=8002 node tools/dev-server.js` (pid 27386) started to close row 7 — the user's `:8000`
+(pid 7112) was left exactly as found and still 403s browser writes until they restart it.
+`static/newui/axe.min.js` and `static/newui/contrast-audit.mjs` are gone: this session's
+`pnpm build` ran `prebuild`, which deletes `static/newui`; re-copy them from `/tmp` if the axe
+re-pass is scheduled.
 
 Explicitly not planned: touching `py/`, deleting or rewriting any upstream file, restarting the
 user's bridge or ComfyUI without asking, and mounting the presets card inside Generate (its

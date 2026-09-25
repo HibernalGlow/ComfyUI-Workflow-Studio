@@ -105,9 +105,13 @@ cat <<'EOF'
   row 3  a queued generation, watching onProgress go 0 -> 1 and the WS progress bookkeeping
   row 9  the result appearing in Gallery, and a gallery item loading its workflow back
   row 12 python tools/run_typhon_test.py end to end (its "untouched" half is the A1 hash gate)
-  row 7  preset round trip through the UI - save, list, apply, delete - on a bridge started from
-         current code (writes land in the plugin's own data/gen_presets.json; delete after)
   Models 9 / 18  batch Civitai fetch and bulk move-to-subdir; both write, so they stay manual
+
+  row 7 is closed (2026-09-25): save -> list -> apply -> delete ran in the browser through a bridge
+  on current code and the preset store came back byte-identical. If a future change touches
+  core/presets.js or GenPresets.tsx, that cycle is what to re-run.
+  Before row 3 can *succeed* on animanga-liino-clean.json, read MIGRATION-NOTES 5.1: upstream's
+  UI->API widget shift puts a string in FLS_SamplerV4.denoise, so /prompt will reject the graph.
 
   Quick manual check of the write path without touching the UI (safe, it deletes nothing):
     curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \

@@ -69,13 +69,19 @@ const EMPTY_FORM: FormState = {
 /** Sampler fields a preset writes, read back off the graph for the "what changed" report. */
 const FIELDS = ["steps", "cfg", "sampler_name", "scheduler", "denoise"] as const;
 
+/** A linked input prints as the wire, not as `String(["929",3])` — otherwise the readout loses
+ *  the one detail that matters: applying a preset overwrites the wire with a literal. */
+function fieldValue(value: unknown): string {
+    return Array.isArray(value) ? `link(${String(value[0])}:${String(value[1])})` : String(value);
+}
+
 function samplerSnapshot(workflow: Dict | null): string {
     if (!workflow) return "—";
     const found: string[] = [];
     for (const node of Object.values(workflow) as Dict[]) {
         const inputs = (node?.inputs ?? {}) as Dict;
         for (const field of FIELDS) {
-            if (inputs[field] !== undefined) found.push(`${field}=${String(inputs[field])}`);
+            if (inputs[field] !== undefined) found.push(`${field}=${fieldValue(inputs[field])}`);
         }
     }
     return found.length ? found.slice(0, 6).join(" ") : "—";
