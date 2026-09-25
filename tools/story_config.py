@@ -76,6 +76,13 @@ def load_story(toml_path) -> tuple:
     if prompt.get("negative"):
         rtb.NEGATIVE = prompt["negative"]
 
+    # --- 出图回传 Mac ---
+    out = cfg.get("output", {}) or {}
+    mac_dir = out.get("mac_dir", "") or ""
+    rtb.MAC_OUT_DIR = _resolve(mac_dir, base_dir) if mac_dir.strip() else None
+    if out.get("wait_timeout"):
+        rtb.WAIT_TIMEOUT = int(out["wait_timeout"])
+
     # --- base LoRA 栈 + 默认预设 ---
     base = cfg.get("base", {})
     rtb.LORAS = _loras(base.get("loras", []), base_dir)

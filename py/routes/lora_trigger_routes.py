@@ -1,5 +1,6 @@
 """LoRA trigger matching and management routes."""
 
+import asyncio
 import logging
 from aiohttp import web
 
@@ -26,6 +27,11 @@ async def handle_match_loras(request: web.Request) -> web.Response:
         raw_text = data.get("text", "")
         quality_prefix = data.get("quality_prefix", "masterpiece, best quality, aesthetic, highly detailed")
         auto_turbo = data.get("auto_turbo", True)
+
+        # First match in a process pays a full lora-directory walk; keep it off
+        # ComfyUI's own event loop so generation progress and WebSockets survive it.
+        if _service.needs_scan:
+            await asyncio.to_thread(_service.ensure_scanned)
 
         result = _service.match_text(raw_text, quality_prefix=quality_prefix, auto_turbo=auto_turbo)
         return web.json_response(result)
@@ -60,7 +66,7 @@ async def handle_save_rules(request: web.Request) -> web.Response:
 async def handle_rescan_triggers(request: web.Request) -> web.Response:
     """POST /api/wfm/lora/rules/rescan - Rescan trigger files from lora directories."""
     try:
-        scanned = _service.scan_trigger_files()
+        scanned = await asyncio.to_thread(_service.scan_trigger_files)
         return web.json_response({
             "message": f"Successfully scanned {len(scanned)} trigger files",
             "count": len(scanned),

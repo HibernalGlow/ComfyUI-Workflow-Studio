@@ -12,6 +12,32 @@ from .models_service import _get_model_dirs
 
 logger = logging.getLogger(__name__)
 
+
+def _nc(name: str) -> str:
+    """Platform-aware casefold, matching what glob/exists did on each OS."""
+    return os.path.normcase(name)
+
+
+def _find_companion_model(
+    base_name: str,
+    safetensors: List[str],
+    by_exact: Dict[str, str],
+) -> Optional[str]:
+    """Resolve a trigger-file basename to a sibling .safetensors name.
+
+    ``safetensors`` keeps directory listing order so the prefix fallback picks
+    the same candidate the old per-file ``Path.glob()`` did.
+    """
+    exact = by_exact.get(_nc(f"{base_name}.safetensors"))
+    if exact is not None:
+        return exact
+    prefix = _nc(base_name)
+    for cand in safetensors:
+        if _nc(cand).startswith(prefix):
+            return cand
+    return None
+
+
 # Default tuned rules from user tests (multi-LoRA blend + characters + special actions)
 _BUILTIN_DEFAULT_RULES = [
     {
@@ -231,6 +257,7 @@ class LoraTriggerService:
     def __init__(self):
         self._rules = self._load_rules()
         self._scanned_triggers = {}  # lora_path -> list of trigger strings
+        self.triggers_scanned = False
 
     def _load_rules(self) -> List[Dict[str, Any]]:
         """Load user-defined rules from disk or initialize with defaults."""
@@ -266,6 +293,17 @@ class LoraTriggerService:
         self._save_rules(rules)
         return self._rules
 
+    @property
+    def needs_scan(self) -> bool:
+        """True until a scan has completed, even if it found nothing."""
+        return not self.triggers_scanned
+
+    def ensure_scanned(self) -> Dict[str, List[str]]:
+        """Scan at most once per process; an empty result is still a result."""
+        if self.triggers_scanned:
+            return self._scanned_triggers
+        return self.scan_trigger_files()
+
     def scan_trigger_files(self) -> Dict[str, List[str]]:
         """Scan all lora directories for *.trigger.txt and companion *.txt files."""
         lora_dirs = _get_model_dirs("lora")
@@ -276,50 +314,54 @@ class LoraTriggerService:
                 continue
             for root, _, files in os.walk(ldir):
                 root_path = Path(root)
+                # One listing per directory, reused for every .txt in it: the
+                # companion lookup used to re-open the directory per candidate,
+                # which is quadratic once a folder holds many sidecars.
+                safetensors = [f for f in files if _nc(f).endswith(".safetensors")]
+                by_exact: Dict[str, str] = {}
+                for st in safetensors:
+                    by_exact.setdefault(_nc(st), st)
+
                 for f in files:
-                    if f.endswith(".trigger.txt") or f.endswith(".txt"):
-                        txt_path = root_path / f
-                        if f.endswith(".trigger.txt"):
-                            base_name = f[:-12]  # strip .trigger.txt
-                        else:
-                            base_name = f[:-4]   # strip .txt
+                    if not f.endswith(".txt"):
+                        continue
+                    txt_path = root_path / f
+                    if f.endswith(".trigger.txt"):
+                        base_name = f[:-12]  # strip .trigger.txt
+                    else:
+                        base_name = f[:-4]   # strip .txt
 
-                        # Check if companion model exists
-                        safetensors_file = root_path / f"{base_name}.safetensors"
-                        if not safetensors_file.exists():
-                            # Sometimes trigger file has no .trigger, e.g. foo.trigger.txt where model is foo.safetensors
-                            # Check other possible models
-                            candidates = list(root_path.glob(f"{base_name}*.safetensors"))
-                            if candidates:
-                                safetensors_file = candidates[0]
-                            else:
-                                continue
+                    model_name = _find_companion_model(base_name, safetensors, by_exact)
+                    if model_name is None:
+                        continue
+                    safetensors_file = root_path / model_name
 
-                        # Calculate relative path from ldir
-                        try:
-                            rel_path = str(safetensors_file.relative_to(ldir)).replace("/", "\\")
-                        except Exception:
-                            rel_path = safetensors_file.name
+                    # Calculate relative path from ldir
+                    try:
+                        rel_path = str(safetensors_file.relative_to(ldir)).replace("/", "\\")
+                    except Exception:
+                        rel_path = safetensors_file.name
 
-                        # Read trigger words
-                        try:
-                            triggers = []
-                            with open(txt_path, "r", encoding="utf-8", errors="ignore") as tf:
-                                for line in tf:
-                                    line = line.strip()
-                                    if not line or line.startswith("#"):
-                                        continue
-                                    # Split commas if on single line
-                                    for part in line.split(","):
-                                        p = part.strip()
-                                        if p and p not in triggers:
-                                            triggers.append(p)
-                            if triggers:
-                                scanned[rel_path] = triggers
-                        except Exception as e:
-                            logger.debug("Error reading %s: %s", txt_path, e)
+                    # Read trigger words
+                    try:
+                        triggers = []
+                        with open(txt_path, "r", encoding="utf-8", errors="ignore") as tf:
+                            for line in tf:
+                                line = line.strip()
+                                if not line or line.startswith("#"):
+                                    continue
+                                # Split commas if on single line
+                                for part in line.split(","):
+                                    p = part.strip()
+                                    if p and p not in triggers:
+                                        triggers.append(p)
+                        if triggers:
+                            scanned[rel_path] = triggers
+                    except Exception as e:
+                        logger.debug("Error reading %s: %s", root_path / f, e)
 
         self._scanned_triggers = scanned
+        self.triggers_scanned = True
         logger.info("Scanned %d trigger files from lora directories", len(scanned))
         return scanned
 
@@ -432,7 +474,7 @@ class LoraTriggerService:
                 matched_rule_triggers.add(hit_trigger.lower())
 
         # 3. Check scanned .trigger.txt files for any additional unconfigured LoRAs
-        if not self._scanned_triggers:
+        if not self.triggers_scanned:
             self.scan_trigger_files()
 
         for path, triggers in self._scanned_triggers.items():

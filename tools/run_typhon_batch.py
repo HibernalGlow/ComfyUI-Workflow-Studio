@@ -6,6 +6,7 @@ Batch Typhon Storyboard Runner
 
 import json
 import urllib.request
+import urllib.parse
 import time
 import uuid
 import sys
@@ -53,6 +54,15 @@ LORAS = [
 
 OUTPUT_SUBDIR = "明日方舟_提丰"   # SaveImage 文件名前缀目录名
 
+# 生成后自动回传到 Mac 的根目录（None = 不回传，只留在 ComfyUI 端）。
+# 由作品 TOML 的 [output] mac_dir 设置；路径按 ComfyUI 的 subfolder 结构镜像。
+MAC_OUT_DIR = None
+
+# 单页等待上限（秒）。由作品 TOML 的 [output] wait_timeout 设置。
+# 注意：这是**从投递那刻起**算的墙上时间。若用插队（tools/run_insert.py）往队首
+# 塞任务，队列里排在前面的一切都会计入本页的等待，所以打算插队就把这个值调大。
+WAIT_TIMEOUT = 300
+
 # ─── 触发式动作 LoRA 自动补挂 ─────────────────────────────────
 # 背景：LORAS 是"手选基线"（加速/品质/画师/角色）。动作 LoRA 不应写死，
 # 否则像 RS003 这类页子会根本没挂 ustirrup，底模自己画脚丫
@@ -97,6 +107,39 @@ def match_page_rule(positive_text: str):
         if any(_trigger_hit(t, text) for t in rule.get("when_triggers", [])):
             return rule
     return None
+
+
+def matched_page_rules(positive_text: str) -> list:
+    """返回**所有**命中的逐页规则。
+
+    一页可能同时属于多个维度（例：念念 NN022 既是「YD 舞娘服饰」页，
+    又是「镫袜足交」页），所以 LoRA 注入要按全部命中的规则并集来算，
+    而不是只取第一条。预设则取第一条带 preset 的规则。
+    """
+    text = (positive_text or "").lower()
+    return [r for r in PAGE_RULES
+            if any(_trigger_hit(t, text) for t in r.get("when_triggers", []))]
+
+
+def resolve_preset(positive_text: str, base_preset_id, current_preset_id=None):
+    """决定本页用哪个采样预设。**引擎与 dry-run 共用这一份**，不允许各写一遍。
+
+    返回 (preset_id, 来源, 命中的页规则列表)：
+      · "rule"    命中带 preset 的页规则（如镫袜页 → anima-native-30）
+      · "base"    无命中，回落到基线预设
+      · "inherit" 既无命中也没基线，只能沿用上一页 —— **配置错误信号**
+
+    历史教训：这里曾把回退分支写成 `elif base_preset_id and rules:`，于是无命中页
+    不重置预设、沿用上一页，镫袜页之后的 80/100 页全部被 native-30 污染。
+    别把回退分支改回带条件的写法。
+    """
+    rules = matched_page_rules(positive_text)
+    pre = next((r for r in rules if r.get("preset")), None)
+    if pre:
+        return pre["preset"], "rule", rules
+    if base_preset_id:
+        return base_preset_id, "base", rules
+    return current_preset_id, "inherit", rules
 
 
 def _rule_lora_basenames() -> set:
@@ -148,16 +191,19 @@ def auto_action_loras(positive_text: str, existing_paths: set):
     text = positive_text.lower()
     extra = []
 
-    # 1) 逐页规则：命中后整组注入该规则的 loras
-    rule = match_page_rule(positive_text)
-    if rule:
+    # 1) 逐页规则：所有命中的规则按顺序整组注入（一页可命中多条）
+    rules = matched_page_rules(positive_text)
+    skip_auto = False
+    for rule in rules:
         for _sw, _nm, path, mw, cw in rule.get("loras", []):
             if path.lower() in existing_paths:
                 continue
             extra.append(("On", _nm, path, float(mw), float(cw)))
             existing_paths.add(path.lower())
         if rule.get("bundle_only", False):
-            return extra      # 该页只挂基线+本规则，不再叠规则库的动作 LoRA
+            skip_auto = True   # 该页只挂基线+命中的页规则，不再叠规则库
+    if skip_auto:
+        return extra
 
     # 2) 其余动作/修复类规则照旧按触发词匹配
     for r in _load_action_rules():
@@ -177,15 +223,28 @@ def auto_action_loras(positive_text: str, existing_paths: set):
 
 # ─── Studio 预设装载 ──────────────────────────────────────────
 
+_PRESET_CACHE = None      # (presets, src) —— 进程内只取一次
+
+
 def _fetch_presets():
-    """返回 (presets, 来源说明)。优先运行中的 Studio，其次本地文件。"""
+    """返回 (presets, 来源说明)。优先运行中的 Studio，其次本地文件。
+
+    结果在进程内缓存：跑批时每页都会 apply_preset，若不缓存就是每页一次 HTTP，
+    100 页 = 100 次请求，且任何一次超时都会悄悄退回本地文件。
+    """
+    global _PRESET_CACHE
+    if _PRESET_CACHE is not None:
+        return _PRESET_CACHE
     try:
         with urllib.request.urlopen(STUDIO_PRESETS_API, timeout=10) as r:
-            return json.loads(r.read().decode("utf-8")), "Studio 实时接口"
+            _PRESET_CACHE = (json.loads(r.read().decode("utf-8")), "Studio 实时接口")
     except Exception as e:
         if not PRESETS_FILE.is_file():
             raise SystemExit(f"❌ 取不到 Studio 预设（{e}），本地也没有 {PRESETS_FILE}")
-        return json.loads(PRESETS_FILE.read_text(encoding="utf-8")), f"本地回退文件（{e}）"
+        _PRESET_CACHE = (json.loads(PRESETS_FILE.read_text(encoding="utf-8")),
+                         f"本地回退文件（{e}）")
+    print(f"   预设来源：{_PRESET_CACHE[1]}")     # 只在真正取一次时打印
+    return _PRESET_CACHE
 
 
 def load_preset(preset_id: str) -> dict:
@@ -193,7 +252,6 @@ def load_preset(preset_id: str) -> dict:
     presets, src = _fetch_presets()
     for p in presets:
         if p.get("id") == preset_id or p.get("name") == preset_id:
-            print(f"   预设来源：{src}")
             return p
     ids = " | ".join(p.get("id", "?") for p in presets)
     raise SystemExit(f"❌ 未找到预设 '{preset_id}'（来源：{src}）。可用：{ids}")
@@ -334,14 +392,57 @@ def build_workflow(positive_text: str, filename_prefix: str) -> dict:
     prompt["60"] = {"class_type": "SaveImage",  "inputs": {"images": ["50", 0], "filename_prefix": filename_prefix}}
     return prompt
 
-def queue_prompt(prompt_workflow: dict) -> str:
-    data = json.dumps({"prompt": prompt_workflow, "client_id": CLIENT_ID}).encode()
+def queue_prompt(prompt_workflow: dict, front: bool = False) -> str:
+    """投递工作流。front=True 时插到 ComfyUI 队列**队首**。
+
+    ComfyUI 的 post_prompt 看到 front=true 会把序号取负，heapq 里负号排最前，
+    所以该任务会在当前正在执行的节点跑完后**立刻**执行，插在已在队的所有任务前面。
+    这是唯一能对「已在运行的批次进程」生效的插队方式（不必重启它）。
+    """
+    body = {"prompt": prompt_workflow, "client_id": CLIENT_ID}
+    if front:
+        body["front"] = True
+    data = json.dumps(body).encode()
     req  = urllib.request.Request(
         f"http://{COMFY_HOST}/prompt", data=data,
         headers={"Content-Type": "application/json"}
     )
     res  = urllib.request.urlopen(req)
     return json.loads(res.read())["prompt_id"]
+
+
+def fetch_images(images: list, dest_root) -> list:
+    """把 ComfyUI 端的成品图回传到 Mac，按 subfolder 结构镜像。返回落地路径列表。
+
+    用 ComfyUI 自己的 /view 端点取图（走同一条隧道），不依赖 Windows 的共享目录。
+    """
+    dest_root = Path(dest_root)
+    saved = []
+    for img in images or []:
+        try:
+            qs = urllib.parse.urlencode({
+                "filename":  img.get("filename", ""),
+                "subfolder": img.get("subfolder", ""),
+                "type":      img.get("type", "output"),
+            })
+            with urllib.request.urlopen(f"http://{COMFY_HOST}/view?{qs}", timeout=120) as r:
+                blob = r.read()
+            if not blob.startswith(b"\x89PNG"):
+                raise ValueError("返回的不是 PNG")
+            sub = (img.get("subfolder") or "").replace("\\", "/").strip("/")
+            # 防重嵌套：mac_dir 若已经以该 subfolder 末尾命名结尾，就不再嵌一层
+            out_dir = dest_root
+            if sub and dest_root.name != sub.split("/")[-1]:
+                out_dir = dest_root / sub
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / img["filename"]
+            tmp = out_path.with_suffix(out_path.suffix + ".part")
+            tmp.write_bytes(blob)
+            tmp.replace(out_path)          # 原子替换，避免半截文件
+            saved.append(out_path)
+        except Exception as e:
+            print(f"      ⚠️  回传失败 {img.get('filename')}: {e}")
+    return saved
 
 def wait_done(prompt_id: str, timeout: int = 300) -> list:
     start      = time.time()
@@ -416,6 +517,7 @@ def main():
     print("=" * 60)
 
     results = []
+    last_preset = base_preset_id          # 供 resolve_preset 的 inherit 分支用
     for idx, page in enumerate(pages, 1):
         stem   = page.stem   # e.g. "TP004—a01提丰-足心软肉"
         prefix = f"{out_subdir}/{stem}"
@@ -423,21 +525,30 @@ def main():
 
         try:
             positive = parse_txt(page)
-            # 逐页选预设：命中的页规则若指定了 preset 就换过去（如 native-30），
-            # 其余页回到命令行给的 base 预设。LoRA 名单由同一条规则决定。
-            rule = match_page_rule(positive)
-            if rule and rule.get("preset"):
-                apply_preset(rule["preset"], quiet=True)
-                print(f"      ⚙️  [{rule.get('name')}] → {rule['preset']} "
+            # 逐页选预设 —— 逻辑在 resolve_preset()，**与 dry-run 共用同一份**，
+            # 避免两边各写一遍然后各自漂移（这正是历史上 80/100 页跑错的原因）。
+            preset_id, psrc, rules = resolve_preset(positive, base_preset_id, last_preset)
+            if preset_id:
+                last_preset = preset_id
+                apply_preset(preset_id, quiet=True)
+            if psrc == "rule":
+                names = " + ".join(r.get("name", "") for r in rules)
+                print(f"      ⚙️  [{names}] → {preset_id} "
                       f"({STEPS}步 CFG{CFG} {SAMPLER}/{SCHEDULER} Turbo={TURBO_ENABLED})")
-            elif base_preset_id and rule:
-                apply_preset(base_preset_id, quiet=True)
+            elif psrc == "inherit":
+                print(f"      ⚠️  预设沿用上一页（{preset_id}）—— 既没命中规则也没基线，请查配置")
             workflow = build_workflow(positive, prefix)
             pid      = queue_prompt(workflow)
             print(f"      → 已投递 prompt_id={pid[:8]}…")
-            imgs     = wait_done(pid)
+            imgs     = wait_done(pid, timeout=WAIT_TIMEOUT)
             if imgs:
                 print(f"      ✅ 完成：{imgs[0]['filename']}")
+                if MAC_OUT_DIR:
+                    got = fetch_images(imgs, MAC_OUT_DIR)
+                    for p in got:
+                        print(f"      ⬇️  已回传 Mac：{p}")
+                    if len(got) != len(imgs):
+                        print(f"      ⚠️  回传 {len(got)}/{len(imgs)} 张，其余仍在 ComfyUI 端")
                 results.append({"page": stem, "ok": True,  "file": imgs[0]["filename"]})
             else:
                 print(f"      ❌ 超时/失败")
@@ -454,9 +565,10 @@ def main():
             consec += 1
         if consec >= 3:
             nxt = start_from + idx
+            me = Path(sys.argv[0]).name or "run_typhon_batch.py"
             print(f"\n🛑 连续 {consec} 张失败，判定后端未执行提示词（HTTP 正常但不再出图）。")
-            print("   请检查 Windows 上的 ComfyUI 日志后重跑：")
-            print(f"   python run_typhon_batch.py {nxt} --preset {preset_id or 'anima-single-turbo'}")
+            print("   请检查 ComfyUI 日志后重跑：")
+            print(f"   python {me} {nxt} --preset {preset_id or 'anima-single-turbo'}")
             break
 
     # 汇总
