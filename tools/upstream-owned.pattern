@@ -1,0 +1,1 @@
+^(static/js/core/|static/css/newui/|static/newui/|frontend/|MIGRATION-NOTES\.md|FRONTEND-OPTIMIZATION-BRIEF\.md|vite\.config\.(mts|js)|tsconfig\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|\.gitignore$|tools/)

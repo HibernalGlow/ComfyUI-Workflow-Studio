@@ -32,7 +32,9 @@ What the original argument got right, and what it did not:
 1. **The repo is no longer a clone-and-use ComfyUI plugin for the new UI.** `static/newui.html`
    and `static/newui/` are generated; a fresh clone must run `pnpm install && pnpm build`
    before `/wfm_static/newui.html` exists. Accepted because this fork is single-user, and
-   because the old UI at `/wfm` is untouched and still works from a bare clone (§4).
+   because the old UI at `/wfm` is untouched and still works from a bare clone (§4) — untouched
+   apart from `static/js/comfyui-workflow.js`, the one approved deviation (§5.1), which the old UI
+   shares and benefits from identically.
 2. **Toolchain surface.** pnpm + Vite + TypeScript 7 + Babel/React-Compiler now sit in the
    dependency graph, plus a 4 MB self-hosted Material Symbols variable font (subsetting is
    a known follow-up).
@@ -70,7 +72,7 @@ written 11 times and never read), so §4 item 16 is greenfield, not a port.
 
 | Asset | Size | Fate |
 |---|---|---|
-| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **99 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
+| `static/js/core/**` — 15 modules, DOM-free, reached only through `core/index.js` | ~3.7k lines; 46 unit tests at handover, **107 now** | **kept whole.** Framework-free by rule B1, which is exactly why it transferred. |
 | `static/js/core/CONTRACT.md`, `CONTRACT-api.md` | 2 docs | kept, updated to v2 gates |
 | `static/css/newui/m3-tokens.css` + `theme-m3.css` | ~890 lines | **kept and load-bearing** — they supply the `--md-sys-color-*` layer material-web falls back to |
 | `static/css/newui/{m3-layout,m3-components,newui}.css` | ~3.4k lines | discarded; the library owns component styling |
@@ -99,8 +101,12 @@ UI-side changes must be hand-ported.
    - backend / i18n / retired tab → nothing to do;
    - pure logic (a `core/` concern) → port into `static/js/core/**`, still DOM-free;
    - view behaviour → port into `frontend/src/views/*.tsx`.
-3. **Never edit an upstream-owned file to make a port easier** — that is what breaks the
-   zero-conflict property.
+3. **Do not edit an upstream-owned file to make a port easier** — that is what breaks the
+   zero-conflict property. The only sanctioned reason is an upstream bug worth fixing in place, and
+   it costs four things every time: the user's decision, a regression test that goes red without the
+   edit, a line in `tools/upstream-deviations.txt`, and a re-recorded baseline
+   (`bash tools/gen-upstream-baseline.sh`). One file currently qualifies:
+   `static/js/comfyui-workflow.js` (§5.1).
 4. `pnpm build` (typecheck + build) and `bash tools/check-newui.sh`, then the merge dry run.
 5. Since `static/newui/` is not committed, a port produces a source-only diff: reviewable,
    and it cannot collide with an upstream commit that happens to touch the same area.
@@ -110,6 +116,7 @@ UI-side changes must be hand-ported.
 | Date | Upstream range | Upstream files changed | Ported into | Notes |
 |---|---|---|---|---|
 | — | baseline: no upstream commit merged since the fork point | — | — | open this ledger at the first upstream release after the switch |
+| 2026-09-25 | not a merge — a fork-side edit to upstream's file | `static/js/comfyui-workflow.js` (+46/−23) | same file | `convertUiToApi` legacy `widgets_values` normalisation extended to parent-graph nodes (§5.1). Expect a conflict here if upstream touches `_stripLegacyLinkedWidgetValues`, `_simulateWidgetValues` or that loop: keep upstream's loop body, keep the `_withoutLegacyLinkedWidgetEntries` call, then re-run `node --test tools/core-tests/workflow-convert.test.mjs` and `node tools/audit-workflow-conversion.mjs` |
 
 ---
 
@@ -484,24 +491,53 @@ wrong:
 
 The rescue that would have caught a string in a numeric slot is
 `_isExtraWidgetValue` (`:192-200`), which only skips tokens in `_CONTROL_AFTER_GENERATE`
-("fixed"/"randomize"/…), so the mismatch is written out verbatim. Consequence for the run-half of
-rows 3/9/12: `POST /prompt` with this graph should fail ComfyUI validation on node 724 — a string
-in a `FLOAT` — and the failure will look like the refactor broke the pipeline. It is not the
-refactor: `core/workflow.js` is a bare `export { comfyWorkflow }` and gate A1 proves
-`comfyui-workflow.js` is byte-identical to upstream, so `/wfm` inherits the identical payload.
-Three ways forward, none taken unilaterally: fix upstream's loop (breaks the "upstream files are
-not rewritten" rule and the A1 baseline unless the user overturns it), add a *read-only* validator
-in this layer that refuses to send a graph whose widget types don't match `object_info` and names
-the node, or re-save the workflow with those two wires removed so `widgets_values` stops carrying
-the stale combo entries.
+("fixed"/"randomize"/…), so the mismatch is written out verbatim. Both UIs inherited it:
+`core/workflow.js` is a bare `export { comfyWorkflow }`, so the defect lived in
+`comfyui-workflow.js` itself — which is exactly where it is now fixed.
+
+**Fixed here, by the user's decision, in the upstream file (2026-09-25).** Upstream already solves
+this for subgraph-template nodes: `_stripLegacyLinkedWidgetValues` detects the "legacy full"
+`widgets_values` convention (a widget that was converted to an input still carries its pre-wiring
+value) and drops those entries before mapping. The parent-graph loop had no such call. The fix
+extracts that detection into `_withoutLegacyLinkedWidgetEntries()` and calls it from the parent-graph
+loop too — no logic duplicated, and the subgraph call site now delegates to the same function.
++46/−23 lines in one file, of which the added block is the moved function.
+
+What pins it, in order of strength:
+
+| Check | Result |
+|---|---|
+| `tools/core-tests/workflow-convert.test.mjs`, 5 tests on a `FLS_SamplerV4`-shaped fixture | 2 of them red before the fix (`denoise` = `"dpmpp_2m_sde_gpu"`; and with only one combo wired, `scheduler` silently became `"normal"`, the *first* choice in its option list — the COMBO fallback at `:773+` inventing a value), 5/5 green after |
+| The real `animanga-liino-clean.json` node 724, converted in Node against the box's own `/object_info` (3218 classes) | before: `denoise:"dpmpp_2m_sde_gpu"`, `fovea_strength:"simple"`, `sharpness:1`, `mask_inertia:3`; after: `1`, `3`, `0.5`, `0.85`, with both wires kept as links |
+| `node tools/audit-workflow-conversion.mjs --object-info … --workflows ./workflows` (upstream copy from `upstream/main` vs the working tree, 16 sample workflows) | 0 violations either way, no diff → nothing else changed behaviour |
+| Same tool against the user's workflow | `violationsUpstream: 2 → violationsFork: 0`, `repaired: [724.denoise, 724.fovea_strength]`, `introduced: []` |
+
+This is the first and only intentional edit to an upstream-owned file, so the invariant §2 and §5
+used to state — "no upstream file was modified" — no longer holds verbatim. It is now expressed as
+*A1 pins every upstream-owned file to a recorded hash, with the exceptions listed in
+`tools/upstream-deviations.txt`*, and the gate prints `1 approved fork edit(s)`. Finding that
+list also turned up a real hole in A1: a *newly tracked* upstream-owned file was never compared
+against anything, because the baseline is a list of what existed when it was generated —
+`pnpm-workspace.yaml` (added by `bc61253`) and `docs/BATCH-DISPATCH.md` (added by `b9ce815`) had
+gone unchecked. A1 now fails on that too, and the ownership pattern moved into
+`tools/upstream-owned.pattern` so the generator and the gate cannot disagree about which files the
+refactor owns. Both new branches were armed by temporarily deleting the pinned entry and appending
+one line to the file; each went red, and both files were then restored byte-identically (`cmp`).
+
+**Merging a future upstream change to this file is now a known conflict point.** Take upstream's
+version of the loop, keep the `_withoutLegacyLinkedWidgetEntries` call, re-run
+`node --test tools/core-tests/workflow-convert.test.mjs` and then the audit tool — the test fails
+loudly if the call was dropped, and the audit names any workflow whose conversion regressed.
 
 
 
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (102 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (107 tests); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
-upstream file is byte-identical. Two of those tests are a **cross-language route gate**: they
+upstream file still matches the hash recorded in `tools/upstream-baseline.txt` — byte-identity to
+*upstream* holds for every such file except the ones listed in `tools/upstream-deviations.txt`
+(today: one, `static/js/comfyui-workflow.js`, see §5.1). Two of those tests are a **cross-language route gate**: they
 parse every `request()` path/method out of `core/api.js` (93 call sites, 9 of them templated)
 and match them segment-for-segment against the `add_get/add_post/add_put/add_delete`
 registrations in `py/routes/*.py` (151 routes), so "the backend is unchanged" is checked
@@ -511,7 +547,7 @@ jointly with "the frontend only calls things that exist". The gate is armed insi
 | # | Row | Status | Evidence |
 |---|---|---|---|
 | 1 | workflow JSON → parameter form | ok | live — 2 workflows × 44 node sections / 94 fields, 58 of them server-constrained (§5.1) |
-| 2 | UI↔API conversion reused unchanged | ok | A1, plus `core/workflow.js` being a bare `export { comfyWorkflow }` — there is no re-implementation to drift |
+| 2 | UI↔API conversion reused unchanged | ok, with one approved edit | A1 pins the file's hash, and `core/workflow.js` is still a bare `export { comfyWorkflow }` — there is no re-implementation to drift. The one intentional change is the parent-graph half of the legacy `widgets_values` normalisation (§5.1), covered by 5 tests in `tools/core-tests/workflow-convert.test.mjs` and measurable against upstream with `node tools/audit-workflow-conversion.mjs` |
 | 3 | `/prompt` + WS progress 0→100% | mechanism ok, pixels not | unit — 9 tests drive **upstream's** `comfyUI.generate()` against a scripted `/prompt` + `/history` and a fake `WebSocket`: the POST body (`client_id`, and the executed workflow under `extra_pnginfo`), the seed stamped in place into `seed` **and** `noise_seed`, `value/max` reaching `onProgress` with another prompt's messages filtered out, and all four ways a run ends badly (`execution_error` → the server's own message, `execution_interrupted` → "Execution interrupted", socket close → "WebSocket disconnected", the `timeoutMs` safety valve). Falsified by pointing the history stub at a mismatched id: 5 of those tests fail with "No history found", so the fetch path is genuinely exercised. What stays unobserved is a real queue item producing pixels (GPU) |
 | 4 | storyboard → LoRA auto-inject | ok | unit — active-only payload, `POST /api/wfm/lora/apply` body `{workflow, loras}`, `auto_turbo` key mapping, blank text clears without a request, chip mutations (7 tests) |
 | 5 | Style application | ok | unit — `{prompt}` substitution vs append, enabled flag, batch override, unknown name no-op (7 tests) |
@@ -531,41 +567,43 @@ user's go-ahead), and the same applies to the run-half of 12. Everything else is
 ### 5.3 Handoff — what stands, what is parked, and the exact next move
 
 Captured at the end of the session that produced commits `f637f53 … 9b4f614` (test count 46 →
-102), and re-verified on 2026-09-25 after the compute box came back. Everything below is
-reproducible from the repo; nothing depends on this conversation.
+102), and extended on 2026-09-25 after the compute box came back (test count 102 → 107). Everything
+below is reproducible from the repo; nothing depends on this conversation.
 
-Standing state, verified in this state: `node --test tools/core-tests/` → 102/102; `pnpm build`
-(tsc + vite) clean; `bash tools/check-newui.sh` → 26/26; gate A1 green, so `py/` and every
-upstream-owned file are byte-identical; `git ls-files static/newui static/newui.html` → 0, so no
-build output is committed. The earlier commits were pushed to `origin/main` by the user, and
-`b9ce815` on top of them is the user's own work (a batch tool plus `lora_trigger_{routes,service}`)
-— not mine, and not to be reverted.
+Standing state, verified in this state: `node --test tools/core-tests/` → 107/107; `pnpm build`
+(tsc + vite) clean; `bash tools/check-newui.sh` → 26/26; gate A1 green, reporting
+`1 approved fork edit(s)` — every upstream-owned file matches the hash recorded in
+`tools/upstream-baseline.txt` except `static/js/comfyui-workflow.js`, whose intentional change is
+named in `tools/upstream-deviations.txt` and pinned at its post-fix hash; `py/` is untouched by the
+refactor; `git ls-files static/newui static/newui.html` → 0, so no build output is committed. The
+earlier commits were pushed to `origin/main` by the user, and `b9ce815` on top of them is the user's
+own work (a batch tool plus `lora_trigger_{routes,service}`) — not mine, and not to be reverted.
 
 Parked, in the order that unblocks the most:
 
-1. The upstream UI→API widget-shift defect described in §5.1 blocks a *successful* first run, not
-   just an unverified one: `animanga-liino-clean.json` reaches `POST /prompt` with a string in
-   `FLS_SamplerV4.denoise`. The three options are listed there; none is taken unilaterally, because
-   two of them either rewrite an upstream file (and the A1 baseline with it) or change what gets
-   sent to the box.
-2. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box. The link
-   is live again (`:8188/system_stats` 200, queue empty, 63 workflows, 3218 `object_info` classes)
-   and `bash tools/live-verify.sh` exits 0; what is missing is the user's go-ahead for GPU time, and
-   item 1 above should be settled first so the run isn't blamed on the refactor.
-3. An axe re-pass over the presets card's new states, the Models table's new cells, and any
+1. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box, which
+   needs the user's go-ahead for GPU time. The box is **not reachable again** as of this session's
+   end: on the Windows side `pythonProcs=0` and nothing listens on 8188 (the tunnel itself is up,
+   pid 22243/22245, so `:8188` answers immediately with a refused connection rather than hanging —
+   a different failure than the earlier "process alive, no socket"). `bash tools/live-verify.sh`
+   re-diagnoses in seconds and exits 2 while it is down. The widget-shift blocker that used to sit
+   in front of this item is fixed (§5.1), so a run only needs the box started and approved.
+2. An axe re-pass over the presets card's new states, the Models table's new cells, and any
    screenshot check. All need the browser tab in the foreground: a backgrounded tab throttles
    timers, freezes transitions and `requestAnimationFrame`, offers no visible surface, and made even
    `axe.min.js`'s `onload` exceed a 15 s call budget here. This session's tab reported
    `visibilityState: "hidden"` too, so the round trip and the Models gaps were verified by DOM
    state, captured requests and store bytes — not by axe or a screenshot.
-4. Two Models run-halves that a gate cannot reach, both listed in §5.2 row 11: the batch Civitai
+3. Two Models run-halves that a gate cannot reach, both listed in §5.2 row 11: the batch Civitai
    fetch, and an actual bulk move (including into a brand-new subfolder). Both write to the compute
    box's model library, so they are the user's to run.
 
 Parity row 7 is no longer parked: the save → list → apply → delete cycle completed in the browser
 against a bridge running current code, and the preset store was compared byte-identical before and
 after (§5.1, §5.2). Neither is the Models fidelity work: every gap §5.1 recorded is closed, with the
-write paths proven by intercepted requests instead of side effects.
+write paths proven by intercepted requests instead of side effects. And the upstream conversion
+defect is fixed rather than parked — 5 tests plus `tools/audit-workflow-conversion.mjs`, which
+measures the fork's conversions against `upstream/main`'s on the same workflows.
 
 Process footprints left behind, all mine and all disposable: the tunnel loop (bash pid 22243
 keeping `ssh -N -L 8188:127.0.0.1:8188 win30902`, pid 22245, alive), and my own bridge
@@ -575,7 +613,9 @@ keeping `ssh -N -L 8188:127.0.0.1:8188 win30902`, pid 22245, alive), and my own 
 `pnpm build` ran `prebuild`, which deletes `static/newui`; re-copy them from `/tmp` if the axe
 re-pass is scheduled.
 
-Explicitly not planned: touching `py/`, deleting or rewriting any upstream file, restarting the
+Explicitly not planned: touching `py/`, deleting an upstream file, or rewriting one beyond the
+single approved deviation in `tools/upstream-deviations.txt` — a second one needs the user's
+decision, a regression test, and a re-recorded baseline. Also not planned: restarting the
 user's bridge or ComfyUI without asking, and mounting the presets card inside Generate (its
 `storyLoras` prop exists for exactly that; today it stores sampler settings only, which the card
 says out loud).
@@ -709,6 +749,28 @@ says out loud).
   0 failing. A third, `import-check.mjs`, was still scanning the discarded tree.
 - A `rg`/GNU-`grep` alias difference made one gate report "NO FONT ASSET" when the woff2 was
   in fact emitted correctly; verified by listing the output directory directly.
+- **Gate A1 could not see additions.** It iterates the baseline's own entries, so a *newly tracked*
+  upstream-owned file was never compared against anything — silently outside the gate. Two had
+  accumulated: `pnpm-workspace.yaml` (added by this refactor's own `bc61253`) and
+  `docs/BATCH-DISPATCH.md` (added by the user's `b9ce815`). A1 now also fails on
+  "upstream-owned files NOT IN BASELINE", the ownership pattern moved to
+  `tools/upstream-owned.pattern` so the generator and the gate share one definition, and both
+  branches were armed by hand (delete a pinned entry → red; append one line to the pinned file →
+  red) and reverted with `cmp` confirming byte-identical restore. A hash list is only as good as the
+  `git ls-files` set it was derived from; regenerating it is now a step any added file forces.
+- **A cosmetic readout line was worth following.** The presets card printed
+  `denoise=dpmpp_2m_sde_gpu`, which looked like a formatting bug in the new UI and was tempting to
+  tidy silently. Printing linked inputs as `link(929:3)` instead of `String(["929",3])` is what
+  proved the value was really in the graph, which led to the `convertUiToApi` slot-shift defect in
+  upstream code that both UIs were sending to `/prompt` (§5.1). Lesson: when a display value is
+  surprising, first make the display *exact*, then decide whether the surprise is in the data.
+- **A post-build browser check measured the previous bundle.** After `pnpm build`, `location.reload()`
+  on the entry restored the old page from bfcache: the console 404'd a chunk name that no longer
+  existed and `#nu-root` stayed empty. Read as "the controls I just wrote are missing", it was one
+  interpretation away of being written off as a broken build; the first Models verification pass ran
+  entirely against stale code before the empty console told. Fix: navigate with a cache-busting
+  query (`?v=<ts>`), and treat "0 elements found" as an unknown until the loaded bundle hash is
+  checked against the build output.
 
 ---
 
@@ -719,6 +781,14 @@ The old UI is untouched and remains the default entry at `/wfm`
 `static/newui.html` plus a generated asset folder. Rolling back = stop visiting that URL;
 no data migration is involved, and no old-UI file, route or storage key was repurposed.
 Keep `/wfm` for at least two weeks after switching (brief §9 P6).
+
+One thing rollback does **not** undo: the conversion fix in `static/js/comfyui-workflow.js`
+(`tools/upstream-deviations.txt`), because both UIs load that module. If the new UI is abandoned and
+the old one kept, that edit is still an improvement to keep — reverting it means
+`animanga-liino-clean.json` and anything else saved in the legacy `widgets_values` style goes back to
+sending a string where `denoise` is a FLOAT. To revert deliberately: `git show upstream/main:static/js/comfyui-workflow.js`,
+drop the line from `tools/upstream-deviations.txt`, re-run `bash tools/gen-upstream-baseline.sh`, and
+expect `tools/core-tests/workflow-convert.test.mjs` to go red — that file is the tripwire.
 
 ---
 
@@ -731,13 +801,19 @@ pnpm build:watch             # rebuild into static/ on change
 pnpm dev                     # serve static/ + reverse-proxy ComfyUI (default http://127.0.0.1:8188)
                              # then open http://localhost:8000/wfm_static/newui.html
 pnpm test:core               # node --test tools/core-tests/
-bash tools/check-newui.sh    # every mechanical gate
+bash tools/check-newui.sh    # every mechanical gate (A1 prints "1 approved fork edit(s)")
 bash tools/gate-selftest.sh  # proof the gates can still go red
 bash tools/live-verify.sh    # read-only link ladder + the exact commands for what gates cannot
-                             #   reach (browser sweeps, the GPU rows, the preset round trip);
+                             #   reach (browser sweeps, the GPU rows, the Civitai/move writes);
                              #   exits 2 when the compute box is unreachable, 0 when a sweep is
                              #   meaningful. It performs no writes and starts nothing.
+node tools/audit-workflow-conversion.mjs             # upstream's convertUiToApi vs the fork's, over
+                             #   every saved workflow; exits 1 if the fork introduced a violation.
+                             #   Needs the box, or --object-info <file> --workflows <dir> to run offline.
 RUN_MERGE_DRY=1 bash tools/check-newui.sh
+
+# After `pnpm build`, open the entry with a cache-busting query (?v=<ts>). A plain reload can restore
+# the previous bundle from bfcache, and the page then measures code you already replaced — see §6.
 
 # Contrast / keyboard audit (browser-side; see MIGRATION-NOTES §5.1):
 cp tools/contrast-audit.mjs static/newui/

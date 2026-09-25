@@ -279,6 +279,41 @@ function _simulateWidgetValues(widgetNames, widgetTypes, widgetsValues, isLinked
 }
 
 /**
+ * Normalise widgets_values to the "modern" format the widget-mapping loop assumes, returning the
+ * (possibly shortened) array. Saved workflows come in two conventions: a widget that was converted
+ * to an input either keeps its pre-wiring value as a dangling entry ("legacy full") or contributes
+ * no entry at all. The loop assumes the latter, so a legacy-full node drifts by one slot per wired
+ * widget and every widget after it is read from the wrong index.
+ *
+ * Detection is the same conservative one _stripLegacyLinkedWidgetValues uses: if skipping the wired
+ * widgets already accounts for every entry, the array is already modern and returned unchanged.
+ */
+function _withoutLegacyLinkedWidgetEntries(objectInfo, classType, widgetsValues, isLinkedName) {
+    if (!Array.isArray(widgetsValues) || widgetsValues.length === 0) return widgetsValues;
+    const widgetNames = _getWidgetInputNames(objectInfo, classType);
+    if (widgetNames.length === 0) return widgetsValues;
+    const widgetTypes = _getWidgetInputTypes(objectInfo, classType);
+    const comboExpander = (name, selectedKey) => _getDynamicComboSubNames(objectInfo, classType, name, selectedKey);
+
+    // Already modern: nothing to strip.
+    const skipSim = _simulateWidgetValues(widgetNames, widgetTypes, widgetsValues, isLinkedName, true, comboExpander);
+    if (skipSim.consumed === widgetsValues.length) return widgetsValues;
+
+    // Legacy full: recompute with every widget present to find exactly which indices the wired
+    // ones occupy — including any control_after_generate extra a linked widget's own turn would
+    // have consumed, which must be dropped too (see _simulateWidgetValues).
+    const fullSim = _simulateWidgetValues(widgetNames, widgetTypes, widgetsValues, isLinkedName, false, comboExpander);
+    const linkedIdx = new Set();
+    for (const name of widgetNames) {
+        if (isLinkedName(name)) {
+            for (const i of fullSim.consumedIndices[name] || []) linkedIdx.add(i);
+        }
+    }
+    if (linkedIdx.size === 0) return widgetsValues;
+    return widgetsValues.filter((_, i) => !linkedIdx.has(i));
+}
+
+/**
  * Strip a subgraph-template node's widgets_values entries belonging to widget slots that are
  * actually linked (see _isLinkedWidgetName), so convertUiToApi's own widget-mapping loop — which
  * assumes the "modern" format where linked widgets contribute zero widgets_values entries — maps
@@ -291,29 +326,9 @@ function _stripLegacyLinkedWidgetValues(objectInfo, remappedNode, sgDef, origInt
     const allWidgetInputs = (remappedNode.inputs || []).filter((i) => i.widget);
     if (!widgetsValues || allWidgetInputs.length === 0) return;
 
-    const widgetNames = _getWidgetInputNames(objectInfo, remappedNode.type);
-    const widgetTypes = _getWidgetInputTypes(objectInfo, remappedNode.type);
     const isLinkedName = (name) => _isLinkedWidgetName(remappedNode, sgDef, origInternalId, redirectedTargets, name);
-    const comboExpander = (name, selectedKey) => _getDynamicComboSubNames(objectInfo, remappedNode.type, name, selectedKey);
-
-    // If skipping linked widgets already accounts for every entry, widgets_values is already in
-    // the modern (no dangling linked entries) format — nothing to strip.
-    const skipSim = _simulateWidgetValues(widgetNames, widgetTypes, widgetsValues, isLinkedName, true, comboExpander);
-    if (skipSim.consumed === widgetsValues.length) return;
-
-    // Otherwise it's "legacy full": recompute with every widget present to find exactly which
-    // indices the linked ones occupy — including any control_after_generate extra a linked
-    // widget's own turn would have consumed, which must be dropped too (see _simulateWidgetValues).
-    const fullSim = _simulateWidgetValues(widgetNames, widgetTypes, widgetsValues, isLinkedName, false, comboExpander);
-    const linkedIdx = new Set();
-    for (const name of widgetNames) {
-        if (isLinkedName(name)) {
-            for (const i of fullSim.consumedIndices[name] || []) linkedIdx.add(i);
-        }
-    }
-    if (linkedIdx.size > 0) {
-        remappedNode.widgets_values = widgetsValues.filter((_, i) => !linkedIdx.has(i));
-    }
+    const next = _withoutLegacyLinkedWidgetEntries(objectInfo, remappedNode.type, widgetsValues, isLinkedName);
+    if (next !== widgetsValues) remappedNode.widgets_values = next;
 }
 
 /**
@@ -692,7 +707,7 @@ export const comfyWorkflow = {
             });
 
             // 2. Map widgets_values to widget input names using object_info
-            const widgets = node.widgets_values || [];
+            let widgets = node.widgets_values || [];
             if (widgets.length > 0) {
                 // Lora Loader (LoraManager): use __lm_widget_ids from node properties
                 // widgets_values: [autocomplete_meta_obj, text_str, loras_array]
@@ -712,6 +727,14 @@ export const comfyWorkflow = {
                 const widgetNames = _getWidgetInputNames(objectInfo, node.type);
 
                 if (widgetNames.length > 0) {
+                    // A parent-graph node can store the same "wired widget still carries its
+                    // pre-wiring value" convention that _stripLegacyLinkedWidgetValues normalises
+                    // for subgraph templates. Without the same treatment here, every widget after
+                    // the wired pair is read one slot early — e.g. a FLOAT `denoise` receiving the
+                    // stale sampler-name string, which ComfyUI then rejects.
+                    widgets = _withoutLegacyLinkedWidgetEntries(
+                        objectInfo, node.type, widgets, (name) => linkedInputNames.has(name),
+                    );
                     // Use object_info to map widgets_values correctly.
                     // widgets_values may contain extra frontend-only values like
                     // "control_after_generate" (e.g. "fixed", "increment", "randomize")

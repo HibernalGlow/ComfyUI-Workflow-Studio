@@ -1,0 +1,11 @@
+# Approved deviations from upstream-owned files.
+#
+# Gate A1 pins every tracked file the refactor does not own to the hash recorded in
+# tools/upstream-baseline.txt, so "byte-identical to upstream" is normally a measured claim.
+# A path listed here is the exception: the fork edited it on purpose, the baseline records the
+# POST-EDIT hash (so any further drift is still a red gate), and this file says what changed and
+# why, so nobody has to diff against upstream/main to find out.
+#
+# Format: <path><TAB><one line: what was changed, and the test that pins it>
+
+static/js/comfyui-workflow.js	convertUiToApi: parent-graph nodes now get the same legacy widgets_values normalisation upstream already applies to subgraph templates, so a wired COMBO's stale value no longer shifts every later widget one slot (tools/core-tests/workflow-convert.test.mjs)

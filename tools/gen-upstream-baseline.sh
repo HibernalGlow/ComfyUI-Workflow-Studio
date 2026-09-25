@@ -16,8 +16,10 @@ GREP=/usr/bin/grep
 
 OUT=tools/upstream-baseline.txt
 
-# Paths the refactor owns (new files it is allowed to create and edit).
-IS_OWNED='^(static/js/core/|static/css/newui/|static/newui/|frontend/|MIGRATION-NOTES\.md|FRONTEND-OPTIMIZATION-BRIEF\.md|vite\.config\.mts|tsconfig\.json|pnpm-lock\.yaml|package\.json|\.gitignore$|tools/)'
+# Paths the refactor owns (new files it is allowed to create and edit). Read from one shared
+# pattern file because tools/check-newui.sh gate A1 has to derive the same list to catch a newly
+# tracked upstream-owned file that never got baselined — two copies would drift.
+IS_OWNED=$(head -n1 tools/upstream-owned.pattern)
 
 tmp=$(mktemp)
 git ls-files | "$GREP" -vE "$IS_OWNED" | LC_ALL=C sort > "$tmp"

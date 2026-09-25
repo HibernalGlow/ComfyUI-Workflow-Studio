@@ -33,6 +33,7 @@ f921d0a81b7fdba612b5f3b5230396a4fa563579	docs/1_workflowtab.png
 ff3f743f83765283dadd2f00ec19d76728aca91c	docs/5_topbar.png
 d1e7efd0ed337ed8c62c8502850c5d6c5a9c48d9	docs/6_ws_library.png
 8fcd7150e7efd10368c718e8501ee592a51ceada	docs/7_library_Infomation.png
+6bc8c8b0423892d5cac2a2369aa49253739962a6	docs/BATCH-DISPATCH.md
 87faed21002bc8c899b6281e602e2fab301a2167	docs/themes.css
 43d562c7b7c8cc1911cd65d6d114a28f5e1e75e4	docs/thumb.png
 257c8c292719ec81d61a7094b295ecf3277778e4	prestartup_script.py
@@ -95,7 +96,7 @@ c1f5f9e1694a85114abe86f3e1f00fc169b83c75	static/js/ai-tab.js
 a6e92dbb8bf51fc514f4381cddcdd37b84fbec6e	static/js/app.js
 1a994c4e3aeed7435aa76a39b6da141bdce3d3bc	static/js/comfyui-client.js
 4637f3a7cce94939a74ea509555268da740999aa	static/js/comfyui-editor.js
-96f60535d5833e4a7a1beaef2ea6a384f1a0f3b4	static/js/comfyui-workflow.js
+0a77ea7f56da3fff26f8c8248c191a678eba8d1e	static/js/comfyui-workflow.js
 ceeed8d46a917e95150e2ccb8d16fa73e5d4768c	static/js/feeder-tab.js
 47c29e4eed32ba872bfb94dcc2dbc666be94be88	static/js/gallery-tab.js
 b6e3379db00df02a0af8d57430d30432dc39e1e1	static/js/gen-presets.js
@@ -187,4 +188,3 @@ fbf152564718501429c09d7ae28ae8d85ddecf8b	workflows/ws_sdxl_t2i_basic.json
 a121a4892a66a81583f3c3875badef61c77e2d5f	workflows/ws_sdxl_t2i_facedetaller.json
 4776e6276fb8b0131edc1fb55525b5ba8563ad3a	workflows/ws_sdxl_t2i_facedetaller.png
 389ba84b48329270ef88683f07b338f9ee741a9a	workflows/ws_yaml_wildcard_sample.json
-# DELETED	yarn.lock

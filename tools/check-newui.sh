@@ -171,7 +171,23 @@ fi
 # A1 — every tracked file the refactor does not own must still match its baseline hash.
 # This is the machine-checked form of "upstream-owned files are untouched": the earlier
 # version only printed a count and always passed, which is not a gate.
+#
+# Two blind spots the hash comparison alone leaves, both closed here:
+#   * a newly tracked upstream-owned file is simply absent from the hash list, so A1 would keep
+#     passing while never checking it (this actually happened: pnpm-workspace.yaml and
+#     docs/BATCH-DISPATCH.md were unbaselined);
+#   * an intentional edit to an upstream file is invisible in the gate output, so a reader cannot
+#     tell "nothing changed" from "one thing changed on purpose" — tools/upstream-deviations.txt
+#     names those, and the baseline still pins their post-edit hash.
 BASELINE=tools/upstream-baseline.txt
+DEVIATIONS=tools/upstream-deviations.txt
+# Same ownership pattern tools/gen-upstream-baseline.sh uses — one file, so "which paths does the
+# refactor own" cannot mean two different things in the two scripts. `grep` is shadowed by ripgrep
+# on this machine, whose -E means --encoding, so call the system binary by path.
+IS_OWNED=$(head -n1 tools/upstream-owned.pattern 2>/dev/null)
+if [ -z "$IS_OWNED" ]; then
+    fail "A1  tools/upstream-owned.pattern is missing or empty — A1 cannot tell owned from upstream-owned"
+fi
 if [ -f "$BASELINE" ]; then
     changed=""; vanished=""; checked=0; deleted_known=0
     while IFS=$'\t' read -r hash path; do
@@ -188,12 +204,40 @@ if [ -f "$BASELINE" ]; then
         fi
     done < <(sed 's/# DELETED\t/#DELETED\t/' "$BASELINE")
 
-    printf '[info] A1 checked %d baseline entry(s); %d recorded deletion(s)\n' "$checked" "$deleted_known"
-    if [ -z "$changed" ] && [ -z "$vanished" ]; then
+    # tracked upstream-owned paths that the baseline never heard of
+    unbaselined=""
+    known=$(mktemp)
+    /usr/bin/grep -v '^#' "$BASELINE" | cut -f2 > "$known"
+    while IFS= read -r f; do
+        [ -f "$f" ] || continue
+        /usr/bin/grep -Fxq "$f" "$known" || unbaselined="${unbaselined}${f}\n"
+    done < <(git ls-files | /usr/bin/grep -vE "$IS_OWNED")
+    rm -f "$known"
+
+    approved=0
+    if [ -f "$DEVIATIONS" ]; then
+        approved=$(/usr/bin/grep -v '^#' "$DEVIATIONS" | /usr/bin/grep -c '[^[:space:]]' || true)
+        while IFS=$'\t' read -r dpath _rest; do
+            case "$dpath" in ''|\#*) continue ;; esac
+            [ -n "$dpath" ] || continue
+            if [ ! -f "$dpath" ]; then
+                fail "A1  $DEVIATIONS lists '$dpath' but no such file exists"
+                continue
+            fi
+            if ! /usr/bin/grep -q "$(printf '\t%s$' "$dpath")" "$BASELINE"; then
+                fail "A1  approved deviation '$dpath' is not pinned in $BASELINE — re-record it"
+            fi
+        done < "$DEVIATIONS"
+    fi
+
+    printf '[info] A1 checked %d baseline entry(s); %d recorded deletion(s); %d approved fork edit(s)\n' \
+        "$checked" "$deleted_known" "$approved"
+    if [ -z "$changed" ] && [ -z "$vanished" ] && [ -z "$unbaselined" ]; then
         pass "A1  no upstream-owned file was modified or removed"
     else
         [ -n "$changed" ] && { fail "A1  upstream-owned files CHANGED"; printf "$changed" | head -20; }
         [ -n "$vanished" ] && { fail "A1  upstream-owned files MISSING"; printf "$vanished" | head -20; }
+        [ -n "$unbaselined" ] && { fail "A1  upstream-owned files NOT IN BASELINE (A1 cannot check them)"; printf "$unbaselined" | head -20; }
         printf '       fix the code, or re-record the baseline deliberately:\n'
         printf '         bash tools/gen-upstream-baseline.sh\n'
     fi
@@ -280,5 +324,8 @@ measured at a 319px viewport (its cascade rule is a unit test; the >839px state 
 re-measured in that session, and §5.1 says so).
 What no mechanical gate can close: parity rows 3, 9 and the run-half of 12 — a real generation
 queued on the compute box, which needs the user's go-ahead (MIGRATION-NOTES §5.2).
+A1 reports the upstream files it pins and the approved exceptions to that rule
+(tools/upstream-deviations.txt). Editing an upstream file beyond those is a decision to ask for,
+not a fix to apply: it costs a regression test, a line in that list and a re-recorded baseline.
 EOF
 exit "$FAIL"
