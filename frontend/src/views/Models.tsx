@@ -55,27 +55,59 @@ interface Record_ {
     civType: string;
     baseModel: string;
     previewUrl: string;
+    /** The cached Civitai record `M.decorate` puts on every row — page link and sample image. */
+    civitai?: Record<string, unknown>;
 }
 
 const PAGE_SIZES = [24, 48, 96, 200];
 
-/** Lazy preview: aiohttp's add_get has no HEAD route, so probe with the <img> itself. */
-function Thumb({ src, alt }: { src: string; alt: string }): ReactElement {
+/**
+ * Lazy preview: aiohttp's add_get has no HEAD route, so probe with the <img> itself.
+ * `fallbackSrc` is upstream's order (`helpers.js:33-57`): local preview, then the first Civitai
+ * sample, then the placeholder — so a source change has to reset the probe, or the fallback's own
+ * failure is never seen and the cell stays an empty <img>.
+ */
+function Thumb({ src, alt, fallbackSrc }: { src: string; alt: string; fallbackSrc?: string }): ReactElement {
     const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+    const [current, setCurrent] = useState(src);
+    useEffect(() => {
+        setCurrent(src);
+        setState("idle");
+    }, [src]);
+    const failed = state === "fail";
     return (
-        <span className={"nu-thumb" + (state === "fail" ? " nu-thumb--fail" : "")}>
-            {state !== "fail" ? (
+        <span className={"nu-thumb" + (failed ? " nu-thumb--fail" : "")}>
+            {!failed ? (
                 <img
-                    src={src}
+                    src={current}
                     alt={alt}
                     loading="lazy"
                     onLoad={() => setState("ok")}
-                    onError={() => setState("fail")}
+                    onError={() => {
+                        if (current === src && fallbackSrc) {
+                            setCurrent(fallbackSrc);
+                            setState("idle");
+                            return;
+                        }
+                        setState("fail");
+                    }}
                 />
             ) : null}
-            {state === "fail" ? <MdIcon>image_not_supported</MdIcon> : null}
+            {failed ? <MdIcon>image_not_supported</MdIcon> : null}
         </span>
     );
+}
+
+/** Upstream's thumbnail fallback is `civitaiCache[sha256].images[0]` — a plain URL string. */
+function civitaiSample(r: Record_): string | undefined {
+    const images = (r.civitai as { images?: unknown } | undefined)?.images;
+    const first = Array.isArray(images) ? images[0] : undefined;
+    return typeof first === "string" && first ? first : undefined;
+}
+
+/** `M.civitaiUrl` gives null when neither a model nor a version id is cached, so no dead link. */
+function civitaiHref(r: Record_): string | null {
+    return r.civitai ? M.civitaiUrl(r.civitai as never) : null;
 }
 
 export default function Models({ navigate }: ViewProps): ReactElement {
@@ -110,12 +142,15 @@ export default function Models({ navigate }: ViewProps): ReactElement {
     const [detail, setDetail] = useState<Record_ | null>(null);
     const [bulkGroupName, setBulkGroupName] = useState("");
     const [newGroupName, setNewGroupName] = useState("");
+    const [bulkBadgeName, setBulkBadgeName] = useState("");
+    const [bulkDir, setBulkDir] = useState("");
+    const [newDirName, setNewDirName] = useState("");
     const [cancelFetch, setCancelFetch] = useState<(() => void) | null>(null);
     const [loading, setLoading] = useState(false);
     const [civitaiProgress, setCivitaiProgress] = useState<{ current: number; total: number } | null>(null);
 
     const loadType = useCallback(
-        async (modelType: string): Promise<void> => {
+        async (modelType: string, keepSelection = false): Promise<void> => {
             setLoading(true);
             try {
                 const [list, meta, grp, dis, civ, sub] = await Promise.all([
@@ -132,12 +167,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                 setDisabled(dis);
                 setCache(civ);
                 setSubdirs(Array.isArray(sub) ? sub : []);
-                setPage(0);
-                setSelected(new Set());
-                // The detail panel writes through `type` + `detail.name`; keeping a selected model
-                // from the previous type alive would apply groups or enable/disable to a name that
-                // does not exist in this type (upstream nulls the selection on every type change).
-                setDetail(null);
+                // A type switch must drop the selection: the detail panel writes through `type` +
+                // `detail.name`, so keeping a model from the previous type alive would group or
+                // enable/disable a name that does not exist in this type (upstream nulls it on
+                // every type change). A refresh of the *same* type keeps it — upstream's refresh
+                // only refetches the listing.
+                if (!keepSelection) {
+                    setPage(0);
+                    setSelected(new Set());
+                    setDetail(null);
+                }
             } catch (err) {
                 snackbar.show({ label: (err as Error).message, tone: "error" });
             } finally {
@@ -252,16 +291,26 @@ export default function Models({ navigate }: ViewProps): ReactElement {
         snackbar.show({ label: `${selected.size} → ${value ? "★" : "☆"}` });
     };
 
-    const bulkBadge = async (badge: string, on: boolean): Promise<void> => {
+    /**
+     * §4 item 5's remove half: upstream deletes a group key once it is empty, except the reserved
+     * Batch/Stack groups the loader always seeds (`selection-bulk.js:172-184`, `state.js:10`).
+     */
+    const pruneEmptyGroups = (next: Record<string, string[]>): Record<string, string[]> =>
+        Object.fromEntries(Object.entries(next).filter(([g, list]) => list.length > 0 || MC.RESERVED_GROUPS.includes(g)));
+
+    const bulkGroup = async (groupName: string, on: boolean): Promise<void> => {
+        await commitGroups(pruneEmptyGroups(M.withMembers(groups, groupName, [...selected], on)));
+    };
+
+    /** §4 item 16/17: one badge select, two buttons — add and remove — like upstream's bulk bar. */
+    const bulkBadgeSet = async (on: boolean): Promise<void> => {
+        if (!bulkBadgeName || !selected.size) return;
         for (const name of selected) {
-            const badges = M.withBadge(M.entryOf(metadata, name), badge, on);
+            const badges = M.withBadge(M.entryOf(metadata, name), bulkBadgeName, on);
             const saved = await M.saveMetadata(name, { badges });
             setMetadata((m) => ({ ...m, [name]: saved }));
         }
-    };
-
-    const bulkGroup = async (groupName: string, on: boolean): Promise<void> => {
-        await commitGroups(M.withMembers(groups, groupName, [...selected], on));
+        snackbar.show({ label: `${selected.size} ${on ? "+" : "−"} ${bulkBadgeName}` });
     };
 
     /** §4 item 5: upstream offers a free-text "create a group and add" beside the picker. */
@@ -285,9 +334,27 @@ export default function Models({ navigate }: ViewProps): ReactElement {
         }
     };
 
+    /**
+     * Upstream's move has both a picker and a free-text folder, and `dest` "" *is* the model root
+     * (`selection-bulk.js:104-115,271-278`; `py/services/models_service.py:390-405` rejects any
+     * destination containing a separator, so nested paths are not offered). Moving renames every
+     * key, so the listing reloads and the selection is dropped. Bulk writes ask first.
+     */
     const bulkMove = async (dest: string): Promise<void> => {
+        if (!selected.size) return;
+        const label = dest || tr("nu.models.moveRoot", "(Root)");
+        if (!(await confirmDialog({
+            title: tr("nu.models.moveConfirm", "Move the selected models?"),
+            body: `${selected.size} → ${label}`,
+            confirmLabel: tr("nu.action.move", "Move"),
+        }))) return;
         try {
-            await api.moveModels(type, [...selected], dest);
+            const res = (await api.moveModels(type, [...selected], dest)) as { moved?: unknown[]; errors?: unknown[] };
+            snackbar.show({
+                label: `${tr("nu.models.moved", "Moved")}: ${res?.moved?.length ?? 0}, ${tr("nu.models.errors", "errors")}: ${res?.errors?.length ?? 0}`,
+            });
+            setSelected(new Set());
+            setNewDirName("");
             await loadType(type);
         } catch (err) {
             snackbar.show({ label: (err as Error).message, tone: "error" });
@@ -388,6 +455,29 @@ export default function Models({ navigate }: ViewProps): ReactElement {
         writePref("models_view", next);
     };
 
+    /**
+     * Upstream's "✕ Clear" (`models-tab.js:489-517`) resets search, tag, dir, group, status and the
+     * two toggle chips plus the page, and leaves sort/view/select-mode alone. It also leaves
+     * `badgeFilter` behind — a filter the button claims to clear but does not — so this resets it
+     * too. Deliberate deviation, recorded in MIGRATION-NOTES §4.
+     */
+    const clearFilters = (): void => {
+        setSearch("");
+        setTagFilter("");
+        setBadgeFilter("");
+        setDirFilter("");
+        setGroupFilter("");
+        setStatusFilter("all");
+        setFavOnly(false);
+        setBatchOnly(false);
+        setPage(0);
+    };
+
+    /** Upstream's refresh refetches the listing for the current type without losing the selection. */
+    const refresh = (): void => {
+        void loadType(type, true);
+    };
+
     return (
         <div className="nu-view">
             <MdTabs aria-label={tr("nu.models.types", "Model types")}>
@@ -472,6 +562,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                         setSelected(new Set());
                     }}
                 />
+                {/* §4 filters were undoable one select at a time only, and a stale listing needed a
+                    page reload — upstream has both controls (`models-tab.js:489,539`). */}
+                <MdOutlinedButton onClick={clearFilters}>
+                    <MdIcon slot="icon">clear</MdIcon>
+                    {tr("nu.models.clearFilters", "Clear")}
+                </MdOutlinedButton>
+                <MdOutlinedButton onClick={refresh} disabled={loading}>
+                    <MdIcon slot="icon">refresh</MdIcon>
+                    {tr("nu.action.reload", "Reload")}
+                </MdOutlinedButton>
                 <select
                     className="nu-native-select"
                     aria-label="page size"
@@ -523,15 +623,48 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                     <MdOutlinedButton disabled={!selected.size || !newGroupName.trim()} onClick={() => void createAndAddGroup()}>
                         {tr("nu.models.createAdd", "Create & add")}
                     </MdOutlinedButton>
-                    <select className="nu-native-select" aria-label="bulk badge" defaultValue="" onChange={(e) => { if (e.target.value && selected.size) void bulkBadge(e.target.value, true); }}>
-                        <option value="">+ badge…</option>
+                    <select
+                        className="nu-native-select"
+                        aria-label={tr("nu.models.bulkBadgeLabel", "Badge")}
+                        value={bulkBadgeName}
+                        onChange={(e) => setBulkBadgeName(e.target.value)}
+                    >
+                        <option value="">{tr("nu.models.pickBadge", "pick badge…")}</option>
                         {allBadges.map((b) => <option key={b} value={b}>{b}</option>)}
                     </select>
-                    <select className="nu-native-select" aria-label="bulk move" defaultValue="" onChange={(e) => { if (selected.size && e.target.value !== "") void bulkMove(e.target.value); }}>
-                        <option value="">move…</option>
-                        <option value=".">root</option>
+                    {/* Upstream pairs one badge select with an add *and* a remove button
+                        (`selection-bulk.js:141-148`); here the badge could only be added. */}
+                    <MdOutlinedButton disabled={!selected.size || !bulkBadgeName} onClick={() => void bulkBadgeSet(true)}>
+                        {tr("nu.action.add", "Add")}
+                    </MdOutlinedButton>
+                    <MdOutlinedButton disabled={!selected.size || !bulkBadgeName} onClick={() => void bulkBadgeSet(false)}>
+                        {tr("nu.action.remove", "Remove")}
+                    </MdOutlinedButton>
+                    <select
+                        className="nu-native-select"
+                        aria-label={tr("nu.models.bulkMoveLabel", "Move to folder")}
+                        value={bulkDir}
+                        onChange={(e) => setBulkDir(e.target.value)}
+                    >
+                        <option value="">{tr("nu.models.moveRoot", "(Root)")}</option>
                         {subdirs.map((d) => <option key={d} value={d}>{d}</option>)}
                     </select>
+                    <MdOutlinedButton disabled={!selected.size} onClick={() => void bulkMove(bulkDir)}>
+                        {tr("nu.action.move", "Move")}
+                    </MdOutlinedButton>
+                    {/* §4 item 18: a folder that does not exist yet was not offerable, so the only
+                        destination ever reachable was an existing subdir or the root. */}
+                    <input
+                        className="nu-native-select"
+                        type="text"
+                        aria-label={tr("nu.models.newDir", "New folder name")}
+                        placeholder={tr("nu.models.newDir", "New folder name")}
+                        value={newDirName}
+                        onChange={(e) => setNewDirName(e.target.value)}
+                    />
+                    <MdOutlinedButton disabled={!selected.size || !newDirName.trim()} onClick={() => void bulkMove(newDirName.trim())}>
+                        {tr("nu.models.createMove", "Create & move")}
+                    </MdOutlinedButton>
                     <MdOutlinedButton disabled={!selected.size} onClick={() => void bulkDelete()}>
                         {tr("nu.action.delete", "Delete")}
                     </MdOutlinedButton>
@@ -540,12 +673,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
 
             <div className="nu-models">
                 <div className="nu-models__list">
-                    {view === "thumb" ? (
+                    {filtered.length === 0 ? (
+                        /* One placeholder for both "this type is empty" and "nothing matches",
+                           before the view branch — exactly upstream's guard (`grid-view.js:39-42`). */
+                        <p className="nu-placeholder">{tr("nu.models.noneFound", "No models found")}</p>
+                    ) : view === "thumb" ? (
                         <div className="nu-grid">
                             {slice.map((r) => (
                                 <MdOutlinedCard key={r.name}>
                                     <button type="button" className="nu-card__hit" onClick={() => (selectMode ? toggleSelect(r.name) : setDetail(r))}>
-                                        <Thumb src={r.previewUrl} alt={r.base} />
+                                        <Thumb src={r.previewUrl} alt={r.base} fallbackSrc={civitaiSample(r)} />
                                         <span className="nu-card__name">{r.base}</span>
                                         <span className="nu-chip-row">
                                             {r.badges.map((b) => (
@@ -602,13 +739,33 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                                                 </button>
                                             </th>
                                         ))}
+                                        {/* Upstream gates the B/S *columns* by type, header included
+                                            (`grid-view.js:149-151`): showBatchBtn = checkpoint|lora,
+                                            showStackBtn = lora. Same conditions as the grid's chips. */}
+                                        {MC.isBatchType(type) ? <th aria-label={tr("nu.models.batchCol", "Batch column")}>B</th> : null}
+                                        {MC.isStackType(type) ? <th aria-label={tr("nu.models.stackCol", "Stack column")}>S</th> : null}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {slice.map((r) => (
                                         <tr key={r.name} data-selected={selected.has(r.name)} onClick={() => (selectMode ? toggleSelect(r.name) : setDetail(r))}>
-                                            <td>{selectMode ? <MdCheckbox checked={selected.has(r.name)} onChange={() => toggleSelect(r.name)} /> : <Thumb src={r.previewUrl} alt={r.base} />}</td>
-                                            <td>{r.favorite ? "★" : ""}</td>
+                                            <td>{selectMode ? <MdCheckbox checked={selected.has(r.name)} onChange={() => toggleSelect(r.name)} /> : <Thumb src={r.previewUrl} alt={r.base} fallbackSrc={civitaiSample(r)} />}</td>
+                                            {/* §4 items 12/13: the table row had no controls of its own —
+                                                a static ★ and an "on"/"off" label — so favouriting, disabling
+                                                and Batch/Stack all needed grid view. Upstream wires all four
+                                                into the row (`grid-view.js:175-186,222-243`), and each one
+                                                stops the row click from opening the panel. */}
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className="nu-table__act"
+                                                    title={tr("nu.models.favorite", "Favorite")}
+                                                    aria-label={tr("nu.models.favorite", "Favorite")}
+                                                    onClick={(e) => { e.stopPropagation(); void setFavorite(r); }}
+                                                >
+                                                    {r.favorite ? "★" : "☆"}
+                                                </button>
+                                            </td>
                                             <td dangerouslySetInnerHTML={{ __html: escapeHtml(r.base) }} />
                                             <td>{r.subdir || "."}</td>
                                             <td>{r.civType}</td>
@@ -616,7 +773,43 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                                             <td>{r.ext}</td>
                                             <td>{r.tags.join(", ")}</td>
                                             <td>{r.memo}</td>
-                                            <td>{r.enabled ? "on" : "off"}</td>
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className={"nu-table__act" + (r.enabled ? "" : " nu-table__act--off")}
+                                                    title={r.enabled ? tr("nu.action.disable", "Disable") : tr("nu.action.enable", "Enable")}
+                                                    aria-label={r.enabled ? tr("nu.action.disable", "Disable") : tr("nu.action.enable", "Enable")}
+                                                    onClick={(e) => { e.stopPropagation(); void setEnabled(r, !r.enabled); }}
+                                                >
+                                                    {r.enabled ? "⏸" : "▶"}
+                                                </button>
+                                            </td>
+                                            {MC.isBatchType(type) ? (
+                                                <td>
+                                                    <button
+                                                        type="button"
+                                                        className={"nu-table__act" + ((groups.Batch ?? []).includes(r.name) ? " nu-table__act--on" : "")}
+                                                        title={tr("nu.models.batch", "Batch")}
+                                                        aria-label={tr("nu.models.batch", "Batch")}
+                                                        onClick={(e) => { e.stopPropagation(); void toggleReserved("Batch", r); }}
+                                                    >
+                                                        B
+                                                    </button>
+                                                </td>
+                                            ) : null}
+                                            {MC.isStackType(type) ? (
+                                                <td>
+                                                    <button
+                                                        type="button"
+                                                        className={"nu-table__act" + ((groups.Stack ?? []).includes(r.name) ? " nu-table__act--on" : "")}
+                                                        title={tr("nu.models.stack", "Stack")}
+                                                        aria-label={tr("nu.models.stack", "Stack")}
+                                                        onClick={(e) => { e.stopPropagation(); void toggleReserved("Stack", r); }}
+                                                    >
+                                                        S
+                                                    </button>
+                                                </td>
+                                            ) : null}
                                         </tr>
                                     ))}
                                 </tbody>
@@ -643,7 +836,7 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                             <p className="nu-muted">{detail.ext} · {detail.subdir || "."}</p>
                             <div className="nu-chip-row">
                                 {detail.groups.map((g) => (
-                                    <MdFilterChip key={g} label={g} selected onInput={() => void commitGroups(M.withMembers(groups, g, [detail.name], false))} />
+                                    <MdFilterChip key={g} label={g} selected onInput={() => void commitGroups(pruneEmptyGroups(M.withMembers(groups, g, [detail.name], false)))} />
                                 ))}
                             </div>
                             <MdOutlinedTextField
@@ -673,11 +866,36 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                             </select>
                             <div className="nu-row">
                                 <MdFilledButton onClick={() => applyToGenerate(detail)}>{tr("nu.models.apply", "Apply to Generate")}</MdFilledButton>
+                                {/* Upstream's second embedding button, gated to the `embedding` type
+                                    (`models-tab.js:575-579`, `detail-panel.js:255-263`): every other type
+                                    lands in a node slot, so there is no negative field to append to. */}
+                                {type === "embedding" ? (
+                                    <MdOutlinedButton
+                                        onClick={() => {
+                                            requestPromptAppend(detail.name, "negative");
+                                            snackbar.show({
+                                                label: `${M.embeddingPromptToken(detail.name)} ${tr("nu.models.queuedNegative", "queued for the negative prompt")}`,
+                                                actionLabel: tr("nu.action.open", "Open"),
+                                                onAction: () => navigate("generate"),
+                                            });
+                                        }}
+                                    >
+                                        {tr("nu.models.applyNegative", "Apply to negative")}
+                                    </MdOutlinedButton>
+                                ) : null}
                                 <MdOutlinedButton onClick={() => void fetchOne(detail)}>Civitai</MdOutlinedButton>
                                 <MdOutlinedButton onClick={() => void setEnabled(detail, !detail.enabled)}>{detail.enabled ? "disable" : "enable"}</MdOutlinedButton>
                             </div>
                             {detail.sha256 ? <p className="nu-muted">sha256 {detail.sha256.slice(0, 16)}…</p> : null}
-                            <Thumb src={detail.previewUrl} alt={detail.base} />
+                            {/* §4 item 10: the cache was reduced to a truncated sha. The link is
+                                `M.civitaiUrl`'s three branches, and no link at all when neither a
+                                model nor a version id is cached (upstream falls back to "#"). */}
+                            {civitaiHref(detail) ? (
+                                <a className="nu-link" href={civitaiHref(detail) ?? "#"} target="_blank" rel="noopener noreferrer">
+                                    {tr("nu.models.civitaiPage", "Civitai page")}
+                                </a>
+                            ) : null}
+                            <Thumb src={detail.previewUrl} alt={detail.base} fallbackSrc={civitaiSample(detail)} />
                         </div>
                     </MdOutlinedCard>
                 ) : null}

@@ -29,7 +29,7 @@ export interface WorkflowHandoff {
 export interface AppState {
     applyTarget: ApplyTarget | null;
     /** Models → Generate for embeddings, which go into the prompt, not a node slot. */
-    promptAppend: { value: string; token: number } | null;
+    promptAppend: { value: string; target: "positive" | "negative"; token: number } | null;
     workflowHandoff: WorkflowHandoff | null;
     /** The batch state machine lives in core; the store only shares the reference. */
     batch: ReturnType<typeof B.createBatchState>;
@@ -101,9 +101,13 @@ export function clearWorkflowHandoff(): void {
     if (state.workflowHandoff) setState({ workflowHandoff: null });
 }
 
-/** Models → Generate, for the `embedding` type which has no node slot (§4 item 14). */
-export function requestPromptAppend(value: string): void {
-    setState({ promptAppend: { value, token: ++seq } });
+/**
+ * Models → Generate, for the `embedding` type which has no node slot (§4 item 14).
+ * `target` mirrors upstream's two side-panel buttons: the negative one only ever renders for
+ * embeddings, so the handoff has to say which field to append to.
+ */
+export function requestPromptAppend(value: string, target: "positive" | "negative" = "positive"): void {
+    setState({ promptAppend: { value, target, token: ++seq } });
 }
 
 export function clearPromptAppend(): void {

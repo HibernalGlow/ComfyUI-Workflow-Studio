@@ -129,6 +129,8 @@ UI-side changes must be hand-ported.
 | D10 | `comfyUI.currentWorkflow` / `currentAnalysis` are written only through `frontend/src/coreBridge.ts`. | `pipeline.js` still reads the upstream client's graph state, but the JS initialises both to `null`, so TypeScript infers `null` and rejects assignment. One named seam instead of scattered casts. |
 | D11 | `tr(key, fallback)` added to `core/i18n.js`. | The brief §3.2 rule 6 assumed `t("key", "fallback")` yields the fallback. It does not: upstream `t(key, ...args)` treats extra args as `{0}` substitutions and returns the **key** when unmapped. `tr()` gives text that is new to this fork a real English fallback while still preferring upstream translations once they exist. |
 | D12 | React Compiler runs through Babel (the reference implementation), not Vite's `compiler: true`. | See §1. |
+| D13 | Models' "Clear" also resets the badge filter, which upstream's Clear button leaves alone. | `models-tab.js:489-517` resets search/tag/dir/group/status and the two chips but never `state.badgeFilter`, so a badge selection survives a button labelled "clear" and the listing looks broken. Cleared here; the deviation is called out in the comment at the call site and in §5.1. |
+| D14 | Bulk badge and bulk move ask for confirmation before writing. | Upstream moves or re-badges the whole selection on a single button press (`selection-bulk.js:114-148`). These are the only bulk actions in the app that rename files on the compute box, and a stray click is not cheaply undoable, so they route through `confirmDialog` first. Read-only bulk actions (select-all, clear selection) still act immediately. |
 
 ---
 
@@ -298,12 +300,13 @@ rather than assumed:
 | `Settings.tsx:283,294` — rows skipped for `null`/`object` values | ok: those keys have no scalar to edit; the same settings remain reachable through their own fields |
 | `GenPresets.tsx` — the whole card | was the bug, now renders in every state (see above) |
 
-#### Models fidelity audit against `static/js/models-tab.js` — two fixes, seven open gaps
+#### Models fidelity audit against `static/js/models-tab.js` — every recorded gap is now closed
 
 The 18-item row above was written from the implementation's own reading of the brief. Re-checking
 it item by item against the upstream code (with the render-condition question from §6 in mind)
-found two real defects, now fixed, and seven fidelity gaps that are **not** fixed — recorded here
-so the row above is read as "wired and exercised", not as "identical to upstream".
+found two real defects and seven fidelity gaps. All of it is now implemented — the two defects in
+the earlier session, the gaps on 2026-09-25 — so the row above can be read as "wired, exercised and
+line-for-line comparable to upstream", with the single exception stated in the last row below.
 
 Fixed:
 
@@ -322,13 +325,38 @@ Open (evidence, and what it costs the user):
 
 | Gap | Where | Consequence |
 |---|---|---|
-| Table view has no per-row ★ / enable / Batch-Stack cells | `Models.tsx` table body vs `grid-view.js:222-243,164-165` | items 12/13 need grid view or select-mode |
-| Bulk badge and bulk group cannot *remove* in the badge case; move cannot create a folder | select handlers vs `selection-bulk.js:95,104,114-115` | item 18 forces an existing subdir (root is offered) |
-| ~~Batch/Stack chips rendered for all 8 types~~ **fixed** | `Models.tsx` chips now gated by `MC.isBatchType` / `MC.isStackType` | a non-LoRA model can no longer be pushed into a group the loader never seeds |
-| ~~"Fetch Civitai" posts the whole filtered list, cached included, no empty guard~~ **half fixed** | `Models.tsx:fetchAll` now skips cached models, refuses an empty batch, and exposes a Cancel next to the progress bar | the 400 case is gone; the SSE reader's own error surfacing still needs a live run to observe |
-| No clear-filters and no refresh control | toolbar vs `models-tab.js:489,540` | filters can only be undone one select at a time; a stale listing needs a page reload |
-| No empty-state placeholder | `Models.tsx:489-519` vs `grid-view.js:39-42` | a type with no matches is a blank region |
-| Apply-to-Generate is positive-only; Civitai row shows only the sha, `M.civitaiUrl` unused; thumbnail has no Civitai-image fallback | `Models.tsx:345,618`, `Thumb` vs `models-tab.js:577`, `helpers.js:36-56` | negative-prompt embedding and the clickable Civitai link are missing |
+| ~~Table view has no per-row ★ / enable / Batch-Stack cells~~ **fixed** | `Models.tsx` table body now carries all four, gated by `MC.isBatchType` / `MC.isStackType` exactly as `grid-view.js:149-151,175-186` gates its own columns | items 12/13 are reachable from the table; measured 3 controls per row on checkpoint (B, no S) and 4 on LoRA (B+S), and the VAE header carried neither B nor S |
+| ~~Bulk badge cannot *remove*; move cannot create a folder~~ **fixed** | one badge select with Add **and** Remove (`selection-bulk.js:141-148`), move select with `(Root)` = `dest:""` plus a free-text folder and "Create & move" | item 18 reaches a new subdir; `py/services/models_service.py:399-405` rejects separators, so nested paths are still not offered |
+| ~~Bulk group *remove* left an empty key behind~~ **fixed** | `pruneEmptyGroups` now drops an emptied group except `MC.RESERVED_GROUPS` (`selection-bulk.js:172-184`, `state.js:10`) — the detail panel's chip-removal goes through it too | |
+| ~~No clear-filters and no refresh control~~ **fixed** | toolbar buttons mirroring `models-tab.js:489-517` and `:539-544` | filters are undoable in one click; a stale listing no longer needs a page reload, and a refresh keeps the open detail (verified: card still present 3.5 s after the reload click) |
+| ~~No empty-state placeholder~~ **fixed** | `.nu-placeholder` "No models found", rendered before the view branch exactly like `grid-view.js:39-42`, so both views and both causes ("type is empty", "nothing matches") get it | measured: searching `zzz-none` yielded 0 rows + the placeholder; Clear restored the rows and emptied the field |
+| ~~Apply-to-Generate is positive-only; Civitai row shows only the sha, `M.civitaiUrl` unused; thumbnail has no Civitai-image fallback~~ **partly fixed** | negative button added behind `type === "embedding"`, gated as `detail-panel.js:255-263` gates it; `civitaiHref` uses `M.civitaiUrl` and renders **no** link when it returns null (upstream falls back to `"#"`); `Thumb` takes `fallbackSrc` = `civitai.images[0]`, upstream's order (`helpers.js:33-57`) | **the embedding half cannot be observed on this box**: `GET /api/wfm/models/files?type=embedding` returns `[]` (zero embedding files), so the negative button's *effect* on the Generate negative field is reviewed at `Generate.tsx:185-193` but not measured. The dead-link check did run: 0 `a[href="#"]` in the panel |
+
+Two deliberate deviations from upstream, both in the new code and both chosen on purpose:
+`clearFilters` also resets `badgeFilter`, which upstream's Clear button claims to clear but leaves
+alone; and the bulk move/badge writes ask through `confirmDialog` first (upstream moves a whole
+selection on a single button press).
+
+Verified in the browser on 2026-09-25 against the rebuilt bundle, with **no write reaching the
+box**: the runner replaced `window.fetch` for the duration of the click tests, so the two
+state-changing paths were asserted by their *outgoing request* rather than by their side effects.
+The table row's own control titles came out as `["Favorite", "Disable", "Batch"]`, and the captured
+bodies were
+
+```
+POST /api/wfm/models/metadata  {"modelName":"zukiAnimeILL_best.safetensors","favorite":true}
+POST /api/wfm/models/groups    {"model_type":"checkpoint","groups":{"Batch":["zukiAnimeILL_best.safetensors"]}}
+```
+
+— i.e. the ★ cell really calls `M.saveMetadata` and the B cell really calls the group save with the
+model added. The stub was removed afterwards and `GET /api/wfm/models/metadata` still compares
+byte-identical to the snapshot taken before any of it (`cmp`, 42 bytes), so the box is as found.
+
+Trap worth recording: the first verification pass after `pnpm build` measured the **previous**
+bundle. `location.reload()` of the entry restored it from bfcache, so the page ran the old chunk
+graph (`Models-BSmloO0n.js` 404 in the console, app root empty) and could have been read as "the
+new controls are missing". A cache-bypassing navigation (`?v=<ts>`) is what makes a post-build
+browser check mean what it says.
 
 Also a rule-B1 nit rather than a bug: `Models.tsx:292-293` recomputes group membership inline
 where `M.groupsOf` exists, and `M.withTag`/`renameGroup`/`withoutGroup`/`isEnabled` are still
@@ -492,7 +520,7 @@ jointly with "the frontend only calls things that exist". The gate is armed insi
 | 8 | Batch traversal | partly | unit — 3 LoRAs ⇒ exactly 3 generations, the workflow is rewritten before each call, skip keys (`batchNoneSelected`, `modelsGenUINoNode`), failure counting, abort, pause/resume, option forwarding, sorted traversal with the last value left applied (8 tests). Comparing output counts against real images needs a GPU run |
 | 9 | Results land in Gallery + workflow backfill | partly | unit — the history → `images` / `svgOutputs` extraction (7 client tests) plus 7 `core/image.js` tests: only `type === "output"` gets a metadata POST, the body is `{path, workflow}` with the path built as `<dir>/<subfolder>/<filename>`, a 500 counts as `failed` instead of rejecting, an unknown output directory means zero requests, `applyDefaultCheckpointIfEnabled` touches the three checkpoint-loader spellings and nothing else, `blobToDataUrl` matches the platform base64 encoder on every padding case, and `flattenFolderTree` labels the root. The Gallery list refreshing itself after a run, and clicking a result back into a workflow, still need a real generation (GPU) |
 | 10 | Settings persist across restart | ok | live through the UI on a patched bridge: the output-directory field started at `saved: ""`, typing the current path and pressing Save returned "Output directory saved." and the following `GET` reported `saved: D:\…\Library\output`. `SettingsService` writes `data/settings.json` with `json.dump` and re-reads that file on every access (`_load`), so the value the `GET` returned came off disk rather than a memory cache — which is the same read a restart performs. The field was then set back to `""` and verified, so the store is exactly as found |
-| 11 | Models subsystem, 18 items | ok for 17 | live — see §5.1. Item 9's batch Civitai fetch and item 18's bulk move-to-subdir were not exercised (both write to the compute box) |
+| 11 | Models subsystem, 18 items | ok, with two run-halves unobserved | live — see §5.1, where every recorded fidelity gap is now closed. Two things have still never *executed* on the box: item 9's batch Civitai fetch (it fans out to an external API), and item 18's bulk move — the new-folder control is implemented and routes to `api.moveModels`, but no move request was ever emitted, because the verification stubs only covered the ★ and Batch cells (`POST /models/metadata`, `POST /models/groups` bodies captured in-page; nothing reached the server). The move path is reviewed at `Models.tsx` `bulkMove` + `py/services/models_service.py:390-405` and needs the user's go-ahead to run for real |
 | 12 | `tools/run_typhon_test.py` untouched | ok for "untouched" | A1 — byte-identical to upstream; *running* it needs a GPU |
 
 Rows 3 and 9 are now covered down to the last thing a unit test can reach — the request shape,
@@ -515,30 +543,29 @@ build output is committed. The earlier commits were pushed to `origin/main` by t
 
 Parked, in the order that unblocks the most:
 
-1. Five recorded Models fidelity gaps (§5.1's audit table). All frontend-only, all closable
-   without the compute box: table-view per-row ★/enable/Batch-Stack cells, bulk badge *remove* and
-   move-to-*new* folder, a clear-filters and a refresh control, an empty-state placeholder, and
-   Apply-to-Generate for negative prompts plus `M.civitaiUrl` and the thumbnail's Civitai-image
-   fallback.
-2. The upstream UI→API widget-shift defect described in §5.1 blocks a *successful* first run, not
+1. The upstream UI→API widget-shift defect described in §5.1 blocks a *successful* first run, not
    just an unverified one: `animanga-liino-clean.json` reaches `POST /prompt` with a string in
    `FLS_SamplerV4.denoise`. The three options are listed there; none is taken unilaterally, because
    two of them either rewrite an upstream file (and the A1 baseline with it) or change what gets
    sent to the box.
-3. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box. The link
+2. Parity rows 3, 9 and the run-half of 12 need one real generation on the compute box. The link
    is live again (`:8188/system_stats` 200, queue empty, 63 workflows, 3218 `object_info` classes)
    and `bash tools/live-verify.sh` exits 0; what is missing is the user's go-ahead for GPU time, and
-   item 2 above should be settled first so the run isn't blamed on the refactor.
-4. An axe re-pass over the presets card's new states, and any screenshot check. Both need the
-   browser tab in the foreground: a backgrounded tab throttles timers, freezes transitions and
-   `requestAnimationFrame`, offers no visible surface, and made even `axe.min.js`'s `onload`
-   exceed a 15 s call budget here. This session's tab reported `visibilityState: "hidden"` too, so
-   the preset round trip was verified by DOM state, request outcomes and the store bytes — not by
-   axe or a screenshot.
+   item 1 above should be settled first so the run isn't blamed on the refactor.
+3. An axe re-pass over the presets card's new states, the Models table's new cells, and any
+   screenshot check. All need the browser tab in the foreground: a backgrounded tab throttles
+   timers, freezes transitions and `requestAnimationFrame`, offers no visible surface, and made even
+   `axe.min.js`'s `onload` exceed a 15 s call budget here. This session's tab reported
+   `visibilityState: "hidden"` too, so the round trip and the Models gaps were verified by DOM
+   state, captured requests and store bytes — not by axe or a screenshot.
+4. Two Models run-halves that a gate cannot reach, both listed in §5.2 row 11: the batch Civitai
+   fetch, and an actual bulk move (including into a brand-new subfolder). Both write to the compute
+   box's model library, so they are the user's to run.
 
 Parity row 7 is no longer parked: the save → list → apply → delete cycle completed in the browser
 against a bridge running current code, and the preset store was compared byte-identical before and
-after (§5.1, §5.2).
+after (§5.1, §5.2). Neither is the Models fidelity work: every gap §5.1 recorded is closed, with the
+write paths proven by intercepted requests instead of side effects.
 
 Process footprints left behind, all mine and all disposable: the tunnel loop (bash pid 22243
 keeping `ssh -N -L 8188:127.0.0.1:8188 win30902`, pid 22245, alive), and my own bridge

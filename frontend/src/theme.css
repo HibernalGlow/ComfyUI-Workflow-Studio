@@ -742,6 +742,43 @@ body {
   border-radius: var(--md-sys-shape-corner-xs);
 }
 
+/* Per-row table controls: upstream's table cells are plain buttons that inherit the row's
+   typography (`grid-view.js:175-186`) — no filled chip, no card. The state is carried by glyph
+   (★/☆, ⏸/▶) and by the accent colour for an active Batch/Stack. */
+.nu-table__act {
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--md-sys-shape-corner-xs);
+}
+
+.nu-table__act--on {
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
+.nu-table__act--off {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.nu-table__act:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* Upstream's empty state (`grid-view.js:39-42`), one placeholder for "this type has no models"
+   and "nothing matches the filters", rendered in both the grid and the table. */
+.nu-placeholder {
+  margin: 16px 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-small);
+  text-align: center;
+}
+
 /* --- narrow viewports ---------------------------------------------------- */
 
 @media (max-width: 839px) {

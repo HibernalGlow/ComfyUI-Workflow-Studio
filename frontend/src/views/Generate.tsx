@@ -182,7 +182,13 @@ export default function Generate({ params }: ViewProps): ReactElement {
     useEffect(() => {
         if (!promptAppend || promptAppend.token === lastAppend.current) return;
         lastAppend.current = promptAppend.token;
-        setPrompt(models.appendEmbedding(prompt, promptAppend.value));
+        // Upstream's side panel has two embedding buttons and only the field differs; the
+        // negative one is offered for the `embedding` type and nothing else.
+        if (promptAppend.target === "negative") {
+            setNegative((prev) => models.appendEmbedding(prev, promptAppend.value));
+        } else {
+            setPrompt(models.appendEmbedding(prompt, promptAppend.value));
+        }
         clearPromptAppend();
     }, [promptAppend, prompt, models]);
     useEffect(() => {
