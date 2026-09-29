@@ -75,6 +75,8 @@ def load_story(toml_path) -> tuple:
         rtb.QUALITY_PREFIX = prompt["quality_prefix"]
     if prompt.get("negative"):
         rtb.NEGATIVE = prompt["negative"]
+    nl_app = prompt.get("nl_append") or prompt.get("nl_costume_anchor")
+    rtb.NL_APPEND = nl_app.strip() if nl_app else ""
 
     # --- 出图回传 Mac ---
     out = cfg.get("output", {}) or {}
@@ -98,9 +100,45 @@ def load_story(toml_path) -> tuple:
     if base.get("height"):
         rtb.HEIGHT = int(base["height"])
 
+    # --- in-context 参考图配置 ---
+    incontext = cfg.get("incontext", {})
+    if incontext:
+        rtb.INCONTEXT = {
+            "strength": float(incontext.get("strength", 1.0)),
+            "start_percent": float(incontext.get("start_percent", 0.0)),
+            "end_percent": float(incontext.get("end_percent", 0.90)),
+            "cond_only": bool(incontext.get("cond_only", True)),
+            "fit_mode": str(incontext.get("fit_mode", "pad")),
+            "ref_timestep": float(incontext.get("ref_timestep", 0.0)),
+            "refs": list(incontext.get("refs", [])),
+        }
+    else:
+        rtb.INCONTEXT = {}
+
+    # --- 逐页画布配置 ---
+    rtb.PAGE_CANVAS = []
+    for pc in cfg.get("page_canvas", []):
+        entry = {
+            "page": str(pc.get("page", "")).strip(),
+            "width": int(pc["width"]) if "width" in pc else None,
+            "height": int(pc["height"]) if "height" in pc else None,
+            "end_percent": float(pc["end_percent"]) if "end_percent" in pc else None,
+        }
+        rtb.PAGE_CANVAS.append(entry)
+
     # --- 采样参数强制覆盖（illus 线没有对应 Studio 预设，直接在这里给）---
     if cfg.get("sampling"):
         rtb.SAMPLING_OVERRIDE = dict(cfg["sampling"])
+
+    # --- 运行期开关 ---
+    # [runtime] free_vram = false → 本作品不按页清显存（比如页数很少、或想拿
+    # 连续页的手感）。不写则沿用引擎默认值（默认开）。
+    runtime = cfg.get("runtime", {})
+    if "free_vram" in runtime:
+        rtb.FREE_VRAM_BEFORE_PAGE = bool(runtime["free_vram"])
+    # [runtime] seed_mode = "random"（默认，每页随机）| "hash"（按页名派生，可复现）| "fixed"
+    if runtime.get("seed_mode"):
+        rtb.SEED_MODE = str(runtime["seed_mode"]).strip().lower()
 
     # --- 提示词替换（分镜标签 → LoRA 实际训练触发词）---
     rtb.PROMPT_REPLACE = [(r["from"], r["to"])
@@ -133,5 +171,16 @@ def load_story(toml_path) -> tuple:
     if auto.get("categories"):
         rtb.AUTO_LORA_CATEGORIES = set(auto["categories"])
     rtb.AUTO_EXCLUDE_KEYWORDS = set(auto.get("exclude_keywords", []))
+
+    # --- 采样验证闸（[validation]）---
+    # 踩脚页禁止双彩：foot_keywords 覆盖默认踩脚词表，foot_allow_presets 放行
+    # 全扩散类预设，double_presets 可手动点名「双彩」预设。
+    val = cfg.get("validation", {}) or {}
+    rtb.FOOT_PLAY_KEYWORDS  = set(val.get("foot_keywords", []))
+    rtb.FOOT_FRAME_KEYWORDS = set(val.get("foot_frame_keywords", []))
+    rtb.FOOT_ALLOW_PRESETS  = set(val.get("foot_allow_presets", []))
+    rtb.DOUBLE_PRESETS      = set(val.get("double_presets", []))
+    if val.get("foot_gate_mode"):
+        rtb.FOOT_GATE_MODE = str(val["foot_gate_mode"])
 
     return rtb, cfg, base_preset

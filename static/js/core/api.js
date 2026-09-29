@@ -812,6 +812,14 @@ export function deleteModels(modelType, modelNames) {
     });
 }
 
+/** POST /api/wfm/models/rename → `{status, from, to, new_filename, renamed_files}`. */
+export function renameModel(modelType, oldName, newName) {
+    return request("/api/wfm/models/rename", {
+        method: "POST",
+        body: { model_type: modelType, old_name: oldName, new_name: newName },
+    });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Gallery (py/routes/gallery_routes.py) — NOTE: these paths carry NO `/api` prefix.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1096,6 +1104,34 @@ export function ollamaModels() {
 /** POST /api/wfm/ollama/test → `{connected, message}` (URL comes from settings). */
 export function testOllama() {
     return request("/api/wfm/ollama/test", { method: "POST" });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Artists (py/routes/artist_routes.py)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/wfm/artists
+ * @param {{refresh?:boolean, category?:string, arch?:string, group?:string, has_preview?:boolean}} [query]
+ */
+export function listArtists(query = {}) {
+    return request("/api/wfm/artists", { query });
+}
+
+/**
+ * GET /api/wfm/artists/detail?path=
+ * @param {string} path
+ */
+export function getArtistDetail(path) {
+    return request("/api/wfm/artists/detail", { query: { path } });
+}
+
+/**
+ * POST /api/wfm/artists/apply-to-batch
+ * @param {{toml_path?:string, artist_path:string, model_weight?:number, clip_weight?:number, name?:string}} payload
+ */
+export function applyArtistToBatch(payload) {
+    return request("/api/wfm/artists/apply-to-batch", { method: "POST", body: payload });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

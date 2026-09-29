@@ -50,7 +50,15 @@ expect dirty "A5a flags hex + rgba colour literals" \
 expect clean "A5a ignores token-based colour" \
     rg -g '*.tsx' '#[0-9a-fA-F]{3,8}\b|rgba?\(' "$tmp/colour-good.tsx"
 
-# --- 3. the upstream-owned baseline must detect a wrong hash -----------------
+# --- 3. the pref-key gate must fire on a pre-prefixed name -------------------
+printf 'const s = readPref("nu_workflow_sort", "date_desc");\nwritePref("nu_workflow_sort", s);\n' > "$tmp/pref-bad.tsx"
+printf 'const s = readPref("workflow_sort", "date_desc");\nwritePref("workflow_sort", s);\n' > "$tmp/pref-good.tsx"
+expect dirty "A5h flags readPref/writePref called with an already-prefixed key" \
+    rg -g '*.tsx' '(readPref|writePref)\(\s*["'"'"']nu_' "$tmp/pref-bad.tsx"
+expect clean "A5h ignores a bare pref name" \
+    rg -g '*.tsx' '(readPref|writePref)\(\s*["'"'"']nu_' "$tmp/pref-good.tsx"
+
+# --- 4. the upstream-owned baseline must detect a wrong hash -----------------
 # Re-implement the A1 comparison here against synthetic baselines so a real file
 # is never touched.
 bad_hash=$(printf '0000000000000000000000000000000000000000\t%s\n' "static/js/i18n.js")
@@ -87,7 +95,7 @@ else
     printf '[FAIL] A1 did not flag a removed file (got: %s)\n' "${out_ghost:-<none>}"; FAILS=$((FAILS + 1))
 fi
 
-# --- 4. the unit-test gate must not accept a vacuous run ---------------------
+# --- 5. the unit-test gate must not accept a vacuous run ---------------------
 printf 'x\n' > "$tmp/no-tests.log"
 node_pass=$(awk '/ pass /{v=$NF} END{print v+0}' <<< "ℹ tests 0
 ℹ pass 0

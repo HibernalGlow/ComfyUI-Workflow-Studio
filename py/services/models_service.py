@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -17,27 +18,35 @@ _SCAN_CACHE_TTL = 30  # seconds — reuse scan result within this window
 _PREVIEW_EXTENSIONS = [".preview.png", ".preview.jpg", ".preview.jpeg", ".preview.webp",
                        ".png", ".jpg", ".jpeg", ".webp"]
 
-# All sidecar extensions to delete when a model is deleted
 _SIDECAR_EXTENSIONS = [
     ".preview.png", ".preview.jpg", ".preview.jpeg", ".preview.webp",
     ".png", ".jpg", ".jpeg", ".webp",
     ".metadata.json", ".cm-info.json", ".json", ".civitai.info", ".info",
+    ".txt", ".trigger.txt", ".notrigger.txt", ".triggers.txt",
 ]
 
 _DISABLED_SUFFIX = ".disabled"
 
 _MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".pt2"}
 
-# ComfyUI model type → folder_paths key mapping
+# ComfyUI model type → folder_paths key mapping (supports singular & plural)
 MODEL_TYPE_FOLDER_KEYS = {
     "checkpoint": "checkpoints",
+    "checkpoints": "checkpoints",
     "lora": "loras",
+    "loras": "loras",
     "vae": "vae",
+    "vaes": "vae",
     "controlnet": "controlnet",
+    "controlnets": "controlnet",
     "unet": "diffusion_models",
+    "diffusion_models": "diffusion_models",
     "textencoder": "text_encoders",
+    "text_encoders": "text_encoders",
     "hypernetwork": "hypernetworks",
+    "hypernetworks": "hypernetworks",
     "embedding": "embeddings",
+    "embeddings": "embeddings",
 }
 
 
@@ -299,7 +308,7 @@ class ModelsService:
 
         Looks for files like:
             modelname.preview.png, modelname.png, etc.
-        next to the model file.
+        next to the model file. Supports cross-platform slashes and name variants.
 
         Returns: absolute Path to preview image, or None.
         """
@@ -308,20 +317,32 @@ class ModelsService:
             logger.debug("Preview: no dirs for model_type=%s", model_type)
             return None
 
+        # Cross-platform safe path split
+        norm_parts = [p for p in model_name.replace("\\", "/").split("/") if p and p != ".."]
+
         for type_dir in dirs:
-            # model_name can include subdirectory (e.g., "subdir/model.safetensors")
-            model_path = type_dir / model_name
+            model_path = type_dir.joinpath(*norm_parts)
             if not model_path.is_file():
                 continue
 
             stem = model_path.stem
             parent = model_path.parent
 
-            for ext in _PREVIEW_EXTENSIONS:
-                preview = parent / (stem + ext)
-                if preview.is_file() and preview.stat().st_size >= 100:
-                    logger.debug("Preview found: %s", preview)
-                    return preview
+            # Candidate stems: exact stem, stem without @trigger, stem without style- prefix
+            candidate_stems = [stem]
+            clean_at = re.sub(r'@.*$', '', stem)
+            if clean_at and clean_at not in candidate_stems:
+                candidate_stems.append(clean_at)
+            clean_style = re.sub(r'^(style[-_]|anima[-_]|illus[-_])', '', stem, flags=re.IGNORECASE)
+            if clean_style and clean_style not in candidate_stems:
+                candidate_stems.append(clean_style)
+
+            for c_stem in candidate_stems:
+                for ext in _PREVIEW_EXTENSIONS:
+                    preview = parent / (c_stem + ext)
+                    if preview.is_file() and preview.stat().st_size >= 100:
+                        logger.debug("Preview found: %s", preview)
+                        return preview
 
             logger.debug("Preview: no preview for %s (stem=%s, dir=%s)",
                          model_name, stem, parent)
@@ -376,31 +397,33 @@ class ModelsService:
         return {"deleted": deleted}
 
     def get_subdirs(self, model_type):
-        """Return sorted list of root-level subdirectory names for a model type."""
+        """Return sorted list of subdirectory names (including nested) for a model type."""
         dirs = _get_model_dirs(model_type)
         subdirs = set()
         for d in dirs:
             if not d.is_dir():
                 continue
-            for item in d.iterdir():
-                if item.is_dir():
-                    subdirs.add(item.name)
+            for item in d.rglob("*"):
+                if item.is_dir() and not any(part.startswith(".") for part in item.parts):
+                    try:
+                        rel = str(item.relative_to(d)).replace("\\", "/")
+                        subdirs.add(rel)
+                    except ValueError:
+                        pass
         return sorted(subdirs)
 
     def move_models(self, model_type, model_names, dest_subdir):
-        """Move model files + sidecar files to dest_subdir (root-level subfolder name).
+        """Move model files + sidecar files to dest_subdir (can be nested like 'anima/artist/260924').
 
-        dest_subdir: "" = model root, "sdxl" = <root>/sdxl/
+        dest_subdir: "" = model root, "sdxl" = <root>/sdxl/, "anima/artist" = <root>/anima/artist/
         Creates the destination directory if it does not exist.
         Updates metadata keys to reflect new paths.
         Returns {"moved": [{"from": ..., "to": ...}], "errors": [...]}
         """
-        # Validate dest_subdir: must be a plain folder name (no separators, no "..", not absolute)
         if dest_subdir:
-            if ".." in dest_subdir:
+            dest_subdir = dest_subdir.replace("\\", "/").strip("/")
+            if ".." in dest_subdir.split("/"):
                 return {"moved": [], "errors": [{"model": "*", "error": "Invalid destination: '..' not allowed"}]}
-            if "/" in dest_subdir or "\\" in dest_subdir:
-                return {"moved": [], "errors": [{"model": "*", "error": "Invalid destination: must be a single folder name"}]}
             if Path(dest_subdir).is_absolute():
                 return {"moved": [], "errors": [{"model": "*", "error": "Invalid destination: absolute paths not allowed"}]}
 
@@ -515,3 +538,108 @@ class ModelsService:
             self._save_metadata(meta_data)
 
         return {"moved": moved, "errors": errors}
+
+    def rename_model(self, model_type: str, old_name: str, new_name: str) -> dict:
+        """Rename a model file and all its associated sidecar/preview/trigger files.
+
+        old_name: e.g. "anima/artist/260924/@freng.safetensors"
+        new_name: e.g. "freng_v1" (stem) or "freng_v1.safetensors" (with extension)
+        """
+        if not old_name or not new_name:
+            raise ValueError("old_name and new_name are required")
+        if ".." in old_name or ".." in new_name:
+            raise ValueError("Invalid name: '..' not allowed")
+
+        path, is_enabled = self.find_model_file(model_type, old_name)
+        if path is None:
+            raise FileNotFoundError(f"Model not found: {old_name}")
+
+        model_dirs = _get_model_dirs(model_type)
+        root_dir = None
+        for d in model_dirs:
+            try:
+                path.relative_to(d)
+                root_dir = d
+                break
+            except ValueError:
+                pass
+        if root_dir is None:
+            raise ValueError("Cannot determine root directory")
+
+        parent = path.parent
+        orig_name = path.name
+        is_disabled = orig_name.endswith(_DISABLED_SUFFIX)
+        if is_disabled:
+            orig_name = orig_name[: -len(_DISABLED_SUFFIX)]
+
+        old_ext = Path(orig_name).suffix
+        old_stem = Path(orig_name).stem
+
+        # Clean new_name
+        clean_new = Path(new_name).name
+        if clean_new.endswith(old_ext):
+            new_stem = clean_new[: -len(old_ext)]
+            target_filename = clean_new
+        else:
+            new_stem = Path(clean_new).stem
+            target_filename = new_stem + old_ext
+
+        if not new_stem:
+            raise ValueError("New model stem cannot be empty")
+
+        final_new_name = target_filename + (_DISABLED_SUFFIX if is_disabled else "")
+        target_path = parent / final_new_name
+        if target_path.exists() and target_path.resolve() != path.resolve():
+            raise FileExistsError(f"Target file already exists: {target_filename}")
+
+        renamed_files = []
+
+        # 1. Rename main model file
+        path.rename(target_path)
+        renamed_files.append({"from": str(path), "to": str(target_path)})
+        logger.info("Renamed model: %s -> %s", path, target_path)
+
+        # 2. Rename all sidecars (previews, trigger text files, etc.)
+        for ext in _SIDECAR_EXTENSIONS:
+            old_sidecar = parent / (old_stem + ext)
+            if old_sidecar.is_file():
+                new_sidecar = parent / (new_stem + ext)
+                if not new_sidecar.exists():
+                    try:
+                        old_sidecar.rename(new_sidecar)
+                        renamed_files.append({"from": str(old_sidecar), "to": str(new_sidecar)})
+                        logger.info("Renamed sidecar: %s -> %s", old_sidecar, new_sidecar)
+                    except Exception as se:
+                        logger.warning("Could not rename sidecar %s: %s", old_sidecar, se)
+
+        # 3. Compute new relative name
+        new_rel = str(target_path.relative_to(root_dir)).replace("\\", "/")
+        if new_rel.endswith(_DISABLED_SUFFIX):
+            new_rel = new_rel[: -len(_DISABLED_SUFFIX)]
+
+        # 4. Update metadata
+        meta_data = self._load_metadata()
+        meta_changed = False
+        if old_name in meta_data:
+            meta_data[new_rel] = meta_data.pop(old_name)
+            meta_changed = True
+
+        # 5. Update groups
+        groups_for_type = meta_data.get("_groups", {}).get(model_type, {})
+        for members in groups_for_type.values():
+            for i, m in enumerate(members):
+                if m == old_name:
+                    members[i] = new_rel
+                    meta_changed = True
+
+        if meta_changed:
+            self._save_metadata(meta_data)
+
+        return {
+            "status": "ok",
+            "from": old_name,
+            "to": new_rel,
+            "new_filename": target_filename,
+            "renamed_files": renamed_files,
+        }
+

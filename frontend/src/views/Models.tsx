@@ -572,6 +572,10 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                     <MdIcon slot="icon">refresh</MdIcon>
                     {tr("nu.action.reload", "Reload")}
                 </MdOutlinedButton>
+                <MdFilledButton onClick={() => navigate("artists")}>
+                    <MdIcon slot="icon">palette</MdIcon>
+                    画师画廊
+                </MdFilledButton>
                 <select
                     className="nu-native-select"
                     aria-label="page size"

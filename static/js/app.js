@@ -831,6 +831,7 @@ import { initPromptTab } from "./prompt-tab.js";
 import { initPromptTableTab } from "./prompt-table.js";
 import { initSettingsTab, applyTheme, getSavedTheme, applyTextareaFontSize, applyJsonColors, applyModelTabActiveColor } from "./settings-tab.js";
 import { initModelsTab } from "./models-tab.js";
+import { initArtistsTab } from "./artists-tab.js";
 import { initGalleryTab } from "./gallery-tab.js";
 import { initMetadataTab } from "./metadata-tab.js";
 import { initAiTab } from "./ai-tab.js";
@@ -880,6 +881,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initWorkflowTab();
     initNodesTab();
     initModelsTab();
+    initArtistsTab();
     initGenerateTab();
     initPromptTab();
     initPromptTableTab();

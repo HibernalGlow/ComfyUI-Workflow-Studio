@@ -597,6 +597,17 @@ Parked, in the order that unblocks the most:
 3. Two Models run-halves that a gate cannot reach, both listed in §5.2 row 11: the batch Civitai
    fetch, and an actual bulk move (including into a brand-new subfolder). Both write to the compute
    box's model library, so they are the user's to run.
+4. **Image-edit workflows stay unrunnable from `newui` until someone chooses.** v0.7.3's Qwen
+   Image 2.1 support works in the old UI because `comfyui-editor.js` draws one upload card per
+   `LoadImage` node — that generic pass is what feeds the model's up to ten reference images
+   (`image_1`…`image_10`), which is why upstream needed no code change for them (DEVLOG v0.7.3,
+   README "Qwen Image 2.1 support"). The React layer has no uploader: `rg -n upload frontend/src`
+   yields only the two import icons in `Workflow.tsx` / `Settings.tsx`, and a `LoadImage` input
+   renders as a bare filename field. So Qwen 2.1 Edit, Boogu and QwenImageEditPlus graphs load,
+   look editable, and cannot actually supply their images. Either build the per-`LoadImage`
+   upload card (upload + write the returned name/`subfolder`/`type` back into `inputs.image`), or
+   record "image-edit stays on `/wfm`" as accepted scope — brief §5 already licenses that. This is
+   the user's call; nothing is half-built either way.
 
 Parity row 7 is no longer parked: the save → list → apply → delete cycle completed in the browser
 against a bridge running current code, and the preset store was compared byte-identical before and
@@ -604,6 +615,60 @@ after (§5.1, §5.2). Neither is the Models fidelity work: every gap §5.1 recor
 write paths proven by intercepted requests instead of side effects. And the upstream conversion
 defect is fixed rather than parked — 5 tests plus `tools/audit-workflow-conversion.mjs`, which
 measures the fork's conversions against `upstream/main`'s on the same workflows.
+
+**Upstream sync through v0.7.3, and what it cost the new UI** (recorded 2026-09-27;
+`upstream/main` = `6b262a9`). v0.7.0 adds the Video Edit tab (1148 lines: clip timeline, trim
+scrubber, timeline preview sharing the Result pane, export that builds the graph from
+`"Video Slice"` / `ConcatenateVideo` / `SaveVideo` client-side) and moves Asset to a third centre
+subtab; v0.7.1 is a backend-only SSRF fix (a loopback allowlist now guards the Tagger VLM's
+Unsloth path, which otherwise sent `Authorization: Bearer $UNSLOTH_API_KEY` to any `api_url` the
+caller supplied, plus tightened `gmic_qt_path` validation); v0.7.2 adds Video Edit project
+persistence (`py/services/video_edit_project_service.py` and four `/api/wfm/video/edit/projects*`
+routes), the Asset video/image filter, and the Workflow-tab sort dropdown; v0.7.3 teaches
+`comfyui-workflow.js` the `TextEncodeQwenImage21` node. All of the video work lands in tabs brief
+§5 excludes and `core/api.js:1138-1147` already records video's 12 endpoints as deliberately
+unimplemented, so it costs `newui` nothing, and the backend fix costs nothing because the new UI
+has no Tagger or AI TOOL route. The sort dropdown is ported (`views/Workflow.tsx`: the same four
+options, client-side over the `mtime` the backend already returns, its own `nu_workflow_sort`
+pref rather than the old UI's `wfm_workflow_sort`, per contract B6).
+
+Two consequences did reach fork-owned code, and both are fixed rather than parked:
+
+- `views/Generate.tsx` read the positive/negative fields from a literal `inputs?.text`. Upstream
+  registers every "one node holds both prompts" encoder — `TextEncodeQwenImage21`,
+  `TextEncodeBooguEdit`, `TextEncodeQwenImageEdit`, `TextEncodeQwenImageEditPlus`, Mage-Flow —
+  with `textKey: "prompt"` / `"negative_prompt"` instead, so those workflows opened with **blank
+  prompt fields** while the write path stayed correct (`core/pipeline.js` `applyPromptOverride`
+  honours `textKey`; so do `style.js` and `batch.js`, and `tools/core-tests/core.test.mjs:981-982`
+  pins it). Read and write disagreed silently, with no type error to notice. The view now resolves
+  the key exactly as core does (`node.textKey || "text"`), and gate **A5i** forbids a literal
+  `inputs.text` anywhere in the React layer.
+- The sort pref was passed as `readPref("nu_workflow_sort")`, but `readPref`/`writePref` add the
+  `nu_` prefix themselves (`core/settings.js`, `CONTRACT.md`: "reads `nu_<name>`"), so it landed
+  as `nu_nu_workflow_sort`. It round-tripped, which is precisely why nothing complained. Now
+  `workflow_sort`, with gate **A5h** (both directions sampled in `tools/gate-selftest.sh`)
+  rejecting a pre-prefixed name. One honest side effect: the value stored under
+  `nu_nu_workflow_sort` is orphaned, so the select shows Date (Newest) once and persists normally
+  afterwards.
+
+Standing state at this writing: `node --test tools/core-tests/` → 107/107 (no test edited — the
+`textKey` write path was already covered), `tsc --noEmit` → 0, vite build clean, and both new
+gates green on the tree. `bash tools/check-newui.sh` now reports **26 passed, 2 failed**, and
+neither red comes from these edits: **A5a** on `frontend/src/views/Artists.tsx:1051`
+(an `rgba(0,0,0,0.6)` literal in the still-untracked Artists view) and **A1** on seven
+upstream-owned files already dirty in the working tree (`docs/BATCH-DISPATCH.md`,
+`py/routes/models_routes.py`, `py/services/models_service.py`, `py/wfm.py`,
+`static/css/gallery-tab.css`, `static/js/app.js`, `templates/index.html`). A1 flagging those is
+the gate working as designed — that is the deviation-record-plus-re-baseline decision §5.3 and the
+footer describe, and it is the user's to make; `tools/gen-upstream-baseline.sh` was deliberately
+**not** re-run here.
+
+Also noticed, deliberately not changed: the working tree's `package.json` pins `yarn@1.22.22`
+where the committed value is `pnpm@12.4.2`, while `a034545` deleted `yarn.lock` because pnpm owns
+resolution — so `pnpm build`, §8's documented command, aborts with `ERR_PNPM_OTHER_PM_EXPECTED`
+until the pin or the lockfile is settled. The typecheck and build above used the repo's own
+binaries (`node_modules/.bin/tsc`, `node_modules/.bin/vite`), which is exactly what those two
+scripts run.
 
 Process footprints left behind, all mine and all disposable: the tunnel loop (bash pid 22243
 keeping `ssh -N -L 8188:127.0.0.1:8188 win30902`, pid 22245, alive), and my own bridge

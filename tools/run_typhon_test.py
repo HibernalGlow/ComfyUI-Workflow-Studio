@@ -148,22 +148,71 @@ def build_workflow(unet_name, loras, positive_text, negative_text, seed=88888888
         }
     }
 
-    # 11. SaveImage
+    # 11. LayerUtility: SaveImagePlus
     prompt["60"] = {
-        "class_type": "SaveImage",
+        "class_type": "LayerUtility: SaveImagePlus",
         "inputs": {
             "images": ["50", 0],
-            "filename_prefix": filename_prefix
+            "custom_path": "",
+            "filename_prefix": filename_prefix,
+            "timestamp": "None",
+            "format": "png",
+            "quality": 100,
+            "meta_data": True,
+            "blind_watermark": "",
+            "save_workflow_as_json": True,
+            "preview": True
         }
     }
 
     return prompt
 
+def _vram_on():
+    """清显存默认关：只有 FREE_VRAM 显式给 1/true/yes/on 才开。
+
+    实测逐页清显存对普通页是 **+31% 墙钟**（清掉后下一张要重新装载模型），
+    所以不作为默认行为。只在渲染期间最低空闲显存掉到 ~1GB 以下时才值得开，
+    用 tools/probe_pressure.py 去量。
+    """
+    try:
+        import vram as _v
+        return _v.resolve(default=False)
+    except ImportError:
+        return str(os.environ.get("FREE_VRAM", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _free_vram_marker():
+    """提交完一页后留一个清显存标记（默认关，详见 tools/vram.py 的说明）。
+
+    /free 不是立即执行，而是在两次任务之间的空档被消费 —— 挂在渲染期间正好，
+    本页结束即清干净，下一页从干净显存开始。只在 _vram_on() 为真时才发。
+    """
+    if not _vram_on():
+        return
+    try:
+        body = json.dumps({"unload_models": True, "free_memory": True}).encode()
+        req = urllib.request.Request(f"http://{COMFY_HOST}/free", data=body,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=30).read()
+    except Exception:
+        pass          # 清显存是优化，不能因为它让出图挂掉
+
+
 def queue_prompt(prompt_workflow):
-    data = json.dumps({"prompt": prompt_workflow, "client_id": CLIENT_ID}).encode("utf-8")
+    payload = {
+        "prompt": prompt_workflow,
+        "client_id": CLIENT_ID,
+        "extra_data": {
+            "extra_pnginfo": {
+                "workflow": prompt_workflow
+            }
+        }
+    }
+    data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(f"http://{COMFY_HOST}/prompt", data=data, headers={"Content-Type": "application/json"})
     resp = urllib.request.urlopen(req)
     res_json = json.loads(resp.read().decode("utf-8"))
+    _free_vram_marker()
     return res_json.get("prompt_id")
 
 def wait_for_prompt(prompt_id, timeout=180):

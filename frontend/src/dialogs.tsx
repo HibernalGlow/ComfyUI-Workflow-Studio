@@ -170,3 +170,75 @@ export function promptDialog({
         </MdDialog>
     ));
 }
+
+/** Resolve target folder path (string, empty string = root), or null when cancelled. */
+export function moveFolderDialog({
+    title,
+    subdirs = [],
+    confirmLabel = tr("nu.action.move", "Move"),
+    cancelLabel = tr("nu.action.cancel", "Cancel"),
+}: {
+    title: string;
+    subdirs: string[];
+    confirmLabel?: string;
+    cancelLabel?: string;
+}): Promise<string | null> {
+    const ref: Ref = createRef();
+    const draft = { selected: "", custom: "" };
+    return mount<string | null>((finish) => (
+        <MdDialog
+            ref={(el) => attachRef(ref, el as DialogElement | null)}
+            onClose={() => {
+                if (ref.current?.returnValue === "confirm") {
+                    const finalDest = draft.custom.trim() || draft.selected.trim();
+                    finish(finalDest);
+                } else {
+                    finish(null);
+                }
+            }}
+            onCancel={(event) => {
+                event.preventDefault();
+                ref.current?.close("cancel");
+            }}
+        >
+            <div slot="headline">{title}</div>
+            <div slot="content" className="nu-dialog__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                    <label style={{ fontSize: 12, color: "var(--md-sys-color-outline)", display: "block", marginBottom: 4 }}>
+                        选择已有文件夹:
+                    </label>
+                    <select
+                        className="nu-dialog__input"
+                        style={{ width: "100%", padding: "8px 10px", borderRadius: 6 }}
+                        defaultValue=""
+                        onChange={(e) => {
+                            draft.selected = e.target.value;
+                        }}
+                    >
+                        <option value="">📁 / (模型根目录)</option>
+                        {subdirs.map((dir) => (
+                            <option key={dir} value={dir}>
+                                📁 {dir}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label style={{ fontSize: 12, color: "var(--md-sys-color-outline)", display: "block", marginBottom: 4 }}>
+                        或者输入新建子文件夹 (支持多层，如 anima/artist/260924):
+                    </label>
+                    <input
+                        className="nu-dialog__input"
+                        placeholder="留空则使用上方选中的文件夹"
+                        onInput={(e) => {
+                            draft.custom = (e.target as HTMLInputElement).value;
+                        }}
+                    />
+                </div>
+            </div>
+            <div slot="actions" className="nu-dialog__actions">
+                {buttons(ref, confirmLabel, cancelLabel, false)}
+            </div>
+        </MdDialog>
+    ));
+}

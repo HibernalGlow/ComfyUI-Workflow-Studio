@@ -11,8 +11,10 @@ import {
 import { useSnackbar } from "../snackbar.js";
 import { confirmDialog, promptDialog } from "../dialogs.js";
 import { useApp, clearWorkflowHandoff } from "../store.js";
-import { api, comfyWorkflow, highlightJSON, tr } from "core";
+import { api, comfyWorkflow, highlightJSON, tr, readPref, writePref } from "core";
 import type { ViewProps } from "../App.js";
+
+type SortOption = "date_desc" | "date_asc" | "name_asc" | "name_desc";
 
 interface WorkflowRow {
     filename?: string;
@@ -30,6 +32,7 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
     const [rows, setRows] = useState<WorkflowRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [query, setQuery] = useState("");
+    const [sortBy, setSortBy] = useState<SortOption>(() => (readPref("workflow_sort", "date_desc") as SortOption) ?? "date_desc");
     const [selected, setSelected] = useState<string | null>(null);
     const [json, setJson] = useState("");
     const [dirty, setDirty] = useState(false);
@@ -66,8 +69,24 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
-        return q ? rows.filter((r) => nameOf(r).toLowerCase().includes(q)) : rows;
-    }, [rows, query]);
+        const list = q ? rows.filter((r) => nameOf(r).toLowerCase().includes(q)) : [...rows];
+        switch (sortBy) {
+            case "date_asc":
+                list.sort((a, b) => (a.mtime ?? 0) - (b.mtime ?? 0));
+                break;
+            case "name_asc":
+                list.sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+                break;
+            case "name_desc":
+                list.sort((a, b) => nameOf(b).localeCompare(nameOf(a)));
+                break;
+            case "date_desc":
+            default:
+                list.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
+                break;
+        }
+        return list;
+    }, [rows, query, sortBy]);
 
     const open = async (filename: string): Promise<void> => {
         try {
@@ -163,6 +182,21 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
                     value={query}
                     onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
                 />
+                <select
+                    className="nu-native-select"
+                    aria-label={tr("nu.workflow.sort", "Sort workflows")}
+                    value={sortBy}
+                    onChange={(e) => {
+                        const val = e.target.value as SortOption;
+                        setSortBy(val);
+                        writePref("workflow_sort", val);
+                    }}
+                >
+                    <option value="date_desc">{tr("nu.workflow.sortDateDesc", "Date (Newest)")}</option>
+                    <option value="date_asc">{tr("nu.workflow.sortDateAsc", "Date (Oldest)")}</option>
+                    <option value="name_asc">{tr("nu.workflow.sortNameAsc", "Name A-Z")}</option>
+                    <option value="name_desc">{tr("nu.workflow.sortNameDesc", "Name Z-A")}</option>
+                </select>
                 <MdOutlinedButton onClick={() => void refresh()}>
                     <MdIcon slot="icon">refresh</MdIcon>
                     {tr("nu.action.reload", "Reload")}

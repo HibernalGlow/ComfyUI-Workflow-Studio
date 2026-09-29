@@ -5,6 +5,7 @@ export type ViewId =
     | "workflow"
     | "generate"
     | "models"
+    | "artists"
     | "prompt"
     | "gallery"
     | "settings";
@@ -21,6 +22,7 @@ export const VIEWS: readonly ViewDef[] = [
     { id: "workflow", labelKey: "tabWorkflow", label: "Workflow", icon: "account_tree" },
     { id: "generate", labelKey: "tabGenerate", label: "Generate", icon: "auto_awesome" },
     { id: "models", labelKey: "tabModels", label: "Models", icon: "inventory_2" },
+    { id: "artists", labelKey: "tabArtists", label: "画师库", icon: "palette" },
     { id: "prompt", labelKey: "tabPrompt", label: "Prompt", icon: "edit_note" },
     { id: "gallery", labelKey: "tabGallery", label: "Gallery", icon: "photo_library" },
     { id: "settings", labelKey: "tabSettings", label: "Settings", icon: "settings" },

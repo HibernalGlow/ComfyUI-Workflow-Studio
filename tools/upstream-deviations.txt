@@ -9,3 +9,4 @@
 # Format: <path><TAB><one line: what was changed, and the test that pins it>
 
 static/js/comfyui-workflow.js	convertUiToApi: parent-graph nodes now get the same legacy widgets_values normalisation upstream already applies to subgraph templates, so a wired COMBO's stale value no longer shifts every later widget one slot (tools/core-tests/workflow-convert.test.mjs)
+py/services/gen_presets_service.py	apply_preset_to_workflow set steps/cfg/sampler/scheduler on both stages and never touched denoise, so the `1.0` baked into animanga-liino-clean.json won: Stage 2 restarted from pure noise, Stage 1 was dead code (RMSE 0 vs. skipping it) that still cost 5 steps per image. It now writes denoise into all four slots (w1[6]/w2[6]/i1/i2) and ships sampler_stage2.denoise < 1. Pinned by tools/core-tests/core.test.mjs "denoise reaches both stages, and no shipped two-stage record bakes 1.0".

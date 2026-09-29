@@ -14,7 +14,7 @@ import {
 import { useSnackbar } from "../snackbar.js";
 import { BatchPanel } from "../BatchPanel.js";
 import { useApp, clearApplyTarget, clearPromptAppend } from "../store.js";
-import { setClientGraph, getClientGraph, type ApiWorkflow, type Analysis } from "../coreBridge.js";
+import { setClientGraph, getClientGraph, type ApiWorkflow, type Analysis, type PromptNode } from "../coreBridge.js";
 import {
     api,
     comfyUI,
@@ -237,12 +237,16 @@ export default function Generate({ params }: ViewProps): ReactElement {
                 setClientGraph(apiForm as ApiWorkflow, analysis as Analysis);
                 setApiWorkflow(apiForm as ApiWorkflow);
                 const graph = apiForm as ApiWorkflow;
-                const prompts: Array<{ id: string; role: string }> =
-                    (analysis as Analysis).prompt_nodes ?? [];
-                const pos = prompts.find((n) => n.role === "positive");
-                const neg = prompts.find((n) => n.role === "negative");
-                setPrompt(pos ? String(graph[pos.id]?.inputs?.text ?? "") : "");
-                setNegative(neg ? String(graph[neg.id]?.inputs?.text ?? "") : "");
+                const prompts: PromptNode[] = (analysis as Analysis).prompt_nodes ?? [];
+                // `textKey` is not always `text`: the one-node encoders (TextEncodeQwenImage21,
+                // Boogu, QwenImageEdit[Plus], Mage-Flow) store prompts under `prompt`/`negative_prompt`.
+                const textOf = (node: PromptNode | undefined): string => {
+                    if (!node) return "";
+                    const held = graph[node.id]?.inputs?.[node.textKey || "text"];
+                    return typeof held === "string" ? held : "";
+                };
+                setPrompt(textOf(prompts.find((n) => n.role === "positive")));
+                setNegative(textOf(prompts.find((n) => n.role === "negative")));
             } catch (err) {
                 setError((err as Error).message);
             }

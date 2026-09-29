@@ -96,6 +96,19 @@ must_be_empty "A5c no .wfm-* class names" "$GATES_PROBE" \
 must_be_empty "A5d no old-UI localStorage keys in the React layer" "$GATES_PROBE" \
     rg -n -g '*.ts' -g '*.tsx' "$SRC" -e 'wfm_models_view|wfm_models_badge_palette|wfm_civitai_host|wfm_views'
 
+# readPref/writePref add the `nu_` prefix themselves (core/settings.js, CONTRACT.md "reads
+# `nu_<name>`"). Passing an already-prefixed name stores it as `nu_nu_<name>` — a silent
+# second namespace that no gate would otherwise notice.
+must_be_empty "A5h no pre-prefixed key passed to readPref/writePref" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' "$SRC" -e '(readPref|writePref)\(\s*["'"'"']nu_'
+
+# Prompt text lives in the node named by `analysis.prompt_nodes[].id`, under `textKey`
+# (`text` for CLIPTextEncode, but `prompt`/`negative_prompt` for the one-node encoders).
+# Hard-coding `.text` renders those workflows' prompts blank while still writing back to the
+# correct slot — the read and the write disagree, which no type error reports.
+must_be_empty "A5i prompt text is read through textKey, never a literal .text" "$GATES_PROBE" \
+    rg -n -g '*.ts' -g '*.tsx' "$SRC" -e 'inputs\??\.text\b'
+
 # !important is tolerated only in the prefers-reduced-motion override, which has to
 # beat transitions declared elsewhere.
 if [ -f "$SRC/theme.css" ]; then

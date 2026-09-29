@@ -104,7 +104,7 @@ class WorkflowStudio:
             eagle_routes, nodes_routes, prompts_routes, models_routes,
             gallery_routes, wildcard_routes, tagger_routes, gmic_routes,
             skill_routes, lab_routes, video_routes, lora_trigger_routes,
-            gen_presets_routes
+            gen_presets_routes, artist_routes
         )
 
         workflow_routes.setup_routes(app)
@@ -124,5 +124,6 @@ class WorkflowStudio:
         video_routes.setup_routes(app)
         lora_trigger_routes.setup_routes(app)
         gen_presets_routes.setup_routes(app)
+        artist_routes.setup_routes(app)
 
         logger.info("Workflow Studio: Routes registered successfully")

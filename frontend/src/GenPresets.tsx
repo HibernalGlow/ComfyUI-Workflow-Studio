@@ -45,6 +45,7 @@ interface FormState {
     stage2cfg: string;
     stage2sampler_name: string;
     stage2scheduler: string;
+    stage2denoise: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -64,6 +65,9 @@ const EMPTY_FORM: FormState = {
     stage2cfg: "1.6",
     stage2sampler_name: "dpmpp_2m_sde_gpu",
     stage2scheduler: "beta57",
+    // Must stay < 1.0 or Stage 1 is discarded and the two-stage mode costs steps for nothing.
+    // Kept in sync with PRESET_STAGE2_DENOISE_DEFAULT in static/js/core/presets.js.
+    stage2denoise: "0.7",
 };
 
 /** Sampler fields a preset writes, read back off the graph for the "what changed" report. */
@@ -290,6 +294,7 @@ export function GenPresetsCard({ storyLoras = null }: { storyLoras?: Dict[] | nu
                                 {field("stage2cfg", tr("nu.presets.s2cfg", "Stage 2 CFG"), "number", "0.1")}
                                 {field("stage2sampler_name", tr("nu.presets.s2sampler", "Stage 2 sampler"))}
                                 {field("stage2scheduler", tr("nu.presets.s2scheduler", "Stage 2 scheduler"))}
+                                {field("stage2denoise", tr("nu.presets.s2denoise", "Stage 2 denoise (must be < 1)"), "number", "0.05")}
                             </div>
                         </>
                     )}

@@ -23,6 +23,18 @@ export const PRESET_QUALITY_PREFIX = "masterpiece, best quality, aesthetic, high
 export const PRESET_DEFAULT_NEGATIVE =
     "worst quality, low quality, bad anatomy, bad hands, missing fingers, extra digit, fewer digits";
 
+/**
+ * Stage 2's denoise when the form leaves the field blank.
+ *
+ * It must be < 1.0. A KSampler/FLS_SamplerV4 with `denoise: 1.0` discards whatever latent it
+ * was handed and restarts from pure noise, so Stage 1's output is thrown away and the stage
+ * costs steps for nothing. Measured on the RB001 page: `denoise: 1.0` with Stage 1 vs. Stage 1
+ * removed entirely → RMSE 0 (bit-identical); any value < 1.0 → RMSE ≈ 0.29-0.31 (Stage 1
+ * actually feeds Stage 2). This module used to leave the field out, so the value baked into the
+ * workflow file (`1.0`) won and the two-stage preset silently degraded to Stage 2 only.
+ */
+export const PRESET_STAGE2_DENOISE_DEFAULT = 0.7;
+
 function stageOf(prefix, form, fallbacks) {
     // `Number("")` is 0, so an empty field has to be treated as absent before coercion.
     const numOf = (key, fallback) => {
@@ -40,7 +52,9 @@ function stageOf(prefix, form, fallbacks) {
         cfg: numOf("cfg", fallbacks.cfg),
         sampler_name: textOf("sampler_name", fallbacks.sampler_name),
         scheduler: textOf("scheduler", fallbacks.scheduler),
-        denoise: numOf("denoise", 1.0),
+        // Stage 1 starts from an empty latent, so its denoise is structurally 1.0; only Stage 2's
+        // is a real choice.
+        denoise: numOf("denoise", fallbacks.denoise === undefined ? 1.0 : fallbacks.denoise),
     };
 }
 
@@ -50,9 +64,9 @@ function stageOf(prefix, form, fallbacks) {
  *   steps?: number|string, cfg?: number|string,
  *   sampler_name?: string, scheduler?: string, denoise?: number|string,
  *   stage1steps?: number|string, stage1cfg?: number|string,
- *   stage1sampler_name?: string, stage1scheduler?: string,
+ *   stage1sampler_name?: string, stage1scheduler?: string, stage1denoise?: number|string,
  *   stage2steps?: number|string, stage2cfg?: number|string,
- *   stage2sampler_name?: string, stage2scheduler?: string,
+ *   stage2sampler_name?: string, stage2scheduler?: string, stage2denoise?: number|string,
  * }} form flat on purpose: it is the dialog's state object, unmodified
  * @param {{now?:number, loras?:Array|null, workflow?:string|null}} [options]
  * @returns {object} a preset record ready for `POST /api/wfm/gen_presets`
@@ -78,10 +92,11 @@ export function buildSamplerPreset(form = {}, { now = Date.now(), loras = null, 
         // Two independent stages; a blank stage 2 falls back to the fine-sampling defaults
         // the service itself uses rather than to stage 1's coarse values.
         preset.sampler_stage1 = stageOf("stage1", form, {
-            steps: 5, cfg: 4.6, sampler_name: "er_sde", scheduler: "simple",
+            steps: 5, cfg: 4.6, sampler_name: "er_sde", scheduler: "simple", denoise: 1.0,
         });
         preset.sampler_stage2 = stageOf("stage2", form, {
             steps: 12, cfg: 1.6, sampler_name: "dpmpp_2m_sde_gpu", scheduler: "beta57",
+            denoise: PRESET_STAGE2_DENOISE_DEFAULT,
         });
     }
     return preset;
@@ -90,7 +105,7 @@ export function buildSamplerPreset(form = {}, { now = Date.now(), loras = null, 
 /** Which stage fields a mode shows — the view and the builder must never disagree. */
 export function presetStageKeys(mode) {
     return mode === "double"
-        ? ["stage1steps", "stage1cfg", "stage1sampler_name", "stage1scheduler",
-            "stage2steps", "stage2cfg", "stage2sampler_name", "stage2scheduler"]
+        ? ["stage1steps", "stage1cfg", "stage1sampler_name", "stage1scheduler", "stage1denoise",
+            "stage2steps", "stage2cfg", "stage2sampler_name", "stage2scheduler", "stage2denoise"]
         : ["steps", "cfg", "sampler_name", "scheduler", "denoise"];
 }

@@ -12,7 +12,15 @@ _PROMPT_NODE_TYPES = {
 }
 
 # 画像を最終出力として保存するノードタイプ
-_OUTPUT_IMAGE_NODE_TYPES = {"SaveImage", "SaveImageAdvanced"}
+_OUTPUT_IMAGE_NODE_TYPES = {
+    "SaveImage",
+    "SaveImageAdvanced",
+    "LayerUtility: SaveImagePlus",
+    "LayerUtility: SaveImagePlusV2",
+    "SaveImagePlus",
+    "AUNSaveImage",
+    "BatchSaveImages",
+}
 
 # CLIPLoader / DualCLIPLoader の type フィールド → モデル種別マッピング
 _CLIP_TYPE_TO_MODEL = {

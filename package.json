@@ -7,7 +7,7 @@
   "license": "MIT",
   "type": "module",
   "private": true,
-  "packageManager": "pnpm@12.4.2",
+  "packageManager": "yarn@1.22.22",
   "engines": {
     "node": ">=20.19"
   },
@@ -21,7 +21,8 @@
     "build:watch": "vite build --watch",
     "fe:dev": "vite",
     "test:core": "node --test tools/core-tests/",
-    "check:newui": "bash tools/check-newui.sh"
+    "check:newui": "bash tools/check-newui.sh",
+    "test:gates": "bash tools/test-gates.sh"
   },
   "dependencies": {
     "http-proxy": "^1.18.1"

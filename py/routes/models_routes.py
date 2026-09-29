@@ -33,6 +33,7 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/wfm/models/delete", handle_delete_models)
     app.router.add_get("/api/wfm/models/subdirs", handle_get_subdirs)
     app.router.add_post("/api/wfm/models/move", handle_move_models)
+    app.router.add_post("/api/wfm/models/rename", handle_rename_model)
     app.router.add_get("/api/wfm/models/files", handle_list_model_files)
 
 
@@ -616,6 +617,31 @@ async def handle_move_models(request: web.Request) -> web.Response:
         return web.json_response(result)
     except Exception as e:
         logger.error("Error in move_models: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_rename_model(request: web.Request) -> web.Response:
+    """POST /api/wfm/models/rename
+
+    Body: { "model_type": "lora", "old_name": "...", "new_name": "..." }
+    """
+    try:
+        body = await request.json()
+        model_type = body.get("model_type", "")
+        old_name = body.get("old_name", "")
+        new_name = body.get("new_name", "")
+
+        if not model_type or not old_name or not new_name:
+            return web.json_response({"error": "model_type, old_name and new_name required"}, status=400)
+
+        result = await asyncio.to_thread(_service.rename_model, model_type, old_name, new_name)
+        return web.json_response(result)
+    except FileNotFoundError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except FileExistsError as e:
+        return web.json_response({"error": str(e)}, status=409)
+    except Exception as e:
+        logger.error("Error in rename_model: %s", e)
         return web.json_response({"error": str(e)}, status=500)
 
 

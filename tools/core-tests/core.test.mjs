@@ -1584,10 +1584,51 @@ test("presets: double mode writes sampler_stage1 and stage2, never sampler_setti
     assert.equal(preset.sampler_settings, undefined,
         "upstream's gen-presets.js sends sampler_settings for double too, which makes the applier fall back to hardcoded 5/4.6/er_sde/simple");
     assert.deepEqual(preset.sampler_stage1, { steps: 5, cfg: 4.6, sampler_name: "er_sde", scheduler: "simple", denoise: 1 });
-    assert.deepEqual(preset.sampler_stage2, { steps: 12, cfg: 1.6, sampler_name: "dpmpp_2m_sde_gpu", scheduler: "beta57", denoise: 1 });
+    assert.deepEqual(preset.sampler_stage2, { steps: 12, cfg: 1.6, sampler_name: "dpmpp_2m_sde_gpu", scheduler: "beta57", denoise: presets.PRESET_STAGE2_DENOISE_DEFAULT });
+    assert.ok(preset.sampler_stage2.denoise < 1,
+        "a blank Stage 2 denoise must not fall back to 1.0: that discards Stage 1's latent and makes the two-stage mode cost steps for nothing");
     assert.equal(preset.loras.length, 1);
-    assert.deepEqual(presets.presetStageKeys("double").length, 8);
+    assert.deepEqual(presets.presetStageKeys("double").length, 10);
     assert.deepEqual(presets.presetStageKeys("single").length, 5);
+    assert.deepEqual(
+        presets.presetStageKeys("double").filter((k) => /denoise$/.test(k)),
+        ["stage1denoise", "stage2denoise"],
+        "every denoise the builder writes needs a key here, or the view cannot edit it back",
+    );
+});
+
+test("presets: double mode honours an explicitly typed Stage 2 denoise", () => {
+    const preset = presets.buildSamplerPreset({
+        name: "two stage", sampling_mode: "double", stage2denoise: "0.55",
+    }, { now: 1 });
+    assert.equal(preset.sampler_stage2.denoise, 0.55, "the field is read off `stage2denoise`, not `denoise`");
+    assert.equal(preset.sampler_stage1.denoise, 1, "Stage 1 starts from an empty latent, so its denoise stays 1");
+    // An empty field is absent, not zero: `Number("")` is 0 and a 0 denoise is a no-op stage.
+    const blank = presets.buildSamplerPreset({ name: "x", sampling_mode: "double", stage2denoise: "  " }, { now: 1 });
+    assert.equal(blank.sampler_stage2.denoise, presets.PRESET_STAGE2_DENOISE_DEFAULT);
+});
+
+// The bug this guards: the applier used to set steps/cfg/sampler/scheduler on both stages and
+// never touch denoise, so the `1.0` baked into animanga-liino-clean.json won, Stage 2 restarted
+// from pure noise, and Stage 1 was dead code that still cost 5 steps per image. A preset value
+// only reaches the graph if the applier writes the field — so the gate is on the applier source.
+test("presets: denoise reaches both stages, and no shipped two-stage record bakes 1.0", () => {
+    const py = readFs(REPO_ROOT + "py/services/gen_presets_service.py", "utf8");
+    const writes = [...py.matchAll(/(w1|w2)\[6\]|(i1|i2)\["denoise"\]/g)].map((m) => m[1] || m[2]);
+    for (const slot of ["w1", "w2", "i1", "i2"]) {
+        assert.ok(writes.includes(slot),
+            `${slot}: the applier no longer writes denoise, so the value baked into the workflow file wins again`);
+    }
+
+    const shipped = JSON.parse(readFs(REPO_ROOT + "data/gen_presets.json", "utf8"));
+    const doubles = shipped.filter((p) => p.sampling_mode === "double");
+    assert.ok(doubles.length > 0, "no two-stage preset ships, so nothing would use this path");
+    for (const p of doubles) {
+        assert.ok(p.sampler_stage2.denoise < 1,
+            `${p.id}: Stage 2 denoise ${p.sampler_stage2.denoise} discards Stage 1 entirely`);
+        assert.equal(p.sampler_stage1.denoise, 1,
+            `${p.id}: Stage 1 starts from an empty latent, so a denoise below 1 has no meaning`);
+    }
 });
 
 test("presets: a saved record is shaped like the records the service ships and reads", () => {

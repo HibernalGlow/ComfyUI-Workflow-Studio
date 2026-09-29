@@ -201,9 +201,9 @@
 .wfm-gallery-thumb-img {
     width: 100%;
     aspect-ratio: 1 / 1;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
-    background: var(--wfm-bg-hover, #111);
+    background: #080808;
 }
 
 .wfm-gallery-thumb-placeholder {

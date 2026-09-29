@@ -129,18 +129,73 @@ def build_workflow(positive: str, loras, prefix: str) -> dict:
         "sampler_name": SAMPLER, "scheduler": SCHEDULER, "denoise": 1.0,
     }}
     p["50"] = {"class_type": "VAEDecode", "inputs": {"samples": ["40", 0], "vae": ["1", 2]}}
-    p["60"] = {"class_type": "SaveImage", "inputs": {"images": ["50", 0], "filename_prefix": prefix}}
+    p["60"] = {
+        "class_type": "LayerUtility: SaveImagePlus",
+        "inputs": {
+            "images": ["50", 0],
+            "custom_path": "",
+            "filename_prefix": prefix,
+            "timestamp": "None",
+            "format": "png",
+            "quality": 100,
+            "meta_data": True,
+            "blind_watermark": "",
+            "save_workflow_as_json": True,
+            "preview": True
+        }
+    }
     return p
 
 
+def _vram_on():
+    """清显存默认关：只有 FREE_VRAM 显式给 1/true/yes/on 才开。
+
+    实测逐页清显存对普通页是 **+31% 墙钟**（清掉后下一张要重新装载模型），
+    所以不作为默认行为。只在渲染期间最低空闲显存掉到 ~1GB 以下时才值得开，
+    用 tools/probe_pressure.py 去量。
+    """
+    try:
+        import vram as _v
+        return _v.resolve(default=False)
+    except ImportError:
+        return str(os.environ.get("FREE_VRAM", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _free_vram_marker():
+    """提交完一页后留一个清显存标记（默认关，详见 tools/vram.py 的说明）。
+
+    /free 不是立即执行，而是在两次任务之间的空档被消费 —— 挂在渲染期间正好，
+    本页结束即清干净，下一页从干净显存开始。只在 _vram_on() 为真时才发。
+    """
+    if not _vram_on():
+        return
+    try:
+        body = json.dumps({"unload_models": True, "free_memory": True}).encode()
+        req = urllib.request.Request(f"http://{HOST}/free", data=body,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=30).read()
+    except Exception:
+        pass          # 清显存是优化，不能因为它让出图挂掉
+
+
 def queue(wf: dict) -> str:
-    body = {"prompt": wf, "client_id": CLIENT}
+    body = {
+        "prompt": wf,
+        "client_id": CLIENT,
+        "extra_data": {
+            "extra_pnginfo": {
+                "workflow": wf
+            }
+        }
+    }
     if FRONT:
         body["front"] = True          # 插到队首：正在跑的批次跑完当前节点即执行
     data = json.dumps(body).encode()
     req = urllib.request.Request(f"http://{HOST}/prompt", data=data,
                                  headers={"Content-Type": "application/json"})
-    return json.loads(urllib.request.urlopen(req, timeout=60).read())["prompt_id"]
+    pid = json.loads(urllib.request.urlopen(req, timeout=60).read())["prompt_id"]
+    _free_vram_marker()
+    return pid
 
 
 def wait(pid: str, timeout: int = 600) -> list:

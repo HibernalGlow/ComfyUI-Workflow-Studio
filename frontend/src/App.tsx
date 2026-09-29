@@ -13,6 +13,7 @@ const VIEW_MODULES: Record<ViewId, React.LazyExoticComponent<(p: ViewProps) => R
     workflow: lazy(() => import("./views/Workflow")),
     generate: lazy(() => import("./views/Generate")),
     models: lazy(() => import("./views/Models")),
+    artists: lazy(() => import("./views/Artists")),
     prompt: lazy(() => import("./views/Prompt")),
     gallery: lazy(() => import("./views/Gallery")),
     settings: lazy(() => import("./views/Settings")),
@@ -55,7 +56,16 @@ function Shell(): ReactElement {
     const [connected, setConnected] = useState<boolean | null>(null);
 
     const active: ViewDef = VIEWS.find((v) => v.id === view) ?? FIRST_VIEW;
-    const View = VIEW_MODULES[active.id];
+    const [visitedViews, setVisitedViews] = useState<Set<ViewId>>(() => new Set([active.id]));
+
+    useEffect(() => {
+        setVisitedViews((prev) => {
+            if (prev.has(active.id)) return prev;
+            const next = new Set(prev);
+            next.add(active.id);
+            return next;
+        });
+    }, [active.id]);
 
     /*
      * Reachability probe. This also flips the offline warning below, and the
@@ -138,14 +148,27 @@ function Shell(): ReactElement {
             </nav>
 
             <main className="nu-main" id="nu-view-root">
-                <Suspense fallback={<MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} />}>
-                    <View
-                        params={params}
-                        navigate={navigate}
-                        connected={connected}
-                        setConnected={setConnected}
-                    />
-                </Suspense>
+                {Array.from(visitedViews).map((id) => {
+                    const ViewComponent = VIEW_MODULES[id];
+                    const isCurrent = id === active.id;
+                    return (
+                        <div
+                            key={id}
+                            style={{
+                                display: isCurrent ? "contents" : "none",
+                            }}
+                        >
+                            <Suspense fallback={isCurrent ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}>
+                                <ViewComponent
+                                    params={params}
+                                    navigate={navigate}
+                                    connected={connected}
+                                    setConnected={setConnected}
+                                />
+                            </Suspense>
+                        </div>
+                    );
+                })}
             </main>
         </div>
     );
