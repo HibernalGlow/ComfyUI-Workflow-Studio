@@ -321,7 +321,7 @@ function _clearTimeline() {
 }
 
 function _selectClip(id) {
-    if (id !== _s.selectedId) _cropEditing = false;
+    if (id !== _s.selectedId) _endCropEdit(true);
     _s.selectedId = id;
     const clip = _selectedClip();
     _renderTimeline();
@@ -761,6 +761,8 @@ function _renderTrimPanel() {
 const _CROP_ASPECTS = { free: null, "16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1, "4:3": 4 / 3, "3:4": 3 / 4 };
 const _CROP_MIN = 0.05; // smallest crop side, as a fraction of the frame
 let _cropEditing = false;
+// Crop as it was when "Edit crop" was pressed (null = uncropped), restored by Cancel.
+let _cropEditOriginal = null;
 let _cropAspect = "free";
 
 function _even(v) {
@@ -798,6 +800,7 @@ function _renderCropSection(clip) {
             <span>${t("videoEditCrop")}</span>
             <span style="display:flex;gap:6px;">
                 <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-crop-toggle"></button>
+                <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-crop-cancel" style="display:${_cropEditing ? "" : "none"};">${t("videoEditCropCancel")}</button>
                 <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-crop-reset">${t("videoEditCropReset")}</button>
             </span>
         </div>
@@ -812,12 +815,15 @@ function _renderCropSection(clip) {
     toggle.classList.toggle("active", _cropEditing);
     aspect.value = _cropAspect;
     toggle.addEventListener("click", () => {
-        _cropEditing = !_cropEditing;
-        if (_cropEditing && !clip.crop) clip.crop = { x: 0, y: 0, w: 1, h: 1 };
-        if (_cropEditing && _cropAspect !== "free") _applyCropAspect(clip);
+        if (_cropEditing) { _endCropEdit(true); return; }
+        _cropEditing = true;
+        _cropEditOriginal = clip.crop ? { ...clip.crop } : null;
+        if (!clip.crop) clip.crop = { x: 0, y: 0, w: 1, h: 1 };
+        if (_cropAspect !== "free") _applyCropAspect(clip);
         _renderCropSection(clip);
         _refreshCropPreview();
     });
+    document.getElementById("wfm-video-edit-crop-cancel").addEventListener("click", () => _endCropEdit(false));
     document.getElementById("wfm-video-edit-crop-reset").addEventListener("click", () => {
         clip.crop = _cropEditing ? { x: 0, y: 0, w: 1, h: 1 } : null;
         _commitCrop(clip);
@@ -828,6 +834,21 @@ function _renderCropSection(clip) {
         _commitCrop(clip);
     });
     _updateCropInfo(clip);
+}
+
+// Leaves crop-edit mode. keep=true ("Done", or leaving the Edit subtab /
+// selecting another clip) keeps the adjusted rect; keep=false ("Cancel")
+// puts back the crop the clip had when editing started.
+function _endCropEdit(keep) {
+    if (!_cropEditing) return;
+    _cropEditing = false;
+    const clip = _selectedClip();
+    if (clip) {
+        if (!keep) clip.crop = _cropEditOriginal ? { ..._cropEditOriginal } : null;
+        _commitCrop(clip);
+        _renderCropSection(clip);
+    }
+    _cropEditOriginal = null;
 }
 
 function _updateCropInfo(clip) {
@@ -2248,6 +2269,16 @@ export function initVideoEditTab() {
     _wireToolbar();
     _wireAudioPanel();
     _wireUndoRedo();
+    // Leaving the Edit subtab (Plan/Asset) or the Video tab itself ends crop
+    // editing, keeping the rect as adjusted — the on-preview editor would
+    // otherwise stay armed over a Source pane now used by other features.
+    document.addEventListener("click", (e) => {
+        if (!_cropEditing) return;
+        const tab = e.target.closest?.("[data-tab], .wfm-video-subtab-btn");
+        // "project" only opens the sidebar list; the Edit subtab stays visible.
+        if (!tab || ["edit", "project"].includes(tab.dataset.videoSubtab) || tab.dataset.tab === "video") return;
+        _endCropEdit(true);
+    }, true);
     const sourceVideo = getPreviewPaneElements("source")?.video;
     sourceVideo?.addEventListener("timeupdate", _refreshSourceTextPreview);
     sourceVideo?.addEventListener("seeked", _refreshSourceTextPreview);
