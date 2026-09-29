@@ -181,6 +181,7 @@ export function addClipFromFile(file, displayName) {
         error: null,
     };
     _s.clips.push(clip);
+    _clipRegistry.set(clip.id, clip);
     _s.selectedId = clip.id;
     _renderTimeline();
     _renderTrimPanel();
@@ -272,6 +273,7 @@ function _duplicateClip(id) {
         texts: src.texts.map((o) => ({ ...o, id: _nextTextId++ })),
     };
     _s.clips.splice(idx + 1, 0, clone);
+    _clipRegistry.set(clone.id, clone);
     _s.selectedId = clone.id;
     _renderTimeline();
     _renderTrimPanel();
@@ -357,6 +359,7 @@ function _fmtTimecode(s) {
 // (mirrors the Plan subtab's "+Split/+Block/Delete" toolbar pattern instead
 // of giving every row its own set of buttons).
 function _renderTimeline() {
+    _scheduleRecord();
     const track = document.getElementById("wfm-video-edit-timeline-track");
     if (!track) return;
     track.innerHTML = "";
@@ -643,7 +646,7 @@ function _renderTrimPanel() {
             clip.duration = val;
             durInput.value = val.toFixed(2);
             _renderTimeline();
-            _renderTextSection(clip);
+            _updateTextLimits(clip);
         });
         _renderTextSection(clip);
         _refreshTextPreview();
@@ -709,7 +712,7 @@ function _renderTrimPanel() {
         syncScrubber();
         if (!skipTimelineRerender) {
             _renderTimeline();
-            _renderTextSection(clip);
+            _updateTextLimits(clip);
         }
         _refreshTextPreview();
     };
@@ -1013,6 +1016,17 @@ function _renderTextSection(clip) {
     });
 }
 
+// Trim/hold-length edits only move the rows' max bounds — deliberately not a
+// full _renderTextSection(): those edits commit on the input's "change",
+// which fires on blur, i.e. on mousedown of whatever the user clicks next.
+// Rebuilding the section there would replace that button under the cursor
+// (e.g. "+ Add text") and swallow the click.
+function _updateTextLimits(clip) {
+    const len = _clipLength(clip);
+    document.querySelectorAll('#wfm-video-edit-text-list [data-k="start"], #wfm-video-edit-text-list [data-k="end"]')
+        .forEach((input) => { input.max = len; });
+}
+
 function _buildTextRow(clip, ov) {
     const len = _clipLength(clip);
     const anchorLabels = t("videoEditTextAnchorLabels");
@@ -1050,6 +1064,7 @@ function _buildTextRow(clip, ov) {
 
     el("text").addEventListener("input", () => { ov.text = el("text").value; _refreshTextPreview(); });
     const commitTimes = () => {
+        const len = _clipLength(clip); // live: the clip may have been re-trimmed since this row was built
         const start = Math.max(0, Math.min(Number(el("start").value) || 0, len));
         let end = Math.max(0, Math.min(Number(el("end").value) || 0, len));
         if (end <= start) end = Math.min(len, start + 0.1);
@@ -1173,6 +1188,7 @@ function _refreshSourceTextPreview() {
 }
 
 function _refreshTextPreview() {
+    _scheduleRecord();
     _refreshSourceTextPreview();
     if (_previewPlaying) _refreshResultTextPreview();
 }
@@ -1714,6 +1730,160 @@ function _wireToolbar() {
 }
 
 // ============================================
+// Undo/Redo (Phase 5) — snapshot history of the editorial state (clip order,
+// trim, crop, text overlays, audio settings). Rather than instrumenting every
+// edit path, the three redraw hooks every edit already goes through
+// (_renderTimeline / _refreshTextPreview / _syncAudioPanel) schedule a
+// debounced _recordState(), which only pushes when the serialized state
+// actually differs from the last entry — so selection changes, previews and
+// resizes never create history entries, and a burst (typing, dragging a crop
+// handle or trim slider) collapses into one step.
+// Clip File objects aren't serialized: _clipRegistry keeps every clip ever
+// added by id, so undoing a delete can restore it without re-uploading.
+// ============================================
+
+const _HISTORY_LIMIT = 100;
+const _clipRegistry = new Map(); // clip id -> clip object (static fields: file, serverRef, size, ...)
+const _bgmRegistry = new Map(); // bgm key -> bgm object
+const _history = { stack: [], index: -1, restoring: false, timer: null };
+
+function _bgmKey(bgm) {
+    return bgm ? `${bgm.serverRef?.subfolder || ""}/${bgm.serverRef?.filename}|${bgm.name}` : null;
+}
+
+function _snapshot() {
+    return JSON.stringify({
+        clips: _s.clips.map((c) => ({
+            id: c.id,
+            trimStart: c.trimStart,
+            trimEnd: c.trimEnd,
+            duration: c.duration,
+            crop: c.crop,
+            texts: c.texts,
+        })),
+        audio: {
+            keepOriginal: _s.audio.keepOriginal,
+            originalVolumeDb: _s.audio.originalVolumeDb,
+            bgmVolumeDb: _s.audio.bgmVolumeDb,
+            bgmOffset: _s.audio.bgmOffset,
+            bgm: _bgmKey(_s.audio.bgm),
+        },
+    });
+}
+
+function _scheduleRecord() {
+    if (_history.restoring) return;
+    clearTimeout(_history.timer);
+    _history.timer = setTimeout(_recordState, 300);
+}
+
+function _recordState() {
+    _history.timer = null;
+    // Mid-upload clips have placeholder trim values; their probe completion
+    // re-renders the timeline, which records the settled state.
+    if (_history.restoring || _s.clips.some((c) => c.probing)) return;
+    if (_s.audio.bgm) _bgmRegistry.set(_bgmKey(_s.audio.bgm), _s.audio.bgm);
+    const snap = _snapshot();
+    if (_history.stack[_history.index] === snap) return;
+    _history.stack.splice(_history.index + 1);
+    _history.stack.push(snap);
+    if (_history.stack.length > _HISTORY_LIMIT) _history.stack.shift();
+    _history.index = _history.stack.length - 1;
+    _updateUndoButtons();
+}
+
+// Drops all history and starts over from the current state (project load).
+function _resetHistory() {
+    clearTimeout(_history.timer);
+    _history.stack = [];
+    _history.index = -1;
+    _recordState();
+}
+
+function _restoreSnapshot(snap) {
+    const data = JSON.parse(snap);
+    _history.restoring = true;
+    try {
+        _stopPreview();
+        const prevSelected = _s.selectedId;
+        _s.clips = data.clips
+            .filter((e) => _clipRegistry.has(e.id))
+            .map((e) => {
+                const clip = {
+                    ..._clipRegistry.get(e.id),
+                    trimStart: e.trimStart,
+                    trimEnd: e.trimEnd,
+                    duration: e.duration,
+                    crop: e.crop ? { ...e.crop } : null,
+                    texts: e.texts.map((o) => ({ ...o })),
+                };
+                _clipRegistry.set(clip.id, clip);
+                return clip;
+            });
+        _s.audio = {
+            keepOriginal: data.audio.keepOriginal,
+            originalVolumeDb: data.audio.originalVolumeDb,
+            bgmVolumeDb: data.audio.bgmVolumeDb,
+            bgmOffset: data.audio.bgmOffset,
+            bgm: data.audio.bgm ? _bgmRegistry.get(data.audio.bgm) || null : null,
+        };
+        if (!_s.clips.some((c) => c.id === _s.selectedId)) _s.selectedId = _s.clips[0]?.id ?? null;
+        _cropEditing = false;
+        _renderTimeline();
+        _renderTrimPanel();
+        _syncAudioPanel();
+        const clip = _selectedClip();
+        if (!clip) { setSourcePreview(null, null); _clearTextLayer("source"); _clearCropLayer("source"); }
+        else if (clip.id !== prevSelected) _setClipSourcePreview(clip);
+        else _refreshSourceTextPreview();
+    } finally {
+        _history.restoring = false;
+    }
+    _updateUndoButtons();
+}
+
+function _undo() {
+    if (_history.timer) { clearTimeout(_history.timer); _recordState(); }
+    if (_history.index <= 0) return;
+    _history.index -= 1;
+    _restoreSnapshot(_history.stack[_history.index]);
+}
+
+function _redo() {
+    if (_history.timer) { clearTimeout(_history.timer); _recordState(); }
+    if (_history.index >= _history.stack.length - 1) return;
+    _history.index += 1;
+    _restoreSnapshot(_history.stack[_history.index]);
+}
+
+function _updateUndoButtons() {
+    const undoBtn = document.getElementById("wfm-video-edit-undo-btn");
+    const redoBtn = document.getElementById("wfm-video-edit-redo-btn");
+    if (undoBtn) undoBtn.disabled = _history.index <= 0;
+    if (redoBtn) redoBtn.disabled = _history.index >= _history.stack.length - 1;
+}
+
+function _isEditSubtabVisible() {
+    const panel = document.getElementById("wfm-video-subtab-edit");
+    return !!panel && panel.offsetParent !== null;
+}
+
+function _wireUndoRedo() {
+    document.getElementById("wfm-video-edit-undo-btn")?.addEventListener("click", _undo);
+    document.getElementById("wfm-video-edit-redo-btn")?.addEventListener("click", _redo);
+    document.addEventListener("keydown", (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey || !_isEditSubtabVisible()) return;
+        // Leave native undo alone inside text fields.
+        const tag = e.target?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+        const key = e.key.toLowerCase();
+        if (key === "z" && !e.shiftKey) { e.preventDefault(); _undo(); }
+        else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); _redo(); }
+    });
+    _updateUndoButtons();
+}
+
+// ============================================
 // Audio panel (Phase 4) — timeline-wide soundtrack settings in the export
 // panel. The BGM file is uploaded to ComfyUI's input folder right away (same
 // upload-on-add pattern as clips) so export only needs its server filename.
@@ -1752,6 +1922,7 @@ async function _setBgmFile(file, displayName) {
 }
 
 function _syncAudioPanel() {
+    _scheduleRecord();
     const a = _s.audio;
     const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
     set("wfm-video-edit-keep-audio", (el) => { el.checked = a.keepOriginal; });
@@ -1986,6 +2157,7 @@ async function _loadProjectData(filename, data) {
     _updateProjectNameUI();
     _renderTimeline();
     _renderTrimPanel();
+    _resetHistory();
     showToast(t("videoEditProjectLoaded"), "success");
 }
 
@@ -2019,6 +2191,7 @@ export async function openSavedVideoEditProject(filename) {
 export function initVideoEditTab() {
     _wireToolbar();
     _wireAudioPanel();
+    _wireUndoRedo();
     const sourceVideo = getPreviewPaneElements("source")?.video;
     sourceVideo?.addEventListener("timeupdate", _refreshSourceTextPreview);
     sourceVideo?.addEventListener("seeked", _refreshSourceTextPreview);
@@ -2036,4 +2209,5 @@ export function initVideoEditTab() {
     _renderTimeline();
     _renderTrimPanel();
     _updatePreviewBtn();
+    _resetHistory();
 }

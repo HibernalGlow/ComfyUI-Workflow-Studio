@@ -132,6 +132,8 @@ function _applyVideoI18n() {
     setText("wfm-video-edit-duplicate-btn", "videoEditDuplicate");
     setText("wfm-video-edit-delete-btn", "videoEditDelete");
     setText("wfm-video-edit-clear-btn", "videoEditClearBtn");
+    setTitle("wfm-video-edit-undo-btn", "videoEditUndo");
+    setTitle("wfm-video-edit-redo-btn", "videoEditRedo");
     setText("wfm-video-edit-audio-title", "videoEditAudioTitle");
     setText("wfm-video-edit-keep-audio-label", "videoEditKeepAudio");
     setText("wfm-video-edit-orig-vol-label", "videoEditOriginalVolume");
