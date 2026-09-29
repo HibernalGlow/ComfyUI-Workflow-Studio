@@ -714,6 +714,18 @@
     margin-top: 6px;
 }
 
+.wfm-video-edit-audio-panel.drag-over {
+    outline: 2px dashed var(--wfm-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.wfm-video-edit-bgm-hint {
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+}
+
 .wfm-video-edit-bgm-name {
     flex: 1;
     min-width: 0;

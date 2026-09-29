@@ -1900,6 +1900,10 @@ function _readAudioDuration(file) {
     });
 }
 
+function _isVideoLike(file) {
+    return file.type.startsWith("video/") || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
+}
+
 async function _setBgmFile(file, displayName) {
     const nameEl = document.getElementById("wfm-video-edit-bgm-name");
     if (nameEl) nameEl.textContent = t("videoEditProbing");
@@ -1908,17 +1912,30 @@ async function _setBgmFile(file, displayName) {
         // file is itself the one the upload just overwrote on disk.
         const duration = await _readAudioDuration(file);
         const uploaded = await comfyUI.uploadImage(file, file.name);
-        _s.audio.bgm = {
-            name: displayName || file.name,
-            file,
-            serverRef: { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" },
-            duration,
-        };
+        const serverRef = { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" };
+        // A video works as a BGM source too (LoadAudio decodes its audio
+        // track) — but only if it has one; otherwise export would fail later.
+        if (_isVideoLike(file)) {
+            const params = new URLSearchParams(serverRef);
+            const res = await fetch(`/api/wfm/video/edit/probe?${params}`);
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+            if (!json.has_audio) throw new Error(t("videoEditBgmNoAudio"));
+        }
+        _s.audio.bgm = { name: displayName || file.name, file, serverRef, duration };
     } catch (err) {
-        _s.audio.bgm = null;
+        // Keep whatever BGM was set before — a failed pick shouldn't clear it.
         showToast(t("errorWithMsg", err.message), "error");
     }
     _syncAudioPanel();
+}
+
+// Entry point for video-asset-tab.js's "Set as BGM" button (a video asset's
+// audio track becomes the BGM). Returns whether the BGM was actually set.
+export async function setBgmFromFile(file, displayName) {
+    _s.audio.bgmOffset = 0;
+    await _setBgmFile(file, displayName);
+    return !!_s.audio.bgm && _s.audio.bgm.file === file;
 }
 
 function _syncAudioPanel() {
@@ -1968,6 +1985,26 @@ function _wireAudioPanel() {
             _setBgmFile(file);
         }
         e.target.value = "";
+    });
+    // Drag & drop an audio (or video) file anywhere on the Audio section.
+    const panel = document.querySelector(".wfm-video-edit-audio-panel");
+    panel?.addEventListener("dragover", (e) => {
+        if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+        e.preventDefault();
+        panel.classList.add("drag-over");
+    });
+    panel?.addEventListener("dragleave", () => panel.classList.remove("drag-over"));
+    panel?.addEventListener("drop", (e) => {
+        const file = e.dataTransfer?.files?.[0];
+        panel.classList.remove("drag-over");
+        if (!file) return;
+        e.preventDefault();
+        if (!file.type.startsWith("audio/") && !_isVideoLike(file) && !/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(file.name)) {
+            showToast(t("videoEditBgmUnsupported"), "error");
+            return;
+        }
+        _s.audio.bgmOffset = 0;
+        _setBgmFile(file);
     });
     byId("wfm-video-edit-bgm-clear")?.addEventListener("click", () => {
         _s.audio.bgm = null;
