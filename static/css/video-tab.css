@@ -726,6 +726,15 @@
     margin-top: 2px;
 }
 
+/* <label>で包んだファイル選択を.wfm-btnと同じ見た目にする */
+.wfm-video-edit-file-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    user-select: none;
+}
+
 .wfm-video-edit-bgm-name {
     flex: 1;
     min-width: 0;

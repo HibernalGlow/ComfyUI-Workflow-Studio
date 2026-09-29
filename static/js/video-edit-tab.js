@@ -1977,7 +1977,7 @@ function _wireAudioPanel() {
         _syncAudioPanel();
     });
     const input = byId("wfm-video-edit-bgm-input");
-    byId("wfm-video-edit-bgm-btn")?.addEventListener("click", () => input?.click());
+    // The picker opens natively via its wrapping <label> (see index.html).
     input?.addEventListener("change", (e) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -2237,7 +2237,15 @@ export function initVideoEditTab() {
     document.getElementById("wfm-video-edit-save-btn")?.addEventListener("click", () => _saveProject());
     document.getElementById("wfm-video-edit-saveas-btn")?.addEventListener("click", () => _saveProject(null, true));
     const loadInput = document.getElementById("wfm-video-edit-load-file-input");
-    document.getElementById("wfm-video-edit-load-btn")?.addEventListener("click", () => loadInput?.click());
+    // Opened natively by its wrapping <label> (see index.html); only keyboard
+    // activation needs wiring, since a <label> doesn't respond to Enter/Space.
+    document.querySelectorAll(".wfm-video-edit-file-btn").forEach((label) => {
+        label.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            label.querySelector('input[type="file"]')?.click();
+        });
+    });
     loadInput?.addEventListener("change", (e) => {
         const file = e.target.files?.[0];
         if (file) _loadProjectFromFile(file);

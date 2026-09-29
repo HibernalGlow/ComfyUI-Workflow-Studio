@@ -2957,9 +2957,11 @@
                                 <div style="display:flex;gap:6px;">
                                     <button type="button" id="wfm-video-edit-save-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save</button>
                                     <button type="button" id="wfm-video-edit-saveas-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save As</button>
-                                    <button type="button" id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Load</button>
+                                    <!-- File pickers are native <label>-wrapped inputs (same as the Video Source drop zone),
+                                         not a button calling input.click() from JS — that programmatic path can be refused
+                                         by the browser without any error (confirmed on a user's machine for the BGM picker). -->
+                                    <label id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm wfm-video-edit-file-btn" style="flex:1;" tabindex="0" role="button">Load<input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;"></label>
                                 </div>
-                                <input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;">
                                 <div class="wfm-video-edit-audio-panel">
                                     <div class="wfm-video-edit-section-head"><span id="wfm-video-edit-audio-title">Audio</span></div>
                                     <label class="wfm-video-checkbox-inline">
@@ -2971,11 +2973,10 @@
                                         <span class="wfm-video-edit-audio-val" id="wfm-video-edit-orig-vol-val">0 dB</span>
                                     </div>
                                     <div class="wfm-video-edit-bgm-file">
-                                        <button type="button" id="wfm-video-edit-bgm-btn" class="wfm-btn wfm-btn-xs">BGM...</button>
+                                        <label class="wfm-btn wfm-btn-xs wfm-video-edit-file-btn" tabindex="0" role="button"><span id="wfm-video-edit-bgm-btn">BGM...</span><input type="file" id="wfm-video-edit-bgm-input" accept="audio/*,video/mp4,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4" style="display:none;"></label>
                                         <span class="wfm-i2i-status wfm-video-edit-bgm-name" id="wfm-video-edit-bgm-name"></span>
                                         <button type="button" id="wfm-video-edit-bgm-clear" class="wfm-btn wfm-btn-xs" title="Remove BGM">✕</button>
                                     </div>
-                                    <input type="file" id="wfm-video-edit-bgm-input" accept="audio/*,video/mp4,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4" style="display:none;">
                                     <div class="wfm-i2i-status wfm-video-edit-bgm-hint" id="wfm-video-edit-bgm-hint">Drop an audio file here, or use &quot;Set as BGM&quot; on a video in Asset</div>
                                     <div class="wfm-video-edit-audio-row">
                                         <label for="wfm-video-edit-bgm-vol" id="wfm-video-edit-bgm-vol-label">BGM volume</label>
