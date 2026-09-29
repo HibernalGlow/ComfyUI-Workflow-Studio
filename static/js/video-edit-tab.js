@@ -93,8 +93,20 @@ const _s = {
     outputDir: "",
     projectFilename: null, // currently loaded/saved project's server filename, or null if unsaved
     // Timeline-wide soundtrack settings (Phase 4). bgm: { name, file, serverRef, duration } | null
-    audio: { keepOriginal: true, originalVolumeDb: 0, bgm: null, bgmVolumeDb: -6, bgmOffset: 0 },
+    audio: _defaultAudio(),
 };
+
+// Initial soundtrack settings — used on startup, by Clear, and for projects
+// saved before Phase 4 (no "audio" key). A function declaration, so it's
+// hoisted above the _s initializer that calls it.
+function _defaultAudio() {
+    return { keepOriginal: true, originalVolumeDb: 0, bgm: null, bgmVolumeDb: -6, bgmOffset: 0 };
+}
+
+function _isAudioDefault() {
+    const d = _defaultAudio();
+    return Object.keys(d).every((k) => _s.audio[k] === d[k]);
+}
 
 // Save/load persists only the timeline's editorial state (order, trim points,
 // which server-side file each clip refers to) — not clip.file/probing/error,
@@ -291,16 +303,21 @@ function _deleteClip(id) {
     _renderTrimPanel();
 }
 
+// Clears clips AND resets the Audio section (BGM, volumes, keep-original) to
+// its initial state — both can be brought back with Undo.
 function _clearTimeline() {
-    if (_s.clips.length === 0) return;
+    if (_s.clips.length === 0 && _isAudioDefault()) return;
     if (!confirm(t("videoEditConfirmClear"))) return;
     _stopPreview();
     _s.clips = [];
     _s.selectedId = null;
+    _s.audio = _defaultAudio();
     setSourcePreview(null, null);
     _clearTextLayer("source");
+    _clearCropLayer("source");
     _renderTimeline();
     _renderTrimPanel();
+    _syncAudioPanel();
 }
 
 function _selectClip(id) {
@@ -441,7 +458,7 @@ function _updateToolbarState() {
     setDisabled("wfm-video-edit-move-right-btn", !hasSelection || idx === _s.clips.length - 1);
     setDisabled("wfm-video-edit-duplicate-btn", !hasSelection);
     setDisabled("wfm-video-edit-delete-btn", !hasSelection);
-    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0);
+    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0 && _isAudioDefault());
     setDisabled("wfm-video-edit-preview-btn", _s.clips.length === 0);
     _updateTotalDuration();
 }
@@ -1940,6 +1957,7 @@ export async function setBgmFromFile(file, displayName) {
 
 function _syncAudioPanel() {
     _scheduleRecord();
+    _updateToolbarState();
     const a = _s.audio;
     const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
     set("wfm-video-edit-keep-audio", (el) => { el.checked = a.keepOriginal; });
@@ -2151,12 +2169,13 @@ async function _restoreClipFromSaved(entry) {
 // defaults (original audio kept, no BGM). A saved BGM is re-fetched and
 // re-uploaded the same way clips are (see _restoreClipFromSaved).
 async function _restoreAudioFromSaved(saved) {
+    const defaults = _defaultAudio();
     _s.audio = {
-        keepOriginal: saved?.keepOriginal ?? true,
-        originalVolumeDb: Number(saved?.originalVolumeDb) || 0,
+        keepOriginal: saved?.keepOriginal ?? defaults.keepOriginal,
+        originalVolumeDb: Number(saved?.originalVolumeDb) || defaults.originalVolumeDb,
         bgm: null,
-        bgmVolumeDb: saved?.bgmVolumeDb ?? -6,
-        bgmOffset: Number(saved?.bgmOffset) || 0,
+        bgmVolumeDb: saved?.bgmVolumeDb ?? defaults.bgmVolumeDb,
+        bgmOffset: Number(saved?.bgmOffset) || defaults.bgmOffset,
     };
     const ref = saved?.bgm?.serverRef;
     if (ref?.filename) {
