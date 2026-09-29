@@ -2,6 +2,48 @@
 
 ---
 
+## Unreleased（2026-09-29、ブランチ `feature/video-edit-bgm-text-overlay`）
+
+### Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
+
+[VIDEO_EDIT_TAB_PLAN.md](VIDEO_EDIT_TAB_PLAN.md)のPhase 4。着手前に既存の動画編集系ノードを調査し、ComfyUI Core 0.37.0の音声ノード群（`LoadAudio`/`TrimAudioDuration`/`AudioConcat`/`AudioMerge`/`AudioAdjustVolume`/`EmptyAudio`）と`ConcatenateVideo`の`complete_audio`入力（結合動画全体の音声を上書き）だけで、書き出しグラフ内で完結できると判明したため、計画にあった独自`mix-audio` APIは作らなかった。音声トラックの組み方はH3Studioのreel書き出し（クリップ音声を尺にconform→連結→musicを重ねる）を参考にした。
+
+**グラフ構成**: クリップごとに`EmptyAudio(クリップ尺)`＋`AudioMerge(自クリップの音声)`で尺ぴったりのセグメントを作り（`AudioMerge`はaudio2をaudio1の長さにpad/trimし、音声なしクリップ＝Noneならaudio1をそのまま返す）、`AudioConcat`で連結→（元音量≠0dBなら`AudioAdjustVolume`）→BGM（`LoadAudio→TrimAudioDuration(開始位置, 総尺)→AudioAdjustVolume`）を`AudioMerge`で重ねて`complete_audio`へ渡す。単一の動画クリップで元音声そのまま・BGMなしの場合のみ従来通り再エンコードなしでパススルー。
+
+**UI**: 書き出しパネルにオーディオ欄（元の音声を残す＋音量dB、BGMファイル、BGM音量、BGM開始位置）。BGMは「BGM選択...」ボタン、オーディオ欄への音声/動画ファイルのドラッグ&ドロップ、AssetサブタブのVideoに追加した「BGMに設定（音声のみ）」（動画の音声トラックを使う。Galleryは音声ファイルを扱わないため）で指定できる。▶プレビュー中はBGMも`<audio>`で同時再生。クリアボタンでオーディオ欄も初期状態に戻る（BGMのみ設定されている状態でもクリア可能）。
+
+**実機で判明した注意点**: 生の`Video Slice`出力と画像由来の`CreateVideo`クリップを`ConcatenateVideo`へ直接混ぜると`Video chunk N could not be encoded compatibly`（extradata/color space不一致）で失敗する——complete_audioの有無に関係なく。既存の「複数クリップ時は全クリップを`GetVideoComponents→CreateVideo`で再構成する」処理は音声対策だけでなくこのためにも必要だったので維持した。
+
+**検証**: 動画2本（片方トリム）＋静止画＋BGM(-6dB)をUIから書き出し、尺6.625秒・音声同尺、区間ごとのRMSで元音声＋BGM／BGMのみを確認。音声なし動画（audio=None）＋BGM、mp4をBGMにした書き出しも確認。
+
+### Video Edit: テキストオーバーレイ（Phase 3）
+
+クリップ単位のテキスト（文字・クリップ内の開始/終了秒・サイズ(フレーム高さ%)・色・9方向アンカー・縁取り・背景）。クリップ相対時刻で保持するので並べ替えに追従し、書き出し時に絶対時刻へ変換する。
+
+Core `TextOverlay`は上/下固定・区間指定なし・既定フォントがCJK非対応、既存のテキスト系カスタムノード（advanced-textoverlay等）も静止画向けか独立パイプラインで、かつ全フレームをIMAGEテンソル化するとメモリが厳しい（720p×720フレームで約8GB）ため、新設の`POST /api/wfm/video/edit/overlay-text`（`VideoService.overlay_text_on_video()`、`asyncio.to_thread`）でPyAVストリーム処理にした: 1フレームずつデコード→該当区間のテキストレイヤー（事前に1回だけ描画）をPillowで合成→libx264でエンコード、音声パケットは再エンコードせずリマックス。書き出しはグラフ出力を`wfm_edit_pre`中間ファイルに保存→焼き込み→中間ファイル削除（`wfm_edit_pre`接頭辞かつoutput内のみ削除対象）の2段構成。フォントはmeiryo→YuGothM→NotoSansJP→msgothic→arialの順に探索。プレビューはSource/Result枠上にCSSで近似表示（`video-preview.js`に`getPreviewPaneElements()`を追加）。
+
+**検証**: ComfyUI再起動後、動画＋画像クリップに英日テキスト2件を付けて書き出し、各時刻のフレームで表示/非表示・位置・日本語描画・背景、音声長の一致、中間ファイル削除を確認。
+
+### Video Edit: クロップ（Phase 2）
+
+動画クリップごとに正規化座標(0..1)のクロップ矩形を持ち（ComfyUI-LoadVideoCropと同じ方式）、Sourceプレビュー上で移動＋四隅リサイズ（アスペクト比 自由/16:9/9:16/1:1/4:3/3:4固定可、外側は暗転）。「完了」で確定、「キャンセル」で編集前のクロップに戻す。Plan/Assetサブタブ・他タブへの移動、別クリップ選択時は「完了」扱いで編集モードを自動終了。書き出しはCore `VideoCrop`（0.37.0でもexperimental）を`Video Slice`の直後に挿入——`crop`入力は計画どおり二重ネスト`{"crop":{"x","y","width","height"}}`で、偶数ピクセルに丸める（H.264 4:2:0制約）。出力サイズは先頭動画クリップのクロップ後サイズで、サイズの異なる他クリップは`ImageScale(crop=center)`でフィット。解像度不一致ガードはクロップなしの動画クリップ同士だけ比較。`ImageCrop`は0.37でdeprecatedのため不採用。
+
+**検証**: 608x352→300x200のクロップ出力が元フレームの同領域と一致（平均画素差3.1＝コーデック誤差程度）。UIで1:1クロップしたクリップを先頭に書き出し、280x280・字幕がクロップ後の枠内・2本目が中央フィットされることを確認。
+
+### Video Edit: Undo/Redo（Phase 5残り）
+
+編集状態（クリップ順・トリム・保持時間・クロップ・テキスト・オーディオ設定）のJSONスナップショット履歴（上限100）。各編集経路に個別に仕込むのではなく、全編集が必ず通る既存の再描画3関数（`_renderTimeline`/`_refreshTextPreview`/`_syncAudioPanel`）から300msデバウンスで記録し、状態が変わったときだけpushする（選択・プレビュー・リサイズでは積まれず、連続入力やドラッグは1ステップにまとまる）。削除クリップはFile参照を持つ`_clipRegistry`から再アップロードなしで復元。↶/↷ボタンとCtrl+Z / Ctrl+Y / Ctrl+Shift+Z（入力欄内はブラウザ標準のundoを優先）。プロジェクト読込時は履歴リセット。
+
+### その他
+
+- **プロジェクト保存**にクロップ・テキスト・オーディオ設定を追加（旧プロジェクトは既定値で読込）。
+- **BGM選択・Loadボタンが実ブラウザでダイアログを開かない不具合を修正**: hidden `<input type=file>`をボタンのclickハンドラから`input.click()`で開く方式が、ユーザー環境ではエラーも出さずに無反応だった（同タブのVideo Sourceは`<label>`で包む方式で正常動作）。両ボタンを`<label>`方式に変更。Playwrightはファイル選択を横取りするため自動テストでは再現できなかった。
+- **トリム値入力直後に「+ テキスト追加」のクリックが効かない不具合を修正**（テキスト欄実装時に混入）: blur時の`change`でテキスト欄全体を再構築し、押そうとしたボタンが置き換わっていた。上限値だけ更新する方式に変更。
+
+**How to apply**: ComfyUI Coreの新しい動画/音声ノードは、`execution_success`で判断せず出力をprobe・画素比較まで実測すること（`VideoTrim`/`VideoCrop`の二重ネストのように、形式を誤ってもエラーにならず無視されるノードがある）。ファイル選択UIは`<label>`で包むネイティブ方式で作り、動作確認はユーザー実機で行うこと。
+
+---
+
 ## v0.7.3（2026-09-24）
 
 ### GenerateUIタブにQwen Image 2.1（TextEncodeQwenImage21）対応を追加
