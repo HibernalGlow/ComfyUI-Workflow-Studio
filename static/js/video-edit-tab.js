@@ -44,6 +44,27 @@
  * match) -> RepeatImageBatch(amount = holdSeconds * fps) -> CreateVideo —
  * confirmed on a live instance to produce an exact-duration, correctly
  * concatenation-compatible clip (see VIDEO_EDIT_TAB_PLAN.md "Image clips").
+ *
+ * Audio (Phase 4): the soundtrack is built as a separate AUDIO chain in the
+ * same export graph and handed to ConcatenateVideo's `complete_audio` input
+ * (which overrides whatever audio the concatenated segments carry). Each
+ * clip contributes an exact-length segment — EmptyAudio(clip length) merged
+ * with that clip's own audio (GetVideoComponents' audio output; None for a
+ * silent clip, which AudioMerge treats as "keep audio1") — so segments line up
+ * with their video even for silent/image clips; the segments are chained with
+ * AudioConcat and the optional BGM (LoadAudio -> TrimAudioDuration ->
+ * AudioAdjustVolume) is laid over with AudioMerge. Verified on a live 0.37.0
+ * instance: segment audio stays in sync and BGM runs the full length.
+ * Note: the segments still go through GetVideoComponents -> CreateVideo before
+ * concatenation — feeding a raw "Video Slice" output next to an image-derived
+ * CreateVideo clip fails with "Video chunk N could not be encoded compatibly"
+ * (extradata / color space mismatch), audio or not.
+ *
+ * Text overlays (Phase 3): stored per clip with clip-relative times, so they
+ * move with the clip when it's reordered. There's no time-ranged video text
+ * node in ComfyUI core, so export runs the graph first (to a "wfm_edit_pre"
+ * intermediate) and then burns the overlays in with /api/wfm/video/edit/overlay-text
+ * (PyAV streaming decode -> Pillow -> encode, audio remuxed as-is).
  */
 
 import { showToast } from "./app.js";
@@ -51,16 +72,19 @@ import { t } from "./i18n.js";
 import { comfyUI } from "./comfyui-client.js";
 import {
     setSourcePreview, setResultPreview, getActivePreviewVideoElement, getResultPreviewVideoElement,
+    getPreviewPaneElements,
 } from "./video-preview.js";
 import { VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 
 const _s = {
-    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, trimStart, trimEnd, probing, error }
+    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, hasAudio, trimStart, trimEnd, texts:[textOverlay], probing, error }
     selectedId: null,
     exporting: false,
     nextId: 1,
     outputDir: "",
     projectFilename: null, // currently loaded/saved project's server filename, or null if unsaved
+    // Timeline-wide soundtrack settings (Phase 4). bgm: { name, file, serverRef, duration } | null
+    audio: { keepOriginal: true, originalVolumeDb: 0, bgm: null, bgmVolumeDb: -6, bgmOffset: 0 },
 };
 
 // Save/load persists only the timeline's editorial state (order, trim points,
@@ -83,6 +107,19 @@ const _DEFAULT_IMAGE_DURATION = 3.0;
 // concatenation — arbitrary but consistent (doesn't need to match other
 // clips' native fps; ConcatenateVideo works at the container/frame level).
 const _IMAGE_EXPORT_FPS = 24;
+
+// Soundtrack segments are built at this rate/layout; AudioMerge/AudioConcat
+// resample anything else (e.g. 32kHz clip audio) to match.
+const _AUDIO_SAMPLE_RATE = 48000;
+
+// 9-grid anchors for text overlays — same "<vertical>-<horizontal>" strings
+// the backend's overlay_text_on_video() accepts.
+const _TEXT_ANCHORS = [
+    "top-left", "top-center", "top-right",
+    "middle-left", "middle-center", "middle-right",
+    "bottom-left", "bottom-center", "bottom-right",
+];
+let _nextTextId = 1;
 
 let _dragClipId = null; // clip being dragged for timeline reordering
 
@@ -126,8 +163,10 @@ export function addClipFromFile(file, displayName) {
         width: 0,
         height: 0,
         fps: 0,
+        hasAudio: false,
         trimStart: 0,
         trimEnd: kind === "image" ? _DEFAULT_IMAGE_DURATION : 0,
+        texts: [],
         probing: true,
         error: null,
     };
@@ -135,7 +174,7 @@ export function addClipFromFile(file, displayName) {
     _s.selectedId = clip.id;
     _renderTimeline();
     _renderTrimPanel();
-    setSourcePreview(URL.createObjectURL(file), { kind: "local", file }, kind);
+    _setClipSourcePreview(clip);
     if (kind === "image") _probeImageClip(clip);
     else _probeClip(clip);
 }
@@ -158,6 +197,7 @@ async function _probeClip(clip) {
         clip.width = json.width || 0;
         clip.height = json.height || 0;
         clip.fps = json.fps || 0;
+        clip.hasAudio = !!json.has_audio;
         clip.trimStart = 0;
         clip.trimEnd = clip.duration;
     } catch (err) {
@@ -214,7 +254,8 @@ function _moveClip(id, delta) {
 function _duplicateClip(id) {
     const idx = _s.clips.findIndex((c) => c.id === id);
     if (idx < 0) return;
-    const clone = { ..._s.clips[idx], id: _s.nextId++ };
+    const src = _s.clips[idx];
+    const clone = { ...src, id: _s.nextId++, texts: src.texts.map((o) => ({ ...o, id: _nextTextId++ })) };
     _s.clips.splice(idx + 1, 0, clone);
     _s.selectedId = clone.id;
     _renderTimeline();
@@ -227,7 +268,7 @@ function _deleteClip(id) {
     if (_s.selectedId === id) {
         _s.selectedId = _s.clips.length ? _s.clips[0].id : null;
         if (_s.selectedId) _selectClip(_s.selectedId);
-        else setSourcePreview(null, null);
+        else { setSourcePreview(null, null); _clearTextLayer("source"); }
     }
     _renderTimeline();
     _renderTrimPanel();
@@ -240,6 +281,7 @@ function _clearTimeline() {
     _s.clips = [];
     _s.selectedId = null;
     setSourcePreview(null, null);
+    _clearTextLayer("source");
     _renderTimeline();
     _renderTrimPanel();
 }
@@ -249,7 +291,7 @@ function _selectClip(id) {
     const clip = _selectedClip();
     _renderTimeline();
     _renderTrimPanel();
-    if (clip) setSourcePreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file }, clip.kind);
+    if (clip) _setClipSourcePreview(clip);
 }
 
 // ============================================
@@ -571,6 +613,7 @@ function _renderTrimPanel() {
                 <label>${t("videoEditImageDuration")}</label>
                 <input type="number" id="wfm-video-edit-image-duration" class="wfm-input" step="0.1" min="0.1" value="${clip.trimEnd.toFixed(2)}">
             </div>
+            <div class="wfm-video-edit-text-section" id="wfm-video-edit-text-section"></div>
         `;
         const nameEl = document.getElementById("wfm-video-edit-trim-clip-name");
         if (nameEl) { nameEl.textContent = clip.name; nameEl.title = clip.name; }
@@ -582,7 +625,10 @@ function _renderTrimPanel() {
             clip.duration = val;
             durInput.value = val.toFixed(2);
             _renderTimeline();
+            _renderTextSection(clip);
         });
+        _renderTextSection(clip);
+        _refreshTextPreview();
         return;
     }
 
@@ -615,6 +661,7 @@ function _renderTrimPanel() {
                 <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-playhead-btn" id="wfm-video-edit-trim-end-set">${t("videoEditSetFromPlayhead")}</button>
             </div>
         </div>
+        <div class="wfm-video-edit-text-section" id="wfm-video-edit-text-section"></div>
     `;
     const nameEl = document.getElementById("wfm-video-edit-trim-clip-name");
     if (nameEl) { nameEl.textContent = clip.name; nameEl.title = clip.name; }
@@ -641,7 +688,11 @@ function _renderTrimPanel() {
         startInput.value = start.toFixed(2);
         endInput.value = end.toFixed(2);
         syncScrubber();
-        if (!skipTimelineRerender) _renderTimeline();
+        if (!skipTimelineRerender) {
+            _renderTimeline();
+            _renderTextSection(clip);
+        }
+        _refreshTextPreview();
     };
     startInput.addEventListener("change", commit);
     endInput.addEventListener("change", commit);
@@ -656,6 +707,224 @@ function _renderTrimPanel() {
     });
 
     syncScrubber = _wireTrimScrubber(clip, startInput, endInput, commit) || syncScrubber;
+    _renderTextSection(clip);
+    _refreshTextPreview();
+}
+
+// ============================================
+// Text overlays (Phase 3) — per-clip list editor in the trim panel, plus a
+// CSS-positioned approximation of the burn-in drawn over the preview panes.
+// Times are clip-relative (0 = the clip's trim-in point); export converts
+// them to absolute timeline times (see _collectTimelineOverlays).
+// ============================================
+
+function _clipLength(clip) {
+    return Math.max(0, clip.trimEnd - clip.trimStart);
+}
+
+function _newTextOverlay(clip) {
+    return {
+        id: _nextTextId++,
+        text: t("videoEditTextDefault"),
+        start: 0,
+        end: Number(_clipLength(clip).toFixed(2)),
+        fontSize: 6,
+        color: "#ffffff",
+        anchor: "bottom-center",
+        outline: true,
+        background: false,
+    };
+}
+
+function _renderTextSection(clip) {
+    const host = document.getElementById("wfm-video-edit-text-section");
+    if (!host) return;
+    host.innerHTML = `
+        <div class="wfm-video-edit-section-head">
+            <span>${t("videoEditTextOverlays")}</span>
+            <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-text-add">${t("videoEditTextAdd")}</button>
+        </div>
+        <div class="wfm-video-edit-text-list" id="wfm-video-edit-text-list"></div>
+    `;
+    const list = document.getElementById("wfm-video-edit-text-list");
+    if (!clip.texts.length) {
+        list.innerHTML = `<span class="wfm-placeholder">${t("videoEditTextEmpty")}</span>`;
+    }
+    for (const ov of clip.texts) list.appendChild(_buildTextRow(clip, ov));
+    document.getElementById("wfm-video-edit-text-add")?.addEventListener("click", () => {
+        clip.texts.push(_newTextOverlay(clip));
+        _renderTextSection(clip);
+        _refreshTextPreview();
+    });
+}
+
+function _buildTextRow(clip, ov) {
+    const len = _clipLength(clip);
+    const anchorLabels = t("videoEditTextAnchorLabels");
+    const anchorOptions = _TEXT_ANCHORS
+        .map((a, i) => `<option value="${a}">${Array.isArray(anchorLabels) ? anchorLabels[i] : a}</option>`)
+        .join("");
+    const row = document.createElement("div");
+    row.className = "wfm-video-edit-text-row";
+    row.innerHTML = `
+        <div class="wfm-video-edit-text-row-head">
+            <input type="text" class="wfm-input" data-k="text">
+            <button type="button" class="wfm-btn wfm-btn-xs wfm-btn-danger" data-act="delete" title="${t("videoEditDelete")}">✕</button>
+        </div>
+        <div class="wfm-video-edit-text-grid">
+            <label>${t("videoEditTextStart")}<input type="number" class="wfm-input" data-k="start" step="0.1" min="0" max="${len}"></label>
+            <label>${t("videoEditTextEnd")}<input type="number" class="wfm-input" data-k="end" step="0.1" min="0" max="${len}"></label>
+            <label>${t("videoEditTextSize")}<input type="number" class="wfm-input" data-k="fontSize" step="0.5" min="1" max="30"></label>
+            <label>${t("videoEditTextColor")}<input type="color" data-k="color"></label>
+            <label>${t("videoEditTextPosition")}<select class="wfm-input" data-k="anchor">${anchorOptions}</select></label>
+            <label class="wfm-video-checkbox-inline"><input type="checkbox" data-k="outline"> ${t("videoEditTextOutline")}</label>
+            <label class="wfm-video-checkbox-inline"><input type="checkbox" data-k="background"> ${t("videoEditTextBackground")}</label>
+        </div>
+    `;
+    // Values are assigned as properties (never interpolated into innerHTML),
+    // since the overlay text is free-form user input.
+    const el = (k) => row.querySelector(`[data-k="${k}"]`);
+    el("text").value = ov.text;
+    el("start").value = ov.start.toFixed(2);
+    el("end").value = Math.min(ov.end, len).toFixed(2);
+    el("fontSize").value = ov.fontSize;
+    el("color").value = ov.color;
+    el("anchor").value = ov.anchor;
+    el("outline").checked = ov.outline;
+    el("background").checked = ov.background;
+
+    el("text").addEventListener("input", () => { ov.text = el("text").value; _refreshTextPreview(); });
+    const commitTimes = () => {
+        const start = Math.max(0, Math.min(Number(el("start").value) || 0, len));
+        let end = Math.max(0, Math.min(Number(el("end").value) || 0, len));
+        if (end <= start) end = Math.min(len, start + 0.1);
+        ov.start = start;
+        ov.end = end;
+        el("start").value = start.toFixed(2);
+        el("end").value = end.toFixed(2);
+        _refreshTextPreview();
+    };
+    el("start").addEventListener("change", commitTimes);
+    el("end").addEventListener("change", commitTimes);
+    el("fontSize").addEventListener("change", () => {
+        ov.fontSize = Math.max(1, Math.min(30, Number(el("fontSize").value) || 6));
+        el("fontSize").value = ov.fontSize;
+        _refreshTextPreview();
+    });
+    el("color").addEventListener("input", () => { ov.color = el("color").value; _refreshTextPreview(); });
+    el("anchor").addEventListener("change", () => { ov.anchor = el("anchor").value; _refreshTextPreview(); });
+    el("outline").addEventListener("change", () => { ov.outline = el("outline").checked; _refreshTextPreview(); });
+    el("background").addEventListener("change", () => { ov.background = el("background").checked; _refreshTextPreview(); });
+    row.querySelector('[data-act="delete"]').addEventListener("click", () => {
+        clip.texts = clip.texts.filter((o) => o.id !== ov.id);
+        _renderTextSection(clip);
+        _refreshTextPreview();
+    });
+    return row;
+}
+
+// --- Preview layer -------------------------------------------------------
+// A pointer-transparent div laid exactly over the pane's visible <video>/<img>
+// box (the media is letterboxed inside a fixed-height frame), holding one
+// absolutely-positioned element per active overlay. Font size is the same
+// "% of frame height" the backend uses, so the preview matches the burn-in
+// closely (font face may differ slightly from the server's system font).
+
+let _sourcePreviewUrl = null; // last blob URL this tab put into the Source pane
+
+function _getTextLayer(pane) {
+    const els = getPreviewPaneElements(pane);
+    if (!els?.frame) return null;
+    let layer = els.frame.querySelector(".wfm-video-edit-text-layer");
+    if (!layer) {
+        layer = document.createElement("div");
+        layer.className = "wfm-video-edit-text-layer";
+        els.frame.appendChild(layer);
+    }
+    const media = els.video && els.video.style.display !== "none" ? els.video : els.img;
+    return { layer, media };
+}
+
+function _clearTextLayer(pane) {
+    const els = getPreviewPaneElements(pane);
+    const layer = els?.frame?.querySelector(".wfm-video-edit-text-layer");
+    if (layer) layer.replaceChildren();
+}
+
+function _drawTextLayer(pane, overlays) {
+    const found = _getTextLayer(pane);
+    if (!found) return;
+    const { layer, media } = found;
+    layer.replaceChildren();
+    if (!overlays.length || !media || media.style.display === "none" || !media.clientHeight) return;
+
+    layer.style.left = `${media.offsetLeft}px`;
+    layer.style.top = `${media.offsetTop}px`;
+    layer.style.width = `${media.clientWidth}px`;
+    layer.style.height = `${media.clientHeight}px`;
+    const h = media.clientHeight;
+    const margin = 0.04 * Math.min(media.clientWidth, h);
+
+    for (const ov of overlays) {
+        const [v, hz] = (ov.anchor || "bottom-center").split("-");
+        const div = document.createElement("div");
+        div.className = "wfm-video-edit-text-item";
+        if (ov.outline) div.classList.add("outline");
+        if (ov.background) div.classList.add("bg");
+        div.textContent = ov.text;
+        div.style.fontSize = `${(ov.fontSize / 100) * h}px`;
+        div.style.color = ov.color;
+        div.style.textAlign = hz;
+        const tx = hz === "center" ? "-50%" : "0";
+        const ty = v === "middle" ? "-50%" : "0";
+        if (hz === "left") div.style.left = `${margin}px`;
+        else if (hz === "right") div.style.right = `${margin}px`;
+        else div.style.left = "50%";
+        if (v === "top") div.style.top = `${margin}px`;
+        else if (v === "bottom") div.style.bottom = `${margin}px`;
+        else div.style.top = "50%";
+        div.style.transform = `translate(${tx}, ${ty})`;
+        layer.appendChild(div);
+    }
+}
+
+function _activeOverlaysAt(clip, clipTime) {
+    return clip.texts.filter((o) => o.text.trim() && clipTime >= o.start && clipTime < o.end);
+}
+
+// Source pane: the selected clip's overlays at the source <video>'s current
+// position (relative to its trim-in). Only drawn while the pane is still
+// showing this tab's clip — an Asset selection elsewhere replaces the media
+// and must not inherit a stale overlay.
+function _refreshSourceTextPreview() {
+    const clip = _selectedClip();
+    const els = getPreviewPaneElements("source");
+    const showing = els && (els.video?.getAttribute("src") === _sourcePreviewUrl || els.img?.getAttribute("src") === _sourcePreviewUrl);
+    if (!clip || !_sourcePreviewUrl || !showing || clip.probing || clip.error) {
+        _clearTextLayer("source");
+        return;
+    }
+    if (clip.kind === "image") {
+        _drawTextLayer("source", clip.texts.filter((o) => o.text.trim()));
+        return;
+    }
+    const t0 = (els.video?.currentTime || 0) - clip.trimStart;
+    _drawTextLayer("source", _activeOverlaysAt(clip, t0));
+}
+
+function _refreshTextPreview() {
+    _refreshSourceTextPreview();
+    if (_previewPlaying) _refreshResultTextPreview();
+}
+
+function _setClipSourcePreview(clip) {
+    _sourcePreviewUrl = URL.createObjectURL(clip.file);
+    setSourcePreview(_sourcePreviewUrl, { kind: "local", file: clip.file }, clip.kind);
+    const els = getPreviewPaneElements("source");
+    // First draw once the letterboxed media box has its real size.
+    els?.video?.addEventListener("loadedmetadata", _refreshSourceTextPreview, { once: true });
+    els?.img?.addEventListener("load", _refreshSourceTextPreview, { once: true });
+    _refreshSourceTextPreview();
 }
 
 // ============================================
@@ -671,6 +940,61 @@ let _previewPlaying = false;
 let _previewClips = [];
 let _previewIndex = 0;
 let _previewImageTimer = null; // holds an image clip on screen for its duration (setTimeout, no video events to hook)
+let _previewImageStartedAt = 0; // performance.now() when the current image clip went on screen
+let _previewTextTimer = null; // redraws the Result pane's text overlays while previewing
+let _bgmPreviewEl = null; // <audio> playing the BGM alongside the preview
+let _savedResultAudio = null; // { muted, volume } of the Result <video>, restored on stop
+
+function _dbToGain(db) {
+    return Math.min(1, Math.pow(10, (Number(db) || 0) / 20));
+}
+
+function _refreshResultTextPreview() {
+    const clip = _previewClips[_previewIndex];
+    if (!_previewPlaying || !clip) {
+        _clearTextLayer("result");
+        return;
+    }
+    const t0 = clip.kind === "image"
+        ? (performance.now() - _previewImageStartedAt) / 1000
+        : (getResultPreviewVideoElement()?.currentTime || 0) - clip.trimStart;
+    _drawTextLayer("result", _activeOverlaysAt(clip, t0));
+}
+
+// The preview approximates the export's soundtrack: clip audio follows the
+// "keep original" toggle/volume on the Result <video> itself, and the BGM
+// plays from its start offset on a separate <audio> element for the whole
+// preview run (it isn't re-synced at clip boundaries, so it can drift by the
+// time each clip switch takes — fine for judging levels, not frame-exact).
+function _startPreviewAudio() {
+    const video = getResultPreviewVideoElement();
+    if (video) {
+        _savedResultAudio = { muted: video.muted, volume: video.volume };
+        video.muted = !_s.audio.keepOriginal;
+        video.volume = _dbToGain(_s.audio.originalVolumeDb);
+    }
+    const bgm = _s.audio.bgm;
+    if (bgm?.file) {
+        _bgmPreviewEl = new Audio(URL.createObjectURL(bgm.file));
+        _bgmPreviewEl.volume = _dbToGain(_s.audio.bgmVolumeDb);
+        _bgmPreviewEl.currentTime = _s.audio.bgmOffset || 0;
+        _bgmPreviewEl.play().catch(() => {});
+    }
+}
+
+function _stopPreviewAudio() {
+    if (_bgmPreviewEl) {
+        _bgmPreviewEl.pause();
+        URL.revokeObjectURL(_bgmPreviewEl.src);
+        _bgmPreviewEl = null;
+    }
+    const video = getResultPreviewVideoElement();
+    if (video && _savedResultAudio) {
+        video.muted = _savedResultAudio.muted;
+        video.volume = _savedResultAudio.volume;
+    }
+    _savedResultAudio = null;
+}
 
 function _onPreviewTimeUpdate() {
     const video = getResultPreviewVideoElement();
@@ -693,6 +1017,7 @@ function _playPreviewClip() {
         const video = getResultPreviewVideoElement();
         video?.pause();
         setResultPreview(URL.createObjectURL(clip.file), { kind: "local", file: clip.file }, "image");
+        _previewImageStartedAt = performance.now();
         const holdMs = Math.max(50, (clip.trimEnd - clip.trimStart) * 1000);
         _previewImageTimer = setTimeout(_advancePreview, holdMs);
         return;
@@ -722,7 +1047,9 @@ function _startPreview() {
     const video = getResultPreviewVideoElement();
     video?.addEventListener("timeupdate", _onPreviewTimeUpdate);
     video?.addEventListener("ended", _advancePreview);
+    _startPreviewAudio();
     _playPreviewClip();
+    _previewTextTimer = setInterval(_refreshResultTextPreview, 100);
     _updatePreviewBtn();
 }
 
@@ -733,6 +1060,9 @@ function _stopPreview() {
     video?.removeEventListener("timeupdate", _onPreviewTimeUpdate);
     video?.removeEventListener("ended", _advancePreview);
     video?.pause();
+    if (_previewTextTimer) { clearInterval(_previewTextTimer); _previewTextTimer = null; }
+    _clearTextLayer("result");
+    _stopPreviewAudio();
     _updatePreviewBtn();
 }
 
@@ -752,11 +1082,25 @@ function _updatePreviewBtn() {
 // infrastructure (comfyui-client.js), exactly like video-plan-tab.js does.
 // ============================================
 
-function _buildExportWorkflow(clips) {
+// A clip's length in the exported video — image clips are quantized to whole
+// frames at _IMAGE_EXPORT_FPS (RepeatImageBatch amount), so the soundtrack
+// segment and text-overlay offsets use the same rounded value.
+function _exportClipLength(clip) {
+    if (clip.kind === "image") {
+        return Math.max(1, Math.round(_clipLength(clip) * _IMAGE_EXPORT_FPS)) / _IMAGE_EXPORT_FPS;
+    }
+    return Math.max(0.05, _clipLength(clip));
+}
+
+function _serverFilePath(ref) {
+    return ref.subfolder ? `${ref.subfolder}/${ref.filename}` : ref.filename;
+}
+
+function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video/wfm_edit" } = {}) {
     const prompt = {};
     let nextId = 1;
     const alloc = () => String(nextId++);
-    const trimOutputs = [];
+    const segments = []; // { clip, videoOut: nodeId, componentsId: nodeId|null }
 
     // Auto-fit target for image clips: the first VIDEO clip's resolution, so
     // a still dropped alongside real footage doesn't need to be pre-sized by
@@ -766,15 +1110,18 @@ function _buildExportWorkflow(clips) {
     const targetW = videoClip ? videoClip.width : clips[0]?.width;
     const targetH = videoClip ? videoClip.height : clips[0]?.height;
 
-    // Only strip audio when clips will actually be concatenated — a single
-    // video clip never goes through ConcatenateVideo, so there's no mixed-
-    // audio compatibility problem to avoid and its audio can be kept intact.
-    const needsUniformSilence = clips.length > 1;
+    const clipAudioUsed = audio.keepOriginal && clips.some((c) => c.kind === "video" && c.hasAudio);
+    const hasBgm = !!audio.bgm?.serverRef;
+    // A separate soundtrack (ConcatenateVideo complete_audio) is only built
+    // when something actually has to be mixed: a BGM, several clips' audio
+    // joined end to end, or a volume change on the original audio.
+    const buildTrack = hasBgm || (clipAudioUsed && (clips.length > 1 || Math.round(audio.originalVolumeDb) !== 0));
+    // A lone video clip whose audio is kept as-is skips decode/re-encode
+    // entirely: its Video Slice output goes straight to SaveVideo.
+    const passthrough = clips.length === 1 && clips[0].kind === "video" && audio.keepOriginal && !buildTrack;
 
     for (const clip of clips) {
-        const file = clip.serverRef.subfolder
-            ? `${clip.serverRef.subfolder}/${clip.serverRef.filename}`
-            : clip.serverRef.filename;
+        const file = _serverFilePath(clip.serverRef);
 
         if (clip.kind === "image") {
             const loadId = alloc();
@@ -791,7 +1138,7 @@ function _buildExportWorkflow(clips) {
             }
 
             const repeatId = alloc();
-            const amount = Math.max(1, Math.round((clip.trimEnd - clip.trimStart) * _IMAGE_EXPORT_FPS));
+            const amount = Math.round(_exportClipLength(clip) * _IMAGE_EXPORT_FPS);
             prompt[repeatId] = { class_type: "RepeatImageBatch", inputs: { image: imageOut, amount } };
 
             const createId = alloc();
@@ -799,7 +1146,7 @@ function _buildExportWorkflow(clips) {
                 class_type: "CreateVideo",
                 inputs: { images: [repeatId, 0], fps: _IMAGE_EXPORT_FPS, codec: "auto" },
             };
-            trimOutputs.push(createId);
+            segments.push({ clip, videoOut: createId, componentsId: null });
             continue;
         }
 
@@ -812,25 +1159,24 @@ function _buildExportWorkflow(clips) {
             inputs: {
                 video: [loadId, 0],
                 start_time: clip.trimStart,
-                duration: Math.max(0.05, clip.trimEnd - clip.trimStart),
+                duration: _exportClipLength(clip),
                 strict_duration: false,
             },
         };
 
-        if (!needsUniformSilence) {
-            trimOutputs.push(trimId);
+        if (passthrough) {
+            segments.push({ clip, videoOut: trimId, componentsId: null });
             continue;
         }
 
-        // Strip audio by decomposing/recomposing through GetVideoComponents ->
-        // CreateVideo (audio input left unset). Verified on a live instance:
-        // ConcatenateVideo hard-errors mixing a clip with stereo/32kHz audio
-        // next to a silent image-derived clip ("audio layout: expected None,
-        // got 'stereo'"), so every clip is made silent whenever more than one
-        // clip is being concatenated. This means a multi-clip export never
-        // carries audio — a known MVP limitation, not handled per-clip
-        // because ConcatenateVideo needs uniform audio across all inputs. A
-        // lone clip (see needsUniformSilence above) keeps its original audio.
+        // Decompose/recompose through GetVideoComponents -> CreateVideo (audio
+        // input left unset). Needed whenever clips are concatenated or the
+        // soundtrack is rebuilt: ConcatenateVideo can't mix clips with
+        // different audio layouts ("audio layout: expected None, got
+        // 'stereo'"), nor a raw sliced file next to an image-derived clip
+        // ("could not be encoded compatibly") — see module header. The clip's
+        // own audio is picked up separately from the same GetVideoComponents
+        // node (output 1) when building the soundtrack below.
         const componentsId = alloc();
         prompt[componentsId] = { class_type: "GetVideoComponents", inputs: { video: [trimId, 0] } };
         const silentId = alloc();
@@ -838,17 +1184,83 @@ function _buildExportWorkflow(clips) {
             class_type: "CreateVideo",
             inputs: { images: [componentsId, 0], fps: [componentsId, 2], codec: "auto" },
         };
-        trimOutputs.push(silentId);
+        segments.push({ clip, videoOut: silentId, componentsId });
+    }
+
+    let completeAudio = null;
+    if (buildTrack) {
+        const emptyAudio = (duration) => {
+            const id = alloc();
+            prompt[id] = { class_type: "EmptyAudio", inputs: { duration, sample_rate: _AUDIO_SAMPLE_RATE, channels: 2 } };
+            return [id, 0];
+        };
+        const total = segments.reduce((sum, seg) => sum + _exportClipLength(seg.clip), 0);
+
+        let base;
+        if (clipAudioUsed) {
+            // One exact-length segment per clip: silence of the clip's length
+            // with the clip's own audio merged in (AudioMerge pads/trims
+            // audio2 to audio1's length, and passes audio1 through when the
+            // clip has no audio at all), so segments stay aligned with video.
+            const parts = segments.map((seg) => {
+                const empty = emptyAudio(_exportClipLength(seg.clip));
+                if (!seg.componentsId || !seg.clip.hasAudio) return empty;
+                const mergeId = alloc();
+                prompt[mergeId] = {
+                    class_type: "AudioMerge",
+                    inputs: { audio1: empty, audio2: [seg.componentsId, 1], merge_method: "add" },
+                };
+                return [mergeId, 0];
+            });
+            base = parts[0];
+            for (const part of parts.slice(1)) {
+                const concatId = alloc();
+                prompt[concatId] = { class_type: "AudioConcat", inputs: { audio1: base, audio2: part, direction: "after" } };
+                base = [concatId, 0];
+            }
+            const origDb = Math.round(audio.originalVolumeDb);
+            if (origDb !== 0) {
+                const volId = alloc();
+                prompt[volId] = { class_type: "AudioAdjustVolume", inputs: { audio: base, volume: origDb } };
+                base = [volId, 0];
+            }
+        } else {
+            base = emptyAudio(total);
+        }
+
+        if (hasBgm) {
+            const loadId = alloc();
+            prompt[loadId] = { class_type: "LoadAudio", inputs: { audio: _serverFilePath(audio.bgm.serverRef) } };
+            const trimId = alloc();
+            prompt[trimId] = {
+                class_type: "TrimAudioDuration",
+                inputs: { audio: [loadId, 0], start_index: Math.max(0, audio.bgmOffset || 0), duration: total },
+            };
+            let bgmOut = [trimId, 0];
+            const bgmDb = Math.round(audio.bgmVolumeDb);
+            if (bgmDb !== 0) {
+                const volId = alloc();
+                prompt[volId] = { class_type: "AudioAdjustVolume", inputs: { audio: bgmOut, volume: bgmDb } };
+                bgmOut = [volId, 0];
+            }
+            // base is exactly `total` long, so a longer BGM is cut and a
+            // shorter one is padded with silence to match.
+            const mixId = alloc();
+            prompt[mixId] = { class_type: "AudioMerge", inputs: { audio1: base, audio2: bgmOut, merge_method: "add" } };
+            base = [mixId, 0];
+        }
+        completeAudio = base;
     }
 
     let finalOutput;
-    if (trimOutputs.length === 1) {
-        finalOutput = [trimOutputs[0], 0];
+    if (segments.length === 1 && !completeAudio) {
+        finalOutput = [segments[0].videoOut, 0];
     } else {
         const concatId = alloc();
         const inputs = { codec: "auto" };
         // Autogrow's flat "videos.videoN" key format — see module header.
-        trimOutputs.forEach((tid, i) => { inputs[`videos.video${i}`] = [tid, 0]; });
+        segments.forEach((seg, i) => { inputs[`videos.video${i}`] = [seg.videoOut, 0]; });
+        if (completeAudio) inputs.complete_audio = completeAudio;
         prompt[concatId] = { class_type: "ConcatenateVideo", inputs };
         finalOutput = [concatId, 0];
     }
@@ -856,18 +1268,46 @@ function _buildExportWorkflow(clips) {
     const saveId = alloc();
     prompt[saveId] = {
         class_type: "SaveVideo",
-        inputs: { video: finalOutput, filename_prefix: "video/wfm_edit", format: "auto" },
+        inputs: { video: finalOutput, filename_prefix: filenamePrefix, format: "auto" },
     };
     return { prompt, saveId };
 }
 
-function _setExportUi(running, pct) {
+// Flattens every clip's (clip-relative) text overlays onto the exported
+// timeline, in the shape /api/wfm/video/edit/overlay-text expects.
+function _collectTimelineOverlays(clips) {
+    const out = [];
+    let offset = 0;
+    for (const clip of clips) {
+        const len = _exportClipLength(clip);
+        for (const o of clip.texts) {
+            if (!o.text.trim()) continue;
+            const start = Math.min(o.start, len);
+            const end = Math.min(o.end, len);
+            if (end <= start) continue;
+            out.push({
+                text: o.text,
+                start: offset + start,
+                end: offset + end,
+                font_size: o.fontSize,
+                color: o.color,
+                anchor: o.anchor,
+                outline: o.outline,
+                background: o.background,
+            });
+        }
+        offset += len;
+    }
+    return out;
+}
+
+function _setExportUi(running, pct, label) {
     const btn = document.getElementById("wfm-video-edit-export-btn");
     const bar = document.getElementById("wfm-video-edit-progress-bar");
     const text = document.getElementById("wfm-video-edit-progress-text");
     if (btn) btn.disabled = running;
     if (bar) bar.style.width = `${Math.round((pct || 0) * 100)}%`;
-    if (text) text.textContent = running ? t("videoEditExporting") : "Ready";
+    if (text) text.textContent = running ? (label || t("videoEditExporting")) : "Ready";
 }
 
 async function _addOutputToVideoTemp(filename, subfolder) {
@@ -914,13 +1354,36 @@ async function _exportTimeline() {
         const wsOk = await comfyUI.connectWebSocket();
         if (!wsOk) throw new Error("Failed to connect WebSocket");
 
-        const { prompt, saveId } = _buildExportWorkflow(readyClips);
+        // With text overlays the graph's output is only an intermediate
+        // ("wfm_edit_pre", deleted by the burn-in step once it succeeds).
+        const overlays = _collectTimelineOverlays(readyClips);
+        const { prompt, saveId } = _buildExportWorkflow(readyClips, {
+            filenamePrefix: overlays.length ? "video/wfm_edit_pre" : "video/wfm_edit",
+        });
         const result = await comfyUI.queuePrompt(prompt);
         await comfyUI.trackProgress(result.prompt_id, (pct) => _setExportUi(true, pct));
 
         const history = await comfyUI.getHistory(result.prompt_id);
-        const output = history?.outputs?.[saveId]?.images?.[0];
+        let output = history?.outputs?.[saveId]?.images?.[0];
         if (!output) throw new Error("No output produced");
+
+        if (overlays.length) {
+            _setExportUi(true, 1, t("videoEditBurningText"));
+            const res = await fetch("/api/wfm/video/edit/overlay-text", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    filename: output.filename,
+                    subfolder: output.subfolder || "",
+                    type: "output",
+                    overlays,
+                    delete_source: true,
+                }),
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+            output = { filename: json.filename, subfolder: json.subfolder || "" };
+        }
 
         const params = new URLSearchParams({ filename: output.filename, subfolder: output.subfolder || "", type: "output" });
         setResultPreview(`${comfyUI.baseUrl}/view?${params}`, { kind: "output", filename: output.filename, subfolder: output.subfolder || "", type: "output" });
@@ -966,6 +1429,99 @@ function _wireToolbar() {
 }
 
 // ============================================
+// Audio panel (Phase 4) — timeline-wide soundtrack settings in the export
+// panel. The BGM file is uploaded to ComfyUI's input folder right away (same
+// upload-on-add pattern as clips) so export only needs its server filename.
+// ============================================
+
+function _readAudioDuration(file) {
+    return new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        const el = new Audio();
+        const done = (d) => { URL.revokeObjectURL(url); resolve(d); };
+        el.onloadedmetadata = () => done(Number.isFinite(el.duration) ? el.duration : 0);
+        el.onerror = () => done(0);
+        el.src = url;
+    });
+}
+
+async function _setBgmFile(file, displayName) {
+    const nameEl = document.getElementById("wfm-video-edit-bgm-name");
+    if (nameEl) nameEl.textContent = t("videoEditProbing");
+    try {
+        // Duration first: reading it after the upload can fail if the picked
+        // file is itself the one the upload just overwrote on disk.
+        const duration = await _readAudioDuration(file);
+        const uploaded = await comfyUI.uploadImage(file, file.name);
+        _s.audio.bgm = {
+            name: displayName || file.name,
+            file,
+            serverRef: { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" },
+            duration,
+        };
+    } catch (err) {
+        _s.audio.bgm = null;
+        showToast(t("errorWithMsg", err.message), "error");
+    }
+    _syncAudioPanel();
+}
+
+function _syncAudioPanel() {
+    const a = _s.audio;
+    const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
+    set("wfm-video-edit-keep-audio", (el) => { el.checked = a.keepOriginal; });
+    set("wfm-video-edit-orig-vol", (el) => { el.value = a.originalVolumeDb; el.disabled = !a.keepOriginal; });
+    set("wfm-video-edit-orig-vol-val", (el) => { el.textContent = `${a.originalVolumeDb} dB`; });
+    set("wfm-video-edit-bgm-vol", (el) => { el.value = a.bgmVolumeDb; el.disabled = !a.bgm; });
+    set("wfm-video-edit-bgm-vol-val", (el) => { el.textContent = `${a.bgmVolumeDb} dB`; });
+    set("wfm-video-edit-bgm-offset", (el) => { el.value = a.bgmOffset; el.disabled = !a.bgm; });
+    set("wfm-video-edit-bgm-clear", (el) => { el.disabled = !a.bgm; });
+    set("wfm-video-edit-bgm-name", (el) => {
+        el.textContent = a.bgm ? `${a.bgm.name}${a.bgm.duration ? ` (${_fmtTime(a.bgm.duration)})` : ""}` : t("videoEditBgmNone");
+        el.title = a.bgm?.name || "";
+    });
+}
+
+function _wireAudioPanel() {
+    const byId = (id) => document.getElementById(id);
+    byId("wfm-video-edit-keep-audio")?.addEventListener("change", (e) => {
+        _s.audio.keepOriginal = e.target.checked;
+        _syncAudioPanel();
+    });
+    byId("wfm-video-edit-orig-vol")?.addEventListener("input", (e) => {
+        _s.audio.originalVolumeDb = Number(e.target.value) || 0;
+        _syncAudioPanel();
+    });
+    byId("wfm-video-edit-bgm-vol")?.addEventListener("input", (e) => {
+        _s.audio.bgmVolumeDb = Number(e.target.value) || 0;
+        if (_bgmPreviewEl) _bgmPreviewEl.volume = _dbToGain(_s.audio.bgmVolumeDb);
+        _syncAudioPanel();
+    });
+    byId("wfm-video-edit-bgm-offset")?.addEventListener("change", (e) => {
+        // TrimAudioDuration errors if the start is past the end of the file.
+        const max = _s.audio.bgm?.duration ? Math.max(0, _s.audio.bgm.duration - 0.1) : Infinity;
+        _s.audio.bgmOffset = Math.max(0, Math.min(Number(e.target.value) || 0, max));
+        _syncAudioPanel();
+    });
+    const input = byId("wfm-video-edit-bgm-input");
+    byId("wfm-video-edit-bgm-btn")?.addEventListener("click", () => input?.click());
+    input?.addEventListener("change", (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            _s.audio.bgmOffset = 0;
+            _setBgmFile(file);
+        }
+        e.target.value = "";
+    });
+    byId("wfm-video-edit-bgm-clear")?.addEventListener("click", () => {
+        _s.audio.bgm = null;
+        _s.audio.bgmOffset = 0;
+        _syncAudioPanel();
+    });
+    _syncAudioPanel();
+}
+
+// ============================================
 // Project persistence (Save/Save As/Load) — see VIDEO_EDIT_TAB_PLAN.md
 // section 5 "永続化". Only clips that already have a serverRef (i.e. finished
 // uploading+probing) are persisted; a clip still mid-upload when Save is
@@ -986,7 +1542,15 @@ function _buildProjectData() {
                 width: c.width,
                 height: c.height,
                 fps: c.fps,
+                texts: c.texts.map(({ id, ...rest }) => rest),
             })),
+        audio: {
+            keepOriginal: _s.audio.keepOriginal,
+            originalVolumeDb: _s.audio.originalVolumeDb,
+            bgmVolumeDb: _s.audio.bgmVolumeDb,
+            bgmOffset: _s.audio.bgmOffset,
+            bgm: _s.audio.bgm ? { name: _s.audio.bgm.name, serverRef: _s.audio.bgm.serverRef } : null,
+        },
     };
 }
 
@@ -1075,6 +1639,11 @@ async function _restoreClipFromSaved(entry) {
         } else {
             c.trimEnd = Math.max(0.1, entry.trimEnd ?? c.trimEnd);
         }
+        c.texts = (Array.isArray(entry.texts) ? entry.texts : []).map((o) => ({
+            ..._newTextOverlay(c),
+            ...o,
+            id: _nextTextId++,
+        }));
         _renderTimeline();
         if (_s.selectedId === c.id) _renderTrimPanel();
     } catch (err) {
@@ -1082,11 +1651,39 @@ async function _restoreClipFromSaved(entry) {
     }
 }
 
+// Projects saved before Phase 4 have no "audio" key — they fall back to the
+// defaults (original audio kept, no BGM). A saved BGM is re-fetched and
+// re-uploaded the same way clips are (see _restoreClipFromSaved).
+async function _restoreAudioFromSaved(saved) {
+    _s.audio = {
+        keepOriginal: saved?.keepOriginal ?? true,
+        originalVolumeDb: Number(saved?.originalVolumeDb) || 0,
+        bgm: null,
+        bgmVolumeDb: saved?.bgmVolumeDb ?? -6,
+        bgmOffset: Number(saved?.bgmOffset) || 0,
+    };
+    const ref = saved?.bgm?.serverRef;
+    if (ref?.filename) {
+        try {
+            const params = new URLSearchParams({ filename: ref.filename, subfolder: ref.subfolder || "", type: ref.type || "input" });
+            const res = await fetch(`${comfyUI.baseUrl}/view?${params}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const name = saved.bgm.name || ref.filename;
+            await _setBgmFile(new File([blob], ref.filename, { type: blob.type || "audio/mpeg" }), name);
+        } catch (err) {
+            showToast(t("errorWithMsg", `BGM: ${err.message}`), "error");
+        }
+    }
+    _syncAudioPanel();
+}
+
 async function _loadProjectData(filename, data) {
     _stopPreview();
     _s.clips = [];
     _s.selectedId = null;
     setSourcePreview(null, null);
+    _clearTextLayer("source");
 
     const entries = Array.isArray(data.clips) ? data.clips : [];
     // Sequential, not parallel: addClipFromFile() appends to _s.clips, so
@@ -1095,6 +1692,7 @@ async function _loadProjectData(filename, data) {
     for (const entry of entries) {
         await _restoreClipFromSaved(entry);
     }
+    await _restoreAudioFromSaved(data.audio);
 
     _s.projectFilename = filename;
     _updateProjectNameUI();
@@ -1132,6 +1730,11 @@ export async function openSavedVideoEditProject(filename) {
 
 export function initVideoEditTab() {
     _wireToolbar();
+    _wireAudioPanel();
+    const sourceVideo = getPreviewPaneElements("source")?.video;
+    sourceVideo?.addEventListener("timeupdate", _refreshSourceTextPreview);
+    sourceVideo?.addEventListener("seeked", _refreshSourceTextPreview);
+    window.addEventListener("resize", _refreshTextPreview);
     document.getElementById("wfm-video-edit-export-btn")?.addEventListener("click", _exportTimeline);
     document.getElementById("wfm-video-edit-save-btn")?.addEventListener("click", () => _saveProject());
     document.getElementById("wfm-video-edit-saveas-btn")?.addEventListener("click", () => _saveProject(null, true));

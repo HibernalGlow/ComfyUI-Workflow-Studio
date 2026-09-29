@@ -602,6 +602,151 @@
     flex: none;
 }
 
+/* ---- Edit: テキストオーバーレイ(Phase 3) / オーディオ(Phase 4) ---- */
+.wfm-video-edit-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--wfm-text-secondary);
+    margin-bottom: 6px;
+}
+
+.wfm-video-edit-text-section {
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--wfm-border);
+}
+
+.wfm-video-edit-text-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wfm-video-edit-text-row {
+    border: 1px solid var(--wfm-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+.wfm-video-edit-text-row-head {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.wfm-video-edit-text-row-head input {
+    flex: 1;
+    min-width: 0;
+}
+
+.wfm-video-edit-text-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 6px 8px;
+    align-items: end;
+}
+
+.wfm-video-edit-text-grid > label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--wfm-text-secondary);
+    margin: 0;
+}
+
+.wfm-video-edit-text-grid > label.wfm-video-checkbox-inline {
+    flex-direction: row;
+}
+
+.wfm-video-edit-text-grid input[type="color"] {
+    width: 100%;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--wfm-border);
+    border-radius: 4px;
+    background: none;
+}
+
+.wfm-video-edit-audio-panel {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--wfm-border);
+}
+
+.wfm-video-edit-audio-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2px 6px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--wfm-text-secondary);
+}
+
+.wfm-video-edit-audio-row > label {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.wfm-video-edit-audio-row input[type="range"] {
+    width: 100%;
+}
+
+.wfm-video-edit-audio-row input[type="number"] {
+    grid-column: 1 / -1;
+}
+
+.wfm-video-edit-audio-val {
+    min-width: 44px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.wfm-video-edit-bgm-file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.wfm-video-edit-bgm-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* プレビュー枠上のテキスト近似表示レイヤー(実際の焼き込みはサーバー側)。
+   left/top/width/heightはJSが表示中の<video>/<img>の実寸に合わせて設定する */
+.wfm-video-edit-text-layer {
+    position: absolute;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.wfm-video-edit-text-item {
+    position: absolute;
+    white-space: pre;
+    line-height: 1.2;
+    font-family: "Meiryo", "Yu Gothic", "Noto Sans JP", sans-serif;
+}
+
+.wfm-video-edit-text-item.outline {
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 2px #000;
+}
+
+.wfm-video-edit-text-item.bg {
+    background: rgba(0, 0, 0, 0.55);
+    padding: 0.15em 0.3em;
+    border-radius: 0.3em;
+}
+
 .wfm-video-asset-detail label {
     font-size: 12px;
     color: var(--wfm-text-secondary);
@@ -664,6 +809,7 @@
 }
 
 .wfm-video-preview-frame {
+    position: relative;
     flex: 1;
     min-width: 0;
     height: 260px;

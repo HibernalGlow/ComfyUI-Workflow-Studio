@@ -1,5 +1,5 @@
-"""Video tab API routes: last-frame capture, animated GIF conversion, and
-Plan (batch timeline) file management."""
+"""Video tab API routes: last-frame capture, animated GIF conversion, Edit
+tab probe/text-overlay burn-in, and Plan/Edit project file management."""
 
 import asyncio
 import logging
@@ -22,6 +22,7 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/wfm/video/frame/save-to-output", handle_save_frame)
     app.router.add_post("/api/wfm/video/to-gif", handle_to_gif)
     app.router.add_get("/api/wfm/video/edit/probe", handle_probe_video)
+    app.router.add_post("/api/wfm/video/edit/overlay-text", handle_overlay_text)
 
     app.router.add_get("/api/wfm/video/plans", handle_list_plans)
     app.router.add_get("/api/wfm/video/plans/content", handle_get_plan_content)
@@ -92,6 +93,34 @@ async def handle_probe_video(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=400)
     except Exception as e:
         logger.error("Error probing video: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_overlay_text(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+        filename = body.get("filename", "")
+        subfolder = body.get("subfolder", "")
+        type_ = body.get("type", "output")
+        overlays = body.get("overlays") or []
+        delete_source = bool(body.get("delete_source"))
+        if not filename:
+            return web.json_response({"error": "filename required"}, status=400)
+        if not isinstance(overlays, list):
+            return web.json_response({"error": "overlays must be a list"}, status=400)
+
+        # Decode+re-encode of every frame — run off the event loop so other
+        # requests aren't stalled for the duration of the burn-in.
+        result = await asyncio.to_thread(
+            _service.overlay_text_on_video, filename, subfolder, type_, overlays, "video/wfm_edit", delete_source
+        )
+        return web.json_response({"status": "ok", **result})
+    except FileNotFoundError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    except Exception as e:
+        logger.error("Error burning text overlay into video: %s", e)
         return web.json_response({"error": str(e)}, status=500)
 
 

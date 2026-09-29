@@ -132,6 +132,13 @@ function _applyVideoI18n() {
     setText("wfm-video-edit-duplicate-btn", "videoEditDuplicate");
     setText("wfm-video-edit-delete-btn", "videoEditDelete");
     setText("wfm-video-edit-clear-btn", "videoEditClearBtn");
+    setText("wfm-video-edit-audio-title", "videoEditAudioTitle");
+    setText("wfm-video-edit-keep-audio-label", "videoEditKeepAudio");
+    setText("wfm-video-edit-orig-vol-label", "videoEditOriginalVolume");
+    setText("wfm-video-edit-bgm-btn", "videoEditBgmSelect");
+    setTitle("wfm-video-edit-bgm-clear", "videoEditBgmRemove");
+    setText("wfm-video-edit-bgm-vol-label", "videoEditBgmVolume");
+    setText("wfm-video-edit-bgm-offset-label", "videoEditBgmOffset");
     setText("wfm-video-source-add-to-edit", "videoSourceAddToEdit");
     setText("wfm-video-source-label", "videoSourceLabel");
     setText("wfm-video-source-hint", "videoSourceHint");
