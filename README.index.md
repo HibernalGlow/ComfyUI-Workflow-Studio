@@ -75,7 +75,7 @@ Model Browser, Thumbnail / Table views, Table column sort, Search & Filter, User
 ### Image Edit Tab (v0.3.65)
 Layer-based image editor, Loading images, Open PSD button, Close button, New button, Tools, Layer panel, Duplicate layer (⧉), Layer lock, Text quality, Export, Canvas navigation, Undo / Redo
 
-### Video Tab (v0.5.0 – Unreleased)
+### Video Tab (v0.5.0 – v0.7.4)
 Dedicated video generation UI, independent of GenerateUI, Plan subtab, Base settings row, Edit subtab, Edit: Audio / BGM, Edit: Text overlays, Edit: Crop, Edit: Undo / Redo, Edit project persistence, Asset subtab, Project subtab, Two center previews, First Frame / Last Frame are both optional, Semantic node lookup, not hardcoded IDs, Field highlight color, Load in Video, Frame tab, GIF tab, Playback volume
 
 ### AI TOOL Tab (v0.3.14)

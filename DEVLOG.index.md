@@ -2,7 +2,7 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
-- **Unreleased（2026-09-29、ブランチ `feature/video-edit-bgm-text-overlay`）** — Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
+- **v0.7.4（2026-09-29）** — Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
 - **v0.7.3（2026-09-24）** — GenerateUIタブにQwen Image 2.1（TextEncodeQwenImage21）対応を追加
 - **v0.7.2（2026-09-18）** — Workflowタブにソート機能追加（Date/Name 昇順降順）
 - **v0.7.1（2026-09-17）** — セキュリティ修正: Tagger VLM の Unsloth 経路でAPIキーがSSRFにより外部送信され得る不備を修正

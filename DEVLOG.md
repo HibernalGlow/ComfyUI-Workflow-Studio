@@ -2,7 +2,7 @@
 
 ---
 
-## Unreleased（2026-09-29、ブランチ `feature/video-edit-bgm-text-overlay`）
+## v0.7.4（2026-09-29）
 
 ### Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
 
