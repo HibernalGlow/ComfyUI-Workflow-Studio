@@ -722,6 +722,71 @@
     white-space: nowrap;
 }
 
+.wfm-video-edit-crop-section {
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--wfm-border);
+}
+
+.wfm-video-edit-crop-row {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+}
+
+.wfm-video-edit-crop-row > label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--wfm-text-secondary);
+    margin: 0;
+    width: 110px;
+}
+
+#wfm-video-edit-crop-toggle.active {
+    background: var(--wfm-primary);
+    color: #fff;
+}
+
+/* Sourceプレビュー上のクロップ矩形。外側はbox-shadowで暗転、
+   .interactive時のみドラッグ(移動/四隅リサイズ)を受け付ける */
+.wfm-video-edit-crop-layer {
+    position: absolute;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.wfm-video-edit-crop-rect {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+}
+
+.wfm-video-edit-crop-layer.interactive .wfm-video-edit-crop-rect {
+    pointer-events: auto;
+    cursor: move;
+    border: 2px solid var(--wfm-primary);
+    touch-action: none;
+}
+
+.wfm-video-edit-crop-handle {
+    display: none;
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--wfm-primary);
+    border: 1px solid #fff;
+    border-radius: 2px;
+}
+
+.wfm-video-edit-crop-layer.interactive .wfm-video-edit-crop-handle { display: block; }
+.wfm-video-edit-crop-handle[data-h="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
+.wfm-video-edit-crop-handle[data-h="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
+.wfm-video-edit-crop-handle[data-h="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.wfm-video-edit-crop-handle[data-h="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+
 /* プレビュー枠上のテキスト近似表示レイヤー(実際の焼き込みはサーバー側)。
    left/top/width/heightはJSが表示中の<video>/<img>の実寸に合わせて設定する */
 .wfm-video-edit-text-layer {

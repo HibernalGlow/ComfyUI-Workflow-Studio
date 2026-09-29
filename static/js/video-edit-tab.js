@@ -60,6 +60,15 @@
  * CreateVideo clip fails with "Video chunk N could not be encoded compatibly"
  * (extradata / color space mismatch), audio or not.
  *
+ * Crop (Phase 2): stored per VIDEO clip as a normalized 0..1 rect (the same
+ * convention as ComfyUI-LoadVideoCrop), converted to even pixel values at
+ * export and applied with core `VideoCrop` right after the clip's Video Slice.
+ * VideoCrop's `crop` input must be double-nested — {"crop": {"x","y","width",
+ * "height"}} — like VideoTrim's (verified on 0.37.0: a 300x200 crop of a
+ * 608x352 clip matches the same region of the source frame). The export
+ * resolution is the first video clip's post-crop size; other clips whose
+ * (post-crop) size differs are fit to it with ImageScale(crop=center).
+ *
  * Text overlays (Phase 3): stored per clip with clip-relative times, so they
  * move with the clip when it's reordered. There's no time-ranged video text
  * node in ComfyUI core, so export runs the graph first (to a "wfm_edit_pre"
@@ -77,7 +86,7 @@ import {
 import { VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 
 const _s = {
-    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, hasAudio, trimStart, trimEnd, texts:[textOverlay], probing, error }
+    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, hasAudio, trimStart, trimEnd, crop:{x,y,w,h}(0..1)|null, texts:[textOverlay], probing, error }
     selectedId: null,
     exporting: false,
     nextId: 1,
@@ -166,6 +175,7 @@ export function addClipFromFile(file, displayName) {
         hasAudio: false,
         trimStart: 0,
         trimEnd: kind === "image" ? _DEFAULT_IMAGE_DURATION : 0,
+        crop: null,
         texts: [],
         probing: true,
         error: null,
@@ -255,7 +265,12 @@ function _duplicateClip(id) {
     const idx = _s.clips.findIndex((c) => c.id === id);
     if (idx < 0) return;
     const src = _s.clips[idx];
-    const clone = { ...src, id: _s.nextId++, texts: src.texts.map((o) => ({ ...o, id: _nextTextId++ })) };
+    const clone = {
+        ...src,
+        id: _s.nextId++,
+        crop: src.crop ? { ...src.crop } : null,
+        texts: src.texts.map((o) => ({ ...o, id: _nextTextId++ })),
+    };
     _s.clips.splice(idx + 1, 0, clone);
     _s.selectedId = clone.id;
     _renderTimeline();
@@ -287,6 +302,7 @@ function _clearTimeline() {
 }
 
 function _selectClip(id) {
+    if (id !== _s.selectedId) _cropEditing = false;
     _s.selectedId = id;
     const clip = _selectedClip();
     _renderTimeline();
@@ -303,7 +319,9 @@ function _selectClip(id) {
 // ============================================
 
 function _findResolutionMismatch(clips) {
-    const sized = clips.filter((c) => c.kind === "video" && c.width && c.height);
+    // Cropped clips are fit to the export size (see _buildExportWorkflow), so
+    // only uncropped video clips can still conflict with each other.
+    const sized = clips.filter((c) => c.kind === "video" && !c.crop && c.width && c.height);
     if (sized.length < 2) return null;
     const first = sized[0];
     const mismatched = sized.find((c) => c.width !== first.width || c.height !== first.height);
@@ -661,6 +679,7 @@ function _renderTrimPanel() {
                 <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-playhead-btn" id="wfm-video-edit-trim-end-set">${t("videoEditSetFromPlayhead")}</button>
             </div>
         </div>
+        <div class="wfm-video-edit-crop-section" id="wfm-video-edit-crop-section"></div>
         <div class="wfm-video-edit-text-section" id="wfm-video-edit-text-section"></div>
     `;
     const nameEl = document.getElementById("wfm-video-edit-trim-clip-name");
@@ -707,8 +726,244 @@ function _renderTrimPanel() {
     });
 
     syncScrubber = _wireTrimScrubber(clip, startInput, endInput, commit) || syncScrubber;
+    _renderCropSection(clip);
     _renderTextSection(clip);
     _refreshTextPreview();
+}
+
+// ============================================
+// Crop (Phase 2) — normalized rect per video clip, edited directly on the
+// Source preview: while "Edit crop" is on, a draggable/resizable rect sits
+// over the letterboxed <video> box (the area outside it is dimmed); when
+// off, the dimmed mask stays as a read-only indication of the crop.
+// ============================================
+
+const _CROP_ASPECTS = { free: null, "16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1, "4:3": 4 / 3, "3:4": 3 / 4 };
+const _CROP_MIN = 0.05; // smallest crop side, as a fraction of the frame
+let _cropEditing = false;
+let _cropAspect = "free";
+
+function _even(v) {
+    return v - (v % 2);
+}
+
+// Pixel crop for export (H.264 4:2:0 needs even dimensions/offsets), or null
+// when the clip isn't cropped.
+function _cropPixels(clip) {
+    if (clip.kind !== "video" || !clip.crop || !clip.width || !clip.height) return null;
+    const W = clip.width;
+    const H = clip.height;
+    const x = Math.min(_even(Math.floor(clip.crop.x * W)), W - 2);
+    const y = Math.min(_even(Math.floor(clip.crop.y * H)), H - 2);
+    const width = Math.max(2, Math.min(_even(Math.round(clip.crop.w * W)), _even(W - x)));
+    const height = Math.max(2, Math.min(_even(Math.round(clip.crop.h * H)), _even(H - y)));
+    if (x === 0 && y === 0 && width >= _even(W) && height >= _even(H)) return null;
+    return { x, y, width, height };
+}
+
+// A clip's frame size after cropping (what it contributes to the export).
+function _effectiveSize(clip) {
+    const px = _cropPixels(clip);
+    return px ? { width: px.width, height: px.height } : { width: clip.width, height: clip.height };
+}
+
+function _renderCropSection(clip) {
+    const host = document.getElementById("wfm-video-edit-crop-section");
+    if (!host) return;
+    const aspectOptions = Object.keys(_CROP_ASPECTS)
+        .map((k) => `<option value="${k}">${k === "free" ? t("videoEditCropFree") : k}</option>`)
+        .join("");
+    host.innerHTML = `
+        <div class="wfm-video-edit-section-head">
+            <span>${t("videoEditCrop")}</span>
+            <span style="display:flex;gap:6px;">
+                <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-crop-toggle"></button>
+                <button type="button" class="wfm-btn wfm-btn-xs" id="wfm-video-edit-crop-reset">${t("videoEditCropReset")}</button>
+            </span>
+        </div>
+        <div class="wfm-video-edit-crop-row">
+            <label>${t("videoEditCropAspect")}<select class="wfm-input" id="wfm-video-edit-crop-aspect">${aspectOptions}</select></label>
+            <span class="wfm-i2i-status" id="wfm-video-edit-crop-info"></span>
+        </div>
+    `;
+    const toggle = document.getElementById("wfm-video-edit-crop-toggle");
+    const aspect = document.getElementById("wfm-video-edit-crop-aspect");
+    toggle.textContent = _cropEditing ? t("videoEditCropDone") : t("videoEditCropEdit");
+    toggle.classList.toggle("active", _cropEditing);
+    aspect.value = _cropAspect;
+    toggle.addEventListener("click", () => {
+        _cropEditing = !_cropEditing;
+        if (_cropEditing && !clip.crop) clip.crop = { x: 0, y: 0, w: 1, h: 1 };
+        if (_cropEditing && _cropAspect !== "free") _applyCropAspect(clip);
+        _renderCropSection(clip);
+        _refreshCropPreview();
+    });
+    document.getElementById("wfm-video-edit-crop-reset").addEventListener("click", () => {
+        clip.crop = _cropEditing ? { x: 0, y: 0, w: 1, h: 1 } : null;
+        _commitCrop(clip);
+    });
+    aspect.addEventListener("change", () => {
+        _cropAspect = aspect.value;
+        if (clip.crop) _applyCropAspect(clip);
+        _commitCrop(clip);
+    });
+    _updateCropInfo(clip);
+}
+
+function _updateCropInfo(clip) {
+    const el = document.getElementById("wfm-video-edit-crop-info");
+    if (!el) return;
+    const px = _cropPixels(clip);
+    el.textContent = px
+        ? `x ${px.x}, y ${px.y} — ${px.width}×${px.height}px`
+        : `${t("videoEditCropNone")} (${clip.width}×${clip.height}px)`;
+}
+
+function _commitCrop(clip) {
+    // A full-frame "crop" is the same as none — keep the data clean so the
+    // export doesn't insert a no-op VideoCrop node.
+    if (clip.crop && !_cropEditing && !_cropPixels(clip)) clip.crop = null;
+    _updateCropInfo(clip);
+    _refreshCropPreview();
+    _refreshTextPreview();
+    _renderTimeline();
+}
+
+// Re-shapes the rect to the chosen aspect ratio (in PIXEL space — the
+// normalized rect is relative to a non-square frame), keeping its center and
+// shrinking to fit the frame if needed.
+function _applyCropAspect(clip) {
+    const r = _CROP_ASPECTS[_cropAspect];
+    if (!r || !clip.crop || !clip.width || !clip.height) return;
+    const c = clip.crop;
+    const frameR = clip.width / clip.height;
+    let w = c.w;
+    let h = (w * frameR) / r;
+    if (h > 1) { h = 1; w = (h * r) / frameR; }
+    const cx = c.x + c.w / 2;
+    const cy = c.y + c.h / 2;
+    clip.crop = {
+        w, h,
+        x: Math.min(Math.max(0, cx - w / 2), 1 - w),
+        y: Math.min(Math.max(0, cy - h / 2), 1 - h),
+    };
+}
+
+function _mediaBox(pane) {
+    const els = getPreviewPaneElements(pane);
+    if (!els?.frame) return null;
+    const media = els.video && els.video.style.display !== "none" ? els.video : els.img;
+    if (!media || media.style.display === "none" || !media.clientHeight) return null;
+    return { frame: els.frame, media, left: media.offsetLeft, top: media.offsetTop, width: media.clientWidth, height: media.clientHeight };
+}
+
+function _clearCropLayer(pane) {
+    const layer = getPreviewPaneElements(pane)?.frame?.querySelector(".wfm-video-edit-crop-layer");
+    if (layer) layer.remove();
+}
+
+// Draws the crop rect (and dimmed surround) over a pane's media box.
+// interactive=true wires move/resize dragging back into clip.crop.
+function _drawCropLayer(pane, clip, interactive) {
+    const box = _mediaBox(pane);
+    if (!box || !clip?.crop) { _clearCropLayer(pane); return; }
+    let layer = box.frame.querySelector(".wfm-video-edit-crop-layer");
+    if (!layer) {
+        layer = document.createElement("div");
+        layer.className = "wfm-video-edit-crop-layer";
+        layer.innerHTML = `<div class="wfm-video-edit-crop-rect">
+            <span class="wfm-video-edit-crop-handle" data-h="nw"></span><span class="wfm-video-edit-crop-handle" data-h="ne"></span>
+            <span class="wfm-video-edit-crop-handle" data-h="sw"></span><span class="wfm-video-edit-crop-handle" data-h="se"></span>
+        </div>`;
+        box.frame.appendChild(layer);
+        _wireCropDrag(layer, pane);
+    }
+    layer.classList.toggle("interactive", !!interactive);
+    Object.assign(layer.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+    const rect = layer.firstElementChild;
+    const c = clip.crop;
+    Object.assign(rect.style, {
+        left: `${c.x * 100}%`, top: `${c.y * 100}%`, width: `${c.w * 100}%`, height: `${c.h * 100}%`,
+    });
+}
+
+function _wireCropDrag(layer, pane) {
+    const rect = layer.firstElementChild;
+    rect.addEventListener("pointerdown", (e) => {
+        const clip = _selectedClip();
+        if (!layer.classList.contains("interactive") || !clip?.crop) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const handle = e.target.dataset?.h || "move";
+        const box = layer.getBoundingClientRect();
+        const start = { ...clip.crop };
+        const x0 = e.clientX;
+        const y0 = e.clientY;
+        const ratio = _CROP_ASPECTS[_cropAspect];
+        const frameR = clip.width && clip.height ? clip.width / clip.height : 1;
+        rect.setPointerCapture(e.pointerId);
+
+        const onMove = (ev) => {
+            const dx = (ev.clientX - x0) / box.width;
+            const dy = (ev.clientY - y0) / box.height;
+            let { x, y, w, h } = start;
+            if (handle === "move") {
+                x = Math.min(Math.max(0, start.x + dx), 1 - w);
+                y = Math.min(Math.max(0, start.y + dy), 1 - h);
+            } else {
+                // Anchor = the corner opposite the dragged handle.
+                const ax = handle.includes("w") ? start.x + start.w : start.x;
+                const ay = handle.includes("n") ? start.y + start.h : start.y;
+                const px = Math.min(Math.max(0, (handle.includes("w") ? start.x : start.x + start.w) + dx), 1);
+                const py = Math.min(Math.max(0, (handle.includes("n") ? start.y : start.y + start.h) + dy), 1);
+                w = Math.max(_CROP_MIN, Math.abs(px - ax));
+                h = Math.max(_CROP_MIN, Math.abs(py - ay));
+                if (ratio) {
+                    // Keep the pixel aspect: derive h from w, then clamp to
+                    // the room available on the anchor's side.
+                    h = (w * frameR) / ratio;
+                    const maxH = handle.includes("n") ? ay : 1 - ay;
+                    const maxW = handle.includes("w") ? ax : 1 - ax;
+                    if (h > maxH) { h = maxH; w = (h * ratio) / frameR; }
+                    if (w > maxW) { w = maxW; h = (w * frameR) / ratio; }
+                } else {
+                    w = Math.min(w, handle.includes("w") ? ax : 1 - ax);
+                    h = Math.min(h, handle.includes("n") ? ay : 1 - ay);
+                }
+                x = handle.includes("w") ? ax - w : ax;
+                y = handle.includes("n") ? ay - h : ay;
+            }
+            clip.crop = { x, y, w, h };
+            _drawCropLayer(pane, clip, true);
+            _updateCropInfo(clip);
+            _refreshTextPreview();
+        };
+        const onUp = () => {
+            rect.removeEventListener("pointermove", onMove);
+            rect.removeEventListener("pointerup", onUp);
+            rect.removeEventListener("pointercancel", onUp);
+            _commitCrop(clip);
+        };
+        rect.addEventListener("pointermove", onMove);
+        rect.addEventListener("pointerup", onUp);
+        rect.addEventListener("pointercancel", onUp);
+    });
+}
+
+function _refreshCropPreview() {
+    const clip = _selectedClip();
+    const els = getPreviewPaneElements("source");
+    const showing = els && (els.video?.getAttribute("src") === _sourcePreviewUrl);
+    if (!clip || clip.kind !== "video" || !showing || clip.probing || clip.error || !clip.crop) {
+        _clearCropLayer("source");
+    } else {
+        _drawCropLayer("source", clip, _cropEditing);
+    }
+    if (_previewPlaying) {
+        const cur = _previewClips[_previewIndex];
+        if (cur?.kind === "video" && cur.crop) _drawCropLayer("result", cur, false);
+        else _clearCropLayer("result");
+    }
 }
 
 // ============================================
@@ -851,19 +1106,23 @@ function _clearTextLayer(pane) {
     if (layer) layer.replaceChildren();
 }
 
-function _drawTextLayer(pane, overlays) {
+// crop (normalized, optional): the burn-in happens on the cropped frame, so
+// the preview layer covers only that sub-rect of the displayed media.
+function _drawTextLayer(pane, overlays, crop = null) {
     const found = _getTextLayer(pane);
     if (!found) return;
     const { layer, media } = found;
     layer.replaceChildren();
     if (!overlays.length || !media || media.style.display === "none" || !media.clientHeight) return;
 
-    layer.style.left = `${media.offsetLeft}px`;
-    layer.style.top = `${media.offsetTop}px`;
-    layer.style.width = `${media.clientWidth}px`;
-    layer.style.height = `${media.clientHeight}px`;
-    const h = media.clientHeight;
-    const margin = 0.04 * Math.min(media.clientWidth, h);
+    const c = crop || { x: 0, y: 0, w: 1, h: 1 };
+    const w = media.clientWidth * c.w;
+    const h = media.clientHeight * c.h;
+    layer.style.left = `${media.offsetLeft + media.clientWidth * c.x}px`;
+    layer.style.top = `${media.offsetTop + media.clientHeight * c.y}px`;
+    layer.style.width = `${w}px`;
+    layer.style.height = `${h}px`;
+    const margin = 0.04 * Math.min(w, h);
 
     for (const ov of overlays) {
         const [v, hz] = (ov.anchor || "bottom-center").split("-");
@@ -909,7 +1168,8 @@ function _refreshSourceTextPreview() {
         return;
     }
     const t0 = (els.video?.currentTime || 0) - clip.trimStart;
-    _drawTextLayer("source", _activeOverlaysAt(clip, t0));
+    _drawTextLayer("source", _activeOverlaysAt(clip, t0), clip.crop);
+    _refreshCropPreview();
 }
 
 function _refreshTextPreview() {
@@ -958,7 +1218,9 @@ function _refreshResultTextPreview() {
     const t0 = clip.kind === "image"
         ? (performance.now() - _previewImageStartedAt) / 1000
         : (getResultPreviewVideoElement()?.currentTime || 0) - clip.trimStart;
-    _drawTextLayer("result", _activeOverlaysAt(clip, t0));
+    _drawTextLayer("result", _activeOverlaysAt(clip, t0), clip.kind === "video" ? clip.crop : null);
+    if (clip.kind === "video" && clip.crop) _drawCropLayer("result", clip, false);
+    else _clearCropLayer("result");
 }
 
 // The preview approximates the export's soundtrack: clip audio follows the
@@ -1062,6 +1324,7 @@ function _stopPreview() {
     video?.pause();
     if (_previewTextTimer) { clearInterval(_previewTextTimer); _previewTextTimer = null; }
     _clearTextLayer("result");
+    _clearCropLayer("result");
     _stopPreviewAudio();
     _updatePreviewBtn();
 }
@@ -1107,8 +1370,9 @@ function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video
     // hand (see _findResolutionMismatch, which only ever compares VIDEO
     // clips against each other — images are exempt because of this fit step).
     const videoClip = clips.find((c) => c.kind === "video");
-    const targetW = videoClip ? videoClip.width : clips[0]?.width;
-    const targetH = videoClip ? videoClip.height : clips[0]?.height;
+    const target = _effectiveSize(videoClip || clips[0] || {});
+    const targetW = target.width;
+    const targetH = target.height;
 
     const clipAudioUsed = audio.keepOriginal && clips.some((c) => c.kind === "video" && c.hasAudio);
     const hasBgm = !!audio.bgm?.serverRef;
@@ -1164,8 +1428,17 @@ function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video
             },
         };
 
+        let clipOut = trimId;
+        const crop = _cropPixels(clip);
+        if (crop) {
+            const cropId = alloc();
+            // Double-nested on purpose — see module header.
+            prompt[cropId] = { class_type: "VideoCrop", inputs: { video: [trimId, 0], crop: { crop } } };
+            clipOut = cropId;
+        }
+
         if (passthrough) {
-            segments.push({ clip, videoOut: trimId, componentsId: null });
+            segments.push({ clip, videoOut: clipOut, componentsId: null });
             continue;
         }
 
@@ -1178,11 +1451,23 @@ function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video
         // own audio is picked up separately from the same GetVideoComponents
         // node (output 1) when building the soundtrack below.
         const componentsId = alloc();
-        prompt[componentsId] = { class_type: "GetVideoComponents", inputs: { video: [trimId, 0] } };
+        prompt[componentsId] = { class_type: "GetVideoComponents", inputs: { video: [clipOut, 0] } };
+        let framesOut = [componentsId, 0];
+        const size = _effectiveSize(clip);
+        if (targetW && targetH && (size.width !== targetW || size.height !== targetH)) {
+            // Only reachable for cropped clips (uncropped mismatches are
+            // blocked by _findResolutionMismatch before export).
+            const scaleId = alloc();
+            prompt[scaleId] = {
+                class_type: "ImageScale",
+                inputs: { image: framesOut, upscale_method: "lanczos", width: targetW, height: targetH, crop: "center" },
+            };
+            framesOut = [scaleId, 0];
+        }
         const silentId = alloc();
         prompt[silentId] = {
             class_type: "CreateVideo",
-            inputs: { images: [componentsId, 0], fps: [componentsId, 2], codec: "auto" },
+            inputs: { images: framesOut, fps: [componentsId, 2], codec: "auto" },
         };
         segments.push({ clip, videoOut: silentId, componentsId });
     }
@@ -1542,6 +1827,7 @@ function _buildProjectData() {
                 width: c.width,
                 height: c.height,
                 fps: c.fps,
+                crop: c.crop,
                 texts: c.texts.map(({ id, ...rest }) => rest),
             })),
         audio: {
@@ -1639,6 +1925,8 @@ async function _restoreClipFromSaved(entry) {
         } else {
             c.trimEnd = Math.max(0.1, entry.trimEnd ?? c.trimEnd);
         }
+        const sc = entry.crop;
+        c.crop = c.kind === "video" && sc && [sc.x, sc.y, sc.w, sc.h].every(Number.isFinite) ? { x: sc.x, y: sc.y, w: sc.w, h: sc.h } : null;
         c.texts = (Array.isArray(entry.texts) ? entry.texts : []).map((o) => ({
             ..._newTextOverlay(c),
             ...o,
@@ -1734,7 +2022,7 @@ export function initVideoEditTab() {
     const sourceVideo = getPreviewPaneElements("source")?.video;
     sourceVideo?.addEventListener("timeupdate", _refreshSourceTextPreview);
     sourceVideo?.addEventListener("seeked", _refreshSourceTextPreview);
-    window.addEventListener("resize", _refreshTextPreview);
+    window.addEventListener("resize", () => { _refreshTextPreview(); _refreshCropPreview(); });
     document.getElementById("wfm-video-edit-export-btn")?.addEventListener("click", _exportTimeline);
     document.getElementById("wfm-video-edit-save-btn")?.addEventListener("click", () => _saveProject());
     document.getElementById("wfm-video-edit-saveas-btn")?.addEventListener("click", () => _saveProject(null, true));
