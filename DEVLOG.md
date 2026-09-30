@@ -2,6 +2,39 @@
 
 ---
 
+## v0.7.7（2026-09-30）
+
+### 意思決定モデル: Ollama 0.35+ バックエンド追加
+
+Ollama v0.35.0（2026-09-28）が`POST /v1/systemone`で意思決定モデルに対応した（質問・回答の形式はUnsloth/ollayaと同じ）。モデルは`tev1`（Together AI、4B・4.5GB）/ `tev1:0.8b`（812MB）/ `nimble`（Bespoke Labs、9B・9.5GB）で、`ollama pull`で取得する。
+
+- `decision-client.js`: バックエンド`ollama`を追加。APIキー不要でCORSも許可されているため、Unslothのようなサーバー中継は通さずブラウザから直接呼ぶ（既存のOllama LLMバックエンドと同じ）。Ollamaのエラー`{"error": ...}`（例: `model "tev1" not found, try pulling it first`）はそのまま表示。
+- `listDecisionModels()`: `/api/tags`の`capabilities`に`"decision"`を持つインストール済みモデルだけを返す（通常のLLMは出ない）。
+- Settings「意思決定モデル」: バックエンド切替でURL（11434）とモデル一覧を更新、↻ボタン、意思決定モデルが無い場合は`ollama pull tev1:0.8b`等を案内。Laya専用でなくなったためセクション名を「意思決定モデル」に変更。保存済みモデル名が別バックエンドのもの（Ollamaなのに`laya`等）なら既定モデルへ戻す。
+- **実測**: Layaが外した画像プロンプト（「masterpiece, 1girl, silver hair, school uniform…」）の判定を、`tev1:0.8b`は主題person 0.98〜0.99・NSFW「none」0.97〜0.98と全問正解。2回目以降0.2〜0.6秒。ユーザー実機のテストボタンで「接続成功 ✓ 280 ms、yes=0.914」。
+- **作業中の不具合**: Pythonスクリプト経由で書いた正規表現の`\b`がバックスペース制御文字（0x08）に化け、モデル名補正が効かなかった（構文エラーにならず単体テストで発覚）。修正後、リポジトリ全体に制御文字が無いことを確認。
+
+### Unsloth: APIキー未設定時はキー無しで送信（Keyless API access対応）
+
+Unsloth Desktopの Settings → API → Keyless API access →「Chat and inference」をオンにするとキー無しで使えるため、`UNSLOTH_API_KEY`未設定を許容した。
+
+- 対象は中継（`py/routes/unsloth_routes.py`: AI TOOL・サイドパネル・意思決定API）とTaggerのUnsloth VLM経路（`py/services/tagger_service.py`）の2か所。キー未設定なら事前エラーにせず`Authorization`無しで送る。localhost限定（SSRF対策）は維持。
+- キー無しでUnslothが401を返した場合は「.envにキーを設定するか、Keyless API access →『Chat and inference』をオンに」という案内を返す。
+- 偽Unslothサーバー（キー必須/不要）で、キー無し成功・案内メッセージ・キー付与・非localhost拒否を検証（5回連続合格）、ユーザー実機でも確認。
+- ヘルプ・README・`.env.example`に、この設定は同じLAN内にもAPIを開放すること、「Allow tools」（キー無しの接続元にPython/ターミナル実行を許す）はオフのままにすることを明記。
+- **実機で発生した不具合**: 英語ヘルプ文に`"Chat and inference"`をエスケープせずに入れ、`i18n.js`が構文エラーになりSPA全体が「Loading workflows...」で停止した。この環境では`node --check x.js`がESモジュールの構文エラーを見逃す（終了コード0）ことが原因で、以後は`.mjs`にコピーして`node --check`する方式で確認している。
+
+### ヘルプ（英日中）の点検と修正
+
+Settings・Video（Edit）ページを3言語で点検。言語間の内容差は無かったが、3言語共通の記載漏れ・不正確な点を修正した。
+
+- Video Edit: Saveで保存される内容に、クロップ・テキストオーバーレイ・音声/BGM設定を追記（従来は順序・トリム・参照ファイルのみ記載）。本文に出ていた内部キー名「(see helpVideo9)」を「Projectタブの項目を参照」に。素材はinput内ファイルへの参照のみであること、フルバックアップの素材オプションで保存できることを追記。
+- Settings: 未記載だった5セクション（Video Volume、Gallery出力フォルダ、デフォルトCheckpoint、CivitAI APIキー、G'MIC-Qtパス）をhelpSettings18〜22として追加。
+- フォント数「Google Fonts 16種」→「15種＋システム既定」に訂正。
+- テンプレート（index.html）の英語初期表示のうち古くなっていた項目を、Settings・Video全項目についてi18nの英語と同期。
+
+---
+
 ## v0.7.6（2026-09-30）
 
 ### Settings: 意思決定モデル (Laya) の専用設定
