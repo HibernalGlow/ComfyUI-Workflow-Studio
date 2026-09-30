@@ -883,6 +883,10 @@ export async function initSettingsTab() {
                     <input type="checkbox" id="wfm-settings-backup-include-wildcard">
                     ${t("fullBackupIncludeWildcard")}
                 </label>
+                <label class="wfm-lab-checkbox-label" style="font-size:12px;">
+                    <input type="checkbox" id="wfm-settings-backup-include-video-media">
+                    ${t("fullBackupIncludeVideoMedia")}
+                </label>
                 <span style="font-size:11px;color:var(--wfm-text-secondary);">${t("fullBackupExternalHint")}</span>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1581,7 +1585,8 @@ export async function initSettingsTab() {
         try {
             const includeWorkflows = document.getElementById("wfm-settings-backup-include-workflows")?.checked ? "1" : "0";
             const includeWildcard = document.getElementById("wfm-settings-backup-include-wildcard")?.checked ? "1" : "0";
-            const res = await fetch(`/api/wfm/settings/export-full?include_workflows=${includeWorkflows}&include_wildcard=${includeWildcard}`);
+            const includeVideoMedia = document.getElementById("wfm-settings-backup-include-video-media")?.checked ? "1" : "0";
+            const res = await fetch(`/api/wfm/settings/export-full?include_workflows=${includeWorkflows}&include_wildcard=${includeWildcard}&include_video_media=${includeVideoMedia}`);
             if (!res.ok) throw new Error(await res.text());
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
@@ -1612,7 +1617,13 @@ export async function initSettingsTab() {
             });
             const result = await res.json();
             if (!res.ok) throw new Error(result.error || res.statusText);
-            statusEl.textContent = `${t("importSuccess")}: ${result.extracted?.length ?? 0} ${t("fullBackupFilesUnit")}`;
+            let msg = `${t("importSuccess")}: ${result.extracted?.length ?? 0} ${t("fullBackupFilesUnit")}`;
+            const restoredMedia = result.media_restored?.length ?? 0;
+            const existingMedia = result.media_existing?.length ?? 0;
+            if (restoredMedia || existingMedia) {
+                msg += ` / ${t("fullBackupMediaResult").replace("{restored}", restoredMedia).replace("{existing}", existingMedia)}`;
+            }
+            statusEl.textContent = msg;
             statusEl.style.color = "var(--wfm-success, #4caf50)";
         } catch (e) {
             statusEl.textContent = t("importError") + ": " + e.message;

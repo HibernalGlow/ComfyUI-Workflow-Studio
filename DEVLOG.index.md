@@ -2,6 +2,7 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
+- **v0.7.6（2026-09-30）** — Settings: 意思決定モデル (Laya) の専用設定
 - **v0.7.5（2026-09-30）** — Ming Image ワークフロー対応（GenerateUI / Gallery・Metadata / サイドパネルIタブ）
 - **v0.7.4（2026-09-29）** — Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
 - **v0.7.3（2026-09-24）** — GenerateUIタブにQwen Image 2.1（TextEncodeQwenImage21）対応を追加

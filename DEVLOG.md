@@ -2,6 +2,36 @@
 
 ---
 
+## v0.7.6（2026-09-30）
+
+### Settings: 意思決定モデル (Laya) の専用設定
+
+v0.7.5で入れた`decision-client.js`は接続先を「AI TOOLのバックエンドがUnslothならそのURL、それ以外は8888」とAI TOOL設定から借りていたため、LLM/VLMと併用するとURL変更が連動する・モデルやしきい値を選べない問題があった。Settingsタブに独立したセクションを新設し、`wfm_decision_settings`（backend / baseUrl / model / threshold）としてAI TOOL・Tagger設定とは別に保存する。
+
+- backendは現状Unslothのみだが、同じTypeSafe互換APIを話すollaya（:11435、キー不要）等を後から足せるようフィールドとして持つ。
+- モデル: `laya`（Unsloth側で選択中）/ `laya-multilingual` / `laya-english` / `laya-typed-decisions`。
+- 既定しきい値（0.5〜0.99、既定0.8）: `isYes`/`pickChoice`/`pickScore`でしきい値省略時に使う。
+- テストボタン: 保存前のフォーム値でnoul1問を送り、応答時間と回答を表示（`testDecisionConnection()`）。
+- **実機確認**: 初回はUnsloth側で Settings → API → Decision API → Serve requests がオフのため HTTP 404 `The Decision API is off`（中継・APIキーは正常に通っている）。オン後は「接続成功 ✓ 10430 ms、テスト回答 yes=0.945」（初回はモデル読み込み込み）。
+
+### Settings: フルバックアップのVideo Edit対応
+
+Video Editのプロジェクト（`video_edit_project/*.json`）はデータフォルダ内なので元からZIPに入っていたが、中身はComfyUIの`input/`にアップロードしたクリップ・BGMへの参照（`serverRef`）だけで、素材そのものは含まれていなかった。別環境への復元や`input/`整理後はプロジェクトを開いてもクリップが読み込めない。説明文にもVideo Editの記載がなかった。
+
+- 3つ目のオプション「Video Editプロジェクトの素材を含める」（`include_video_media=1`）: 全プロジェクトの`clips[].serverRef`と`audio.bgm.serverRef`（type=input）を`_video_edit_media/<subfolder>/<filename>`に同梱。重複・欠損は除外し、`input/`の外を指す参照（`..`等）は含めない。
+- 復元時、`_video_edit_media/`はデータフォルダではなく`input/`へ戻す。同名ファイルが既にあれば上書きしない（`input/`は他のワークフローと共有のため）。結果に`media_restored`/`media_existing`を返し「Video Edit素材: ○件復元、○件は既存」と表示。エクスポート専用の`_external/`とは扱いが異なる。
+- 説明文（Settings注記・ヘルプ・README）のバックアップ対象にVideo Editプロジェクトを追加。
+
+**実機で判明した既存問題（Request Entity Too Large）**: aiohttp 3.14の`BodyPartReader.read()`はComfyUIの`--max-upload-size`（既定100MB）を強制する。workflows/wildcardオプション込みのバックアップは約125MB（`_external/`だけで118MB）で超過し復元できなかった（今回の追加以前から起こり得た）。`handle_import_full`を`read_chunk()`で1MBずつ一時ファイルへ流し込む方式に変更し、上限に関係なく復元できるようにした（ZIP全体をメモリに載せることもなくなった）。
+
+**検証**: 一時フォルダでの単体テスト（素材収集・重複/欠損除外・パストラバーサル遮断・既存非上書き）、上限1MBのaiohttpテストサーバー（ComfyUIと同じ3.14.3）への5MBアップロード、ユーザー実機で「インポート完了: 45件 / Video Edit素材: 1件復元、3件は既存」を確認。
+
+### ヘルプ
+
+Settingsページの「Connections」カードに意思決定モデルの項目（helpSettings17、英日中）を追加。フルバックアップの項目（helpSettings15/16）にVideo Editプロジェクトと素材オプションを追記し、テンプレート側の英語初期表示もi18nと同期（15はVideo Plansが抜けたままになっていた）。
+
+---
+
 ## v0.7.5（2026-09-30）
 
 ### Ming Image ワークフロー対応（GenerateUI / Gallery・Metadata / サイドパネルIタブ）

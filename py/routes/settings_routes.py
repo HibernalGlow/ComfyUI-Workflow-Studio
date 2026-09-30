@@ -5,13 +5,14 @@ import io
 import json
 import logging
 import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 
 from aiohttp import web
 
 from ..services.settings_service import SettingsService
-from ..config import DEFAULT_WORKFLOWS_DIR, DATA_DIR
+from ..config import DEFAULT_WORKFLOWS_DIR, DATA_DIR, VIDEO_EDIT_PROJECT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -305,7 +306,60 @@ def _add_external_dir_to_zip(zf: zipfile.ZipFile, src_dir: Path, zip_prefix: str
         zf.write(path, rel)
 
 
-def _build_full_backup_zip(include_workflows: bool = False, include_wildcard: bool = False) -> bytes:
+# Video Edit projects (video_edit_project/*.json, inside DATA_DIR so always backed up) only
+# store *references* — serverRef {filename, subfolder, type:"input"} — to clips and the BGM
+# uploaded into ComfyUI's input dir, not the media itself. Backing up just the JSON means a
+# restored project on another machine (or after input/ is cleaned up) opens with its clips
+# missing. Opt-in (include_video_media) because the media can be large; stored under its own
+# prefix so _apply_full_backup_zip can route it back into the input dir, not DATA_DIR.
+_VIDEO_MEDIA_PREFIX = "_video_edit_media/"
+
+
+def _comfyui_input_dir() -> Path:
+    import folder_paths
+    return Path(folder_paths.get_input_directory())
+
+
+def _iter_video_edit_media_refs():
+    """Yields (subfolder, filename) for every input-dir file referenced by a saved Video
+    Edit project (clips + BGM). Unreadable project files are skipped."""
+    if not VIDEO_EDIT_PROJECT_DIR.is_dir():
+        return
+    for path in sorted(VIDEO_EDIT_PROJECT_DIR.glob("*.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        refs = [c.get("serverRef") for c in data.get("clips") or [] if isinstance(c, dict)]
+        bgm = (data.get("audio") or {}).get("bgm")
+        if isinstance(bgm, dict):
+            refs.append(bgm.get("serverRef"))
+        for ref in refs:
+            if not isinstance(ref, dict) or not ref.get("filename"):
+                continue
+            if (ref.get("type") or "input") != "input":
+                continue
+            yield (ref.get("subfolder") or "").strip("/\\"), ref["filename"]
+
+
+def _add_video_edit_media_to_zip(zf: zipfile.ZipFile) -> None:
+    input_dir = _comfyui_input_dir().resolve()
+    seen = set()
+    for subfolder, filename in _iter_video_edit_media_refs():
+        src = (input_dir / subfolder / filename).resolve()
+        try:
+            rel = src.relative_to(input_dir)  # a crafted project file must not reach outside input/
+        except ValueError:
+            continue
+        if rel in seen or not src.is_file():
+            continue
+        seen.add(rel)
+        zf.write(src, _VIDEO_MEDIA_PREFIX + str(rel).replace("\\", "/"))
+
+
+def _build_full_backup_zip(include_workflows: bool = False, include_wildcard: bool = False,
+                           include_video_media: bool = False) -> bytes:
     """Zips everything under DATA_DIR except the excluded names above. Walks
     top-level entries first so an excluded symlinked directory (wildcard/) is never
     even opened, rather than filtering after a recursive walk has already followed it.
@@ -327,10 +381,12 @@ def _build_full_backup_zip(include_workflows: bool = False, include_wildcard: bo
             _add_external_dir_to_zip(zf, _default_workflows_dir(), "_external/default_workflows")
         if include_wildcard:
             _add_external_dir_to_zip(zf, _impact_pack_wildcard_dir(), "_external/wildcard")
+        if include_video_media:
+            _add_video_edit_media_to_zip(zf)
     return buf.getvalue()
 
 
-def _apply_full_backup_zip(zip_bytes: bytes) -> dict:
+def _apply_full_backup_zip(zip_source) -> dict:
     """Extracts a full-backup ZIP into DATA_DIR, overwriting existing files. Guards
     against Zip Slip (entries whose path resolves outside DATA_DIR via '..' or an
     absolute path) by checking each entry before writing it.
@@ -339,16 +395,42 @@ def _apply_full_backup_zip(zip_bytes: bytes) -> dict:
     _build_full_backup_zip) are always skipped here rather than restored: they live
     outside DATA_DIR and are managed by ComfyUI core / a different custom_node, so
     auto-restoring them could silently overwrite files this plugin doesn't own. They
-    stay in the ZIP for the user to copy back manually if they want them."""
-    summary = {"extracted": [], "skipped": []}
+    stay in the ZIP for the user to copy back manually if they want them.
+
+    Entries under "_video_edit_media/" (media referenced by Video Edit projects) are restored
+    into ComfyUI's input dir instead, but never overwrite an existing file there — a file
+    with the same name is assumed to be the same upload (ComfyUI dedupes uploads by renaming),
+    and input/ is shared with every other workflow."""
+    summary = {"extracted": [], "skipped": [], "media_restored": [], "media_existing": []}
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     base = DATA_DIR.resolve()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+    input_base = None
+    # zip_source: raw bytes, or a seekable file object (the upload handler spools to a temp file).
+    if isinstance(zip_source, (bytes, bytearray)):
+        zip_source = io.BytesIO(zip_source)
+    with zipfile.ZipFile(zip_source) as zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
             if info.filename.startswith("_external/"):
                 summary["skipped"].append(info.filename)
+                continue
+            if info.filename.startswith(_VIDEO_MEDIA_PREFIX):
+                if input_base is None:
+                    input_base = _comfyui_input_dir().resolve()
+                target = (input_base / info.filename[len(_VIDEO_MEDIA_PREFIX):]).resolve()
+                try:
+                    target.relative_to(input_base)
+                except ValueError:
+                    summary["skipped"].append(info.filename)
+                    continue
+                if target.exists():
+                    summary["media_existing"].append(info.filename)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                summary["media_restored"].append(info.filename)
                 continue
             target = (base / info.filename).resolve()
             try:
@@ -368,11 +450,15 @@ async def handle_export_full(request: web.Request) -> web.Response:
     directory, including data the flat JSON bundle (handle_export) can't represent.
     Optional query params include_workflows=1 / include_wildcard=1 additionally bundle
     ComfyUI's default workflows dir / the Impact Pack's wildcard dir (see
-    _build_full_backup_zip) — both restore-excluded, export-only, manual-copy-back."""
+    _build_full_backup_zip) — both restore-excluded, export-only, manual-copy-back.
+    include_video_media=1 adds the input-dir media referenced by Video Edit projects,
+    which *is* restored (into input/, without overwriting)."""
     try:
         include_workflows = request.rel_url.query.get("include_workflows") == "1"
         include_wildcard = request.rel_url.query.get("include_wildcard") == "1"
-        zip_bytes = await asyncio.to_thread(_build_full_backup_zip, include_workflows, include_wildcard)
+        include_video_media = request.rel_url.query.get("include_video_media") == "1"
+        zip_bytes = await asyncio.to_thread(
+            _build_full_backup_zip, include_workflows, include_wildcard, include_video_media)
         return web.Response(
             body=zip_bytes,
             content_type="application/zip",
@@ -390,8 +476,18 @@ async def handle_import_full(request: web.Request) -> web.Response:
         field = await reader.next()
         if field is None or field.name != "file":
             return web.json_response({"error": "file field required"}, status=400)
-        zip_bytes = await field.read(decode=False)
-        summary = await asyncio.to_thread(_apply_full_backup_zip, zip_bytes)
+        # Stream to a temp file with read_chunk() instead of field.read(): aiohttp (3.14+)
+        # enforces ComfyUI's --max-upload-size (default 100 MB) inside BodyPartReader.read(),
+        # and a backup with the opt-in workflows/wildcard/Video Edit media easily exceeds it
+        # ("Request Entity Too Large"). Also avoids holding the whole ZIP in memory.
+        with tempfile.TemporaryFile() as tmp:
+            while True:
+                chunk = await field.read_chunk(1024 * 1024)
+                if not chunk:
+                    break
+                await asyncio.to_thread(tmp.write, chunk)
+            tmp.seek(0)
+            summary = await asyncio.to_thread(_apply_full_backup_zip, tmp)
         return web.json_response({"status": "ok", **summary})
     except zipfile.BadZipFile:
         return web.json_response({"error": "Not a valid ZIP file"}, status=400)
