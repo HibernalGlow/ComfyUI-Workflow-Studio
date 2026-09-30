@@ -1382,6 +1382,9 @@ export const comfyEditor = {
         // (e.g. Flux2Scheduler has no named "scheduler" combo) so the field is disabled here.
         const schedulerAvailable = !!sampler && sampler.schedulerNodeId != null;
         const denoiseAvailable = !!sampler && sampler.denoiseNodeId != null;
+        // Advanced samplers fed by a dedicated sampler node without a sampler_name combo
+        // (e.g. Ming Image's SamplerLCM) have nothing for the Sampler dropdown to write to.
+        const samplerNameAvailable = !!sampler && (!sampler.advanced || sampler.samplerNodeId != null);
 
         el.innerHTML = `
             <div style="display:flex;flex-direction:row;gap:0;align-items:flex-start;">
@@ -1394,7 +1397,7 @@ export const comfyEditor = {
                         data-steps-node-id="${sampler.stepsNodeId ?? sampler.id}"
                         data-cfg-key="${sampler.cfgKey || "cfg"}"
                         data-cfg-node-id="${sampler.cfgNodeId ?? sampler.id}"
-                        data-sampler-node-id="${sampler.samplerNodeId ?? sampler.id}"
+                        data-sampler-node-id="${samplerNameAvailable ? (sampler.samplerNodeId ?? sampler.id) : ""}"
                         data-scheduler-node-id="${sampler.schedulerNodeId ?? ""}"
                         data-denoise-node-id="${sampler.denoiseNodeId ?? ""}">
                     <div class="wfm-form-group">
@@ -1411,8 +1414,10 @@ export const comfyEditor = {
                     </div>
                     <div class="wfm-form-group">
                         <label>Sampler</label>
-                        <select class="wfm-select" id="wfm-settings-sampler-name">
-                            ${this.models.samplers.map((s) => `<option value="${s}" ${s === sampler.sampler_name ? "selected" : ""}>${s}</option>`).join("")}
+                        <select class="wfm-select" id="wfm-settings-sampler-name" ${samplerNameAvailable ? "" : "disabled"}>
+                            ${samplerNameAvailable
+                                ? this.models.samplers.map((s) => `<option value="${s}" ${s === sampler.sampler_name ? "selected" : ""}>${s}</option>`).join("")
+                                : `<option value="">N/A</option>`}
                         </select>
                     </div>
                     <div class="wfm-form-group">
@@ -1490,7 +1495,7 @@ export const comfyEditor = {
             if (stepsEl?.value !== "") write(ds.stepsNodeId, "steps", parseInt(stepsEl.value) || 20);
             const cfgEl = document.getElementById("wfm-settings-cfg");
             if (cfgEl?.value !== "") write(ds.cfgNodeId, ds.cfgKey || "cfg", parseFloat(cfgEl.value) || 7);
-            write(ds.samplerNodeId, "sampler_name", document.getElementById("wfm-settings-sampler-name")?.value);
+            if (ds.samplerNodeId) write(ds.samplerNodeId, "sampler_name", document.getElementById("wfm-settings-sampler-name")?.value);
             if (ds.schedulerNodeId) write(ds.schedulerNodeId, "scheduler", document.getElementById("wfm-settings-scheduler")?.value);
             const denoiseEl = document.getElementById("wfm-settings-denoise");
             if (ds.denoiseNodeId && denoiseEl?.value !== "") write(ds.denoiseNodeId, "denoise", parseFloat(denoiseEl.value) || 1.0);

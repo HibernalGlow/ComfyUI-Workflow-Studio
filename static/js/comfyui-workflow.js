@@ -291,15 +291,26 @@ function _stripLegacyLinkedWidgetValues(objectInfo, remappedNode, sgDef, origInt
     const allWidgetInputs = (remappedNode.inputs || []).filter((i) => i.widget);
     if (!widgetsValues || allWidgetInputs.length === 0) return;
 
-    const widgetNames = _getWidgetInputNames(objectInfo, remappedNode.type);
-    const widgetTypes = _getWidgetInputTypes(objectInfo, remappedNode.type);
     const isLinkedName = (name) => _isLinkedWidgetName(remappedNode, sgDef, origInternalId, redirectedTargets, name);
-    const comboExpander = (name, selectedKey) => _getDynamicComboSubNames(objectInfo, remappedNode.type, name, selectedKey);
+    remappedNode.widgets_values = _normalizeLinkedWidgetValues(objectInfo, remappedNode.type, widgetsValues, isLinkedName);
+}
+
+/**
+ * Return widgets_values with the entries belonging to linked widgets removed when the array is in
+ * the "legacy full" format (every widget present, linked ones included — what the current ComfyUI
+ * frontend actually saves for a widget converted to a wired input, e.g. EmptyLatentImage
+ * [1024, 2048, 1] with width/height fed by GetImageSize/PrimitiveInt). Returns the array unchanged
+ * when it's already in the modern format (linked widgets contribute zero entries).
+ */
+function _normalizeLinkedWidgetValues(objectInfo, nodeType, widgetsValues, isLinkedName) {
+    const widgetNames = _getWidgetInputNames(objectInfo, nodeType);
+    const widgetTypes = _getWidgetInputTypes(objectInfo, nodeType);
+    const comboExpander = (name, selectedKey) => _getDynamicComboSubNames(objectInfo, nodeType, name, selectedKey);
 
     // If skipping linked widgets already accounts for every entry, widgets_values is already in
     // the modern (no dangling linked entries) format — nothing to strip.
     const skipSim = _simulateWidgetValues(widgetNames, widgetTypes, widgetsValues, isLinkedName, true, comboExpander);
-    if (skipSim.consumed === widgetsValues.length) return;
+    if (skipSim.consumed === widgetsValues.length) return widgetsValues;
 
     // Otherwise it's "legacy full": recompute with every widget present to find exactly which
     // indices the linked ones occupy — including any control_after_generate extra a linked
@@ -311,9 +322,7 @@ function _stripLegacyLinkedWidgetValues(objectInfo, remappedNode, sgDef, origInt
             for (const i of fullSim.consumedIndices[name] || []) linkedIdx.add(i);
         }
     }
-    if (linkedIdx.size > 0) {
-        remappedNode.widgets_values = widgetsValues.filter((_, i) => !linkedIdx.has(i));
-    }
+    return linkedIdx.size > 0 ? widgetsValues.filter((_, i) => !linkedIdx.has(i)) : widgetsValues;
 }
 
 /**
@@ -692,7 +701,14 @@ export const comfyWorkflow = {
             });
 
             // 2. Map widgets_values to widget input names using object_info
-            const widgets = node.widgets_values || [];
+            let widgets = node.widgets_values || [];
+            // Widgets converted to wired inputs (e.g. EmptyLatentImage width/height fed by
+            // GetImageSize) usually still keep their value in widgets_values — strip those so the
+            // loop below, which assumes linked widgets contribute zero entries, doesn't shift every
+            // later widget (otherwise batch_size silently becomes the stale width value).
+            if (Array.isArray(widgets) && widgets.length > 0 && linkedSlotNames.size > 0 && !node.properties?.__lm_widget_ids) {
+                widgets = _normalizeLinkedWidgetValues(objectInfo, node.type, widgets, (name) => linkedSlotNames.has(name));
+            }
             if (widgets.length > 0) {
                 // Lora Loader (LoraManager): use __lm_widget_ids from node properties
                 // widgets_values: [autocomplete_meta_obj, text_str, loras_array]
@@ -1085,7 +1101,7 @@ export const comfyWorkflow = {
                 // TextEncodeQwenImageEditPlus/TextEncodeQwenImageEdit — propagate role through its
                 // linked "prompt" input when prompt-enhancement wiring feeds it via a switch chain
                 // instead of a literal string (e.g. Krea-2's image-reference workflow).
-                if (ct === "TextEncodeQwenImageEditPlus" || ct === "TextEncodeQwenImageEdit") {
+                if (ct === "TextEncodeQwenImageEditPlus" || ct === "TextEncodeQwenImageEdit" || ct === "TextEncodeMingImageEdit") {
                     const tv = inputs.prompt;
                     if (Array.isArray(tv)) {
                         if (isPos) samplerPositiveRef[tv[0]] = true;
@@ -1167,7 +1183,11 @@ export const comfyWorkflow = {
                     cfg: typeof guiderInputs[guiderCfgKey] === "number" ? guiderInputs[guiderCfgKey] : undefined,
                     cfgNodeId: guiderCfgKey in guiderInputs ? guiderId : null,
                     cfgKey: guiderCfgKey,
-                    sampler_name: samplerSelInputs.sampler_name, samplerNodeId: samplerSelId,
+                    // samplerNodeId is null when the SAMPLER source has no sampler_name combo at all
+                    // (e.g. Ming Image's SamplerLCM, a dedicated sampler node with its own
+                    // s_noise knobs instead of KSamplerSelect) — the Settings UI disables the field.
+                    sampler_name: samplerSelInputs.sampler_name,
+                    samplerNodeId: "sampler_name" in samplerSelInputs ? samplerSelId : null,
                     scheduler: undefined, schedulerNodeId: "scheduler" in schedulerInputs ? schedulerId : null,
                     denoise: typeof schedulerInputs.denoise === "number" ? schedulerInputs.denoise : undefined,
                     denoiseNodeId: "denoise" in schedulerInputs ? schedulerId : null,
@@ -1270,7 +1290,11 @@ export const comfyWorkflow = {
             // the base variant takes one — both share the same "prompt" widget). Only add when
             // "prompt" is a direct string; if linked (e.g. Krea-2's prompt-enhancement wiring),
             // the upstream literal node is resolved instead via the role propagation above.
-            if (ct === "TextEncodeQwenImageEditPlus" || ct === "TextEncodeQwenImageEdit") {
+            // TextEncodeMingImageEdit (Ming Image) has the same single "prompt" widget plus up to
+            // 8 optional images.image_N reference inputs (none wired = pure T2I); its role comes
+            // from the sampler/guider wiring — Ming's layer-decomposition workflows use a second,
+            // empty-prompt instance of it as the KSampler negative.
+            if (ct === "TextEncodeQwenImageEditPlus" || ct === "TextEncodeQwenImageEdit" || ct === "TextEncodeMingImageEdit") {
                 const textVal = inputs.prompt;
                 if (typeof textVal === "string") {
                     result.prompt_nodes.push({
@@ -1405,7 +1429,10 @@ export const comfyWorkflow = {
             // GetImageSize node (auto-follows the reference image) rather than a direct number —
             // leave those as undefined, same treatment as TextEncodeMageFlowEdit below, so the
             // settings-tab UI shows "linked" instead of a stale default and Apply doesn't clobber it.
-            if (ct === "EmptyLatentImage" || ct === "EmptySD3LatentImage" || ct === "EmptyFlux2LatentImage") {
+            // EmptyQwenImageLayeredLatentImage (Qwen-Image-Layered / Ming Image layer decomposition)
+            // has the same width/height/batch_size shape plus a "layers" count, left as-is.
+            if (ct === "EmptyLatentImage" || ct === "EmptySD3LatentImage" || ct === "EmptyFlux2LatentImage"
+                || ct === "EmptyQwenImageLayeredLatentImage") {
                 result.latent_nodes.push({
                     id, type: ct, title,
                     width: typeof inputs.width === "number" ? inputs.width : undefined,
@@ -1674,6 +1701,8 @@ function _getWidgetMapping(nodeType) {
         ImpactWildcardEncode: ["wildcard_text"],
         WFS_PromptText: ["positive", "negative"],
         TextEncodeQwenImage21: ["prompt", "negative_prompt", "resolution"],
+        TextEncodeMingImageEdit: ["prompt"],
+        EmptyQwenImageLayeredLatentImage: ["width", "height", "layers", "batch_size"],
     };
     return mappings[nodeType] || null;
 }
