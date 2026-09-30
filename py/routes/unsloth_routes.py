@@ -8,6 +8,10 @@ path/method/payload, and the server attaches the Authorization header before
 relaying to Unsloth's OpenAI-compatible API — and, via the same relay, to its
 Decision API (/v1/systemone, TypeSafe-compatible Laya decision models; see
 static/js/decision-client.js).
+
+The key is optional: when UNSLOTH_API_KEY is unset the request is relayed
+without an Authorization header, which works when Unsloth Desktop has
+Keyless API access → "Chat and inference" turned on (localhost / private LAN).
 """
 
 import json
@@ -33,6 +37,14 @@ _ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 def _get_api_key():
     """Return the Unsloth API key from the environment (.env), or None."""
     return os.environ.get("UNSLOTH_API_KEY", "").strip() or None
+
+
+# Shown when a keyless request is rejected — also used by the Tagger's Unsloth VLM path.
+KEYLESS_REJECTED_MESSAGE = (
+    "Unsloth rejected the request without an API key (HTTP 401). Either set UNSLOTH_API_KEY "
+    "in the plugin's .env (copy .env.example) and restart ComfyUI, or turn on Keyless API "
+    "access -> \"Chat and inference\" in Unsloth Desktop's Settings -> API."
+)
 
 
 def _is_allowed_base_url(base_url):
@@ -71,16 +83,13 @@ async def handle_proxy(request: web.Request) -> web.Response:
                 "message": "Unsloth backend URL must point to localhost/127.0.0.1/::1",
             }, status=400)
 
+        # No key → relay without Authorization (Unsloth's Keyless API access); if Unsloth
+        # still demands one, the 401 below explains both ways to fix it.
         api_key = _get_api_key()
-        if not api_key:
-            return web.json_response({
-                "message": "UNSLOTH_API_KEY is not set. Copy .env.example to .env in the "
-                            "plugin folder, fill in the key, and restart ComfyUI.",
-            }, status=401)
 
         def _fetch():
             data = json.dumps(payload).encode("utf-8") if payload is not None else None
-            headers = {"Authorization": f"Bearer {api_key}"}
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             if data is not None:
                 headers["Content-Type"] = "application/json"
             req = urllib.request.Request(f"{base_url}{path}", data=data, headers=headers, method=method)
@@ -93,6 +102,8 @@ async def handle_proxy(request: web.Request) -> web.Response:
     except HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
         logger.warning("Unsloth proxy HTTP error: %s %s", e.code, detail)
+        if e.code == 401 and not _get_api_key():
+            return web.json_response({"message": KEYLESS_REJECTED_MESSAGE}, status=401)
         # Include a short excerpt of Unsloth's own error body — Decision API schema errors
         # (e.g. a malformed question) are otherwise impossible to diagnose from the frontend.
         return web.json_response({"message": f"Unsloth API error: HTTP {e.code} {detail[:300]}".strip()}, status=e.code)

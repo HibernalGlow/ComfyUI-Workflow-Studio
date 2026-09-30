@@ -157,7 +157,7 @@ Click the **camera icon** (next to the W button) in ComfyUI's top bar to capture
 - **[Ollama](https://ollama.com/)** — for AI chat assistant, translation, and VLM features
 - **[LM Studio](https://lmstudio.ai/)** — alternative backend for translation and VLM (OpenAI-compatible API)
 - **[Lemonade Server](https://lemonade-server.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API)
-- **[Unsloth](https://unsloth.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API); always requires an API key, set via `UNSLOTH_API_KEY` in a `.env` file — `pip install -r requirements.txt` for `python-dotenv`
+- **[Unsloth](https://unsloth.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API); needs an API key set via `UNSLOTH_API_KEY` in a `.env` file, or Unsloth's Keyless API access → "Chat and inference" turned on — `pip install -r requirements.txt` for `python-dotenv`
 - **[Eagle](https://eagle.cool/)** — for auto-saving generated images with metadata
 - **[comfyui-mask-editor-one](https://github.com/ketle-man/comfyui-mask-editor-one) (v0.1.9+)** — enables BiRefNet background removal, SAM3 text-prompt segmentation, and ABR stamp-brush library in the Image Edit Mask tool; `birefnet.safetensors` must be placed in `ComfyUI/models/background_removal/` for BiRefNet
 - **[psd-tools](https://pypi.org/project/psd-tools/)** (v0.6.0) — enables all PSD (Photoshop) features: Gallery bulk "Create PSD" export, Gallery browsing/thumbnails for `.psd` files, and Image Edit's Save PSD / Open PSD buttons; `pip install -r requirements.txt` (ships prebuilt wheels, no C compiler required); without it, PSD-related actions show an error toast with the install command instead of failing silently
