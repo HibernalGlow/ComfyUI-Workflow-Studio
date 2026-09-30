@@ -2,6 +2,31 @@
 
 ---
 
+## v0.7.5（2026-09-30）
+
+### Ming Image ワークフロー対応（GenerateUI / Gallery・Metadata / サイドパネルIタブ）
+
+ユーザー提供の`ming_image_test1〜5.json`（T2I・参照画像Edit・レイヤー分解×2・標準KSampler T2I）に対応。
+
+- `comfyui-workflow.js`: `TextEncodeMingImageEdit`（`prompt`単一ウィジェット＋`images.image_N`最大8枚のAutogrow参照画像）を`TextEncodeQwenImageEdit`と同じ扱いで検出。ロールはsampler/guider配線から決まるので、レイヤー分解ワークフローでKSamplerのnegativeに繋がる空プロンプトの2つ目のインスタンスはNegativeとして出る。linked promptへのロール伝播も追加。`EmptyQwenImageLayeredLatentImage`をLatentパネル対象に追加。
+- SamplerCustomAdvancedのSAMPLER入力が`sampler_name`を持たないノード（`SamplerLCM`）の場合は`samplerNodeId=null`とし、SettingsパネルのSampler欄をN/A無効化（従来は無関係なsampler名が選択表示され、Applyで存在しない入力に書き込んでいた）。
+- `metadata-tab.js` / `node_sets_menu.js`: `BasicGuider`の`conditioning`入力をpositive扱い（従来は判別不能テキスト扱い）。UI形式でCLIPTextEncodeの`text`がリンクされている場合、`widgets_values[0]`に残る古い入力値よりリンク先（`PrimitiveStringMultiline`等）を優先。
+
+**汎用バグ修正（top-levelノードのwidgets_valuesズレ）**: ウィジェットをリンク入力化しても現行フロントエンドは値を`widgets_values`に残す（legacy full形式）。サブグラフ内部ノードは`_stripLegacyLinkedWidgetValues`で正規化していたが、top-levelノードは未対応で、リンクされたウィジェットより後ろの値が1つずつズレていた（`EmptyLatentImage`のwidth/heightを`GetImageSize`/`PrimitiveInt`に繋ぐと`batch_size=1024`、`EmptyQwenImageLayeredLatentImage`の`layers=1024`等）。判定ロジックを`_normalizeLinkedWidgetValues`に切り出し、`convertUiToApi`の本ループ前にも適用。
+
+**検証**: Node上で稼働中ComfyUIの`/object_info`を使い3系統（analyzeWorkflow / metadata-tab / node_sets_menu、UI形式・API形式両方）を5ワークフローで確認。回帰確認として`user/default/workflows`配下366件を修正前後の`convertUiToApi`で比較し、差分35件はすべてズレていた値が正しくなったもの（KSampler `steps=397027830130951`→10、`cfg=25`→8等）。変換エラー1件は修正前から発生する無関係なもの。ユーザー実機で生成まで確認済み。
+
+### Unsloth Decision API（Laya決定モデル）クライアントの土台
+
+Unsloth DesktopがTypeSafe互換の意思決定API（`POST /v1/systemone`、Laya）を提供するようになったため、活用機能の試行に先立って呼び出しの土台のみ実装（UIからの利用は未実装）。
+
+- `py/routes/unsloth_routes.py`: 既存プロキシ（`.env`のAPIキー付与＋localhost限定）の`_ALLOWED_PATHS`に`/v1/systemone`を追加。HTTPエラー時はUnsloth側エラー本文の先頭300字をmessageに含める（質問スキーマ誤りをフロントから診断できるように）。
+- `static/js/decision-client.js`（新規、SPA用）: `decide(state, questions, {model, baseUrl})`・`decideMany`（同時実行数制限、個別失敗は`{error}`）、ビルダー`noul`/`choice`/`score`（Unslothの`instructions`＋`criteria`形式）、上限チェック（64問/255選択肢/10段階）、`isYes`/`pickChoice`/`pickScore`。ドキュメントの推奨どおり`confidence`ではなく`probabilities`でしきい値判定し、しきい値未満は`confident:false`（自動適用せず提案表示する用途向け）。接続先はAI TOOL設定がUnslothならそのURL、それ以外は`http://localhost:8888`。
+- Layaはテキスト専用（画像入力なし）。画像の判定にはTaggerタグやVLMキャプションを経由させる必要がある。
+- 検証はプロキシをモックしたNode単体テストのみ（作業時にUnslothのDecision APIが待ち受けておらず実APIは未検証）。
+
+---
+
 ## v0.7.4（2026-09-29）
 
 ### Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消

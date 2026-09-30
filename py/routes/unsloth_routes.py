@@ -5,7 +5,9 @@ for local access (Authorization: Bearer sk-unsloth-...). The key lives in
 UNSLOTH_API_KEY (loaded from a .env file by prestartup_script.py) and is
 never sent to the frontend — the frontend calls this proxy with the target
 path/method/payload, and the server attaches the Authorization header before
-relaying to Unsloth's OpenAI-compatible API.
+relaying to Unsloth's OpenAI-compatible API — and, via the same relay, to its
+Decision API (/v1/systemone, TypeSafe-compatible Laya decision models; see
+static/js/decision-client.js).
 """
 
 import json
@@ -20,7 +22,7 @@ from aiohttp import web
 logger = logging.getLogger(__name__)
 
 UNSLOTH_DEFAULT_URL = "http://localhost:8888"
-_ALLOWED_PATHS = {"/v1/models", "/v1/chat/completions"}
+_ALLOWED_PATHS = {"/v1/models", "/v1/chat/completions", "/v1/systemone"}
 # baseUrl is client-supplied (so a custom Unsloth port works), but the
 # Authorization header carries a real secret — restrict the host to loopback
 # so this proxy can't be used to exfiltrate UNSLOTH_API_KEY to an arbitrary
@@ -48,9 +50,10 @@ def setup_routes(app: web.Application):
 
 
 async def handle_proxy(request: web.Request) -> web.Response:
-    """POST /api/wfm/unsloth/proxy - Relay a request to Unsloth's OpenAI-compatible API.
+    """POST /api/wfm/unsloth/proxy - Relay a request to Unsloth's OpenAI-compatible / Decision API.
 
-    Body: { baseUrl, path: "/v1/models" | "/v1/chat/completions", method: "GET" | "POST", payload }
+    Body: { baseUrl, path: "/v1/models" | "/v1/chat/completions" | "/v1/systemone",
+            method: "GET" | "POST", payload }
     """
     import asyncio
     try:
@@ -90,7 +93,9 @@ async def handle_proxy(request: web.Request) -> web.Response:
     except HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
         logger.warning("Unsloth proxy HTTP error: %s %s", e.code, detail)
-        return web.json_response({"message": f"Unsloth API error: HTTP {e.code}"}, status=e.code)
+        # Include a short excerpt of Unsloth's own error body — Decision API schema errors
+        # (e.g. a malformed question) are otherwise impossible to diagnose from the frontend.
+        return web.json_response({"message": f"Unsloth API error: HTTP {e.code} {detail[:300]}".strip()}, status=e.code)
     except URLError as e:
         logger.warning("Unsloth proxy connection error: %s", e)
         return web.json_response({"message": f"Could not reach Unsloth: {e.reason}"}, status=502)

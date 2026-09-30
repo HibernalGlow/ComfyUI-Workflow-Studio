@@ -26,7 +26,7 @@ A comprehensive workflow, asset management, and generation UI plugin for [ComfyU
 - Built-in AI tools (translation and more)
 
 ![Workflow Studio](https://img.shields.io/badge/ComfyUI-Custom_Node-blue)
-![Version](https://img.shields.io/badge/version-0.7.2-green)
+![Version](https://img.shields.io/badge/version-0.7.5-green)
 
 ## Features (tab -> feature names)
 
@@ -37,7 +37,7 @@ Thumbnail / Table views, Thumbnail side panel, Badge filtering, Search, Side pan
 One-click capture, Auto-save as thumbnail, Embedded workflow metadata, Auto-import
 
 ### GenerateUI Tab (v0.3.5)
-6-tab layout, Save button, Input tab, Model tab, Settings tab, Always-visible Raw JSON, Bypass/Mute node handling, One-click generation, Seed control, Style selector, Create Catalog / Catalog buttons, Batch type selector, Batch tab, UI-to-API conversion, Video workflow support, Eagle integration, Qwen Image 2.1 support
+6-tab layout, Save button, Input tab, Model tab, Settings tab, Always-visible Raw JSON, Bypass/Mute node handling, One-click generation, Seed control, Style selector, Create Catalog / Catalog buttons, Batch type selector, Batch tab, UI-to-API conversion, Video workflow support, Eagle integration, Qwen Image 2.1 support, Ming Image support
 
 ### Feeder subtab (v0.3.5 / v0.3.42)
 ImageFeeder node control, Image library, Selection management, Presets, Continuous Run loop, Index sync, Seed, WFS_GalleryFeeder node, Node & group selector, Image grid, After Gen modes, Run / Stop controls
@@ -79,7 +79,7 @@ Layer-based image editor, Loading images, Open PSD button, Close button, New but
 Dedicated video generation UI, independent of GenerateUI, Plan subtab, Base settings row, Edit subtab, Edit: Audio / BGM, Edit: Text overlays, Edit: Crop, Edit: Undo / Redo, Edit project persistence, Asset subtab, Project subtab, Two center previews, First Frame / Last Frame are both optional, Semantic node lookup, not hardcoded IDs, Field highlight color, Load in Video, Frame tab, GIF tab, Playback volume
 
 ### AI TOOL Tab (v0.3.14)
-4-pane layout, Translation pane, Chat pane, Chat pane — image generation via Tool Calling, Chat pane — generate_image extra parameters, TOOLS pane (VLM), TOOLS pane — shared Chat attachment, TOOLS pane (Wildcards), Chat pane — image-to-image (I2I), Chat pane — SVG generation, no ComfyUI workflow involved, Chat pane — Skills, Settings pane, Unsloth backend, Settings pane — Chat Image Generation, Settings pane — Chat I2I Generation, Settings pane — Generation, Model unload, Settings shared, Backend support, URL security, Lemonade's other endpoints (not integrated)
+4-pane layout, Translation pane, Chat pane, Chat pane — image generation via Tool Calling, Chat pane — generate_image extra parameters, TOOLS pane (VLM), TOOLS pane — shared Chat attachment, TOOLS pane (Wildcards), Chat pane — image-to-image (I2I), Chat pane — SVG generation, no ComfyUI workflow involved, Chat pane — Skills, Settings pane, Unsloth backend, Decision API client, Settings pane — Chat Image Generation, Settings pane — Chat I2I Generation, Settings pane — Generation, Model unload, Settings shared, Backend support, URL security, Lemonade's other endpoints (not integrated)
 
 ### Workflow Studio Library (ComfyUI Side Panel) (v0.3.9)
 Tab layout (W / N / P / M / I / A), W — Workflows tab, N — Nodes tab, M — Models tab, P — Prompts tab, I — Information tab, A — AI TOOL tab, Drag & drop workflows, Drag & drop nodes, Drag & drop prompts, Send to Canvas, Copy prompts, Double-click, Search, ⚙ Theme settings
