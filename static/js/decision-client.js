@@ -7,10 +7,13 @@
  * image-based judgments must first be turned into text (Tagger tags / VLM caption).
  *
  * Unsloth requires an API key even on localhost, so requests go through the same server-side
- * proxy as the Unsloth chat backend (py/routes/unsloth_routes.py, key from .env).
+ * proxy as the Unsloth chat backend (py/routes/unsloth_routes.py, key from .env — the same Unsloth
+ * Desktop key the chat backend uses). Backend/URL/model/threshold come from the Settings tab's own
+ * "Decision Model" section (wfm_decision_settings), independent of the AI TOOL / Tagger backends so
+ * a decision model can run alongside whichever LLM/VLM those use.
  * API reference: https://unsloth.ai/docs/models/decision-laya
  *
- * Usage:
+ * Usage (threshold defaults to the Settings tab value when omitted):
  *   import { decide, noul, choice, score, isYes, pickChoice } from "./decision-client.js";
  *   const answers = await decide(promptText, {
  *       genre: choice("Which genre fits best?", { portrait: "a person is the main subject", landscape: "scenery" }),
@@ -20,15 +23,46 @@
  *   const genre = pickChoice(answers.genre, 0.8);   // { value, probability, confident }
  */
 
-import { unslothProxy, readJsonStorage, getAiBackendDefaultUrl } from "./util.js";
+import { unslothProxy, readJsonStorage } from "./util.js";
 
 // Limits documented by Unsloth's Decision API.
 export const DECISION_LIMITS = { maxQuestions: 64, maxChoiceOptions: 255, maxScoreLevels: 10 };
 
-// "laya" / "default" = the model picked in Unsloth's settings. Explicit variants:
-// "laya-multilingual" (default download, 100+ languages), "laya-english", "laya-typed-decisions"
-// (structured data such as JSON records — e.g. workflow node summaries).
+// "laya" = the model picked in Unsloth's settings. Explicit variants: "laya-multilingual" (default
+// download, 100+ languages), "laya-english", "laya-typed-decisions" (structured data such as JSON
+// records — e.g. workflow node summaries).
+export const DECISION_MODELS = ["laya", "laya-multilingual", "laya-english", "laya-typed-decisions"];
 export const DEFAULT_DECISION_MODEL = "laya";
+
+// Only Unsloth for now; kept as a field so another TypeSafe-compatible server (e.g. ollaya on
+// :11435, which needs no key) can be added later without changing the stored settings shape.
+export const DECISION_BACKENDS = { unsloth: { defaultUrl: "http://localhost:8888" } };
+
+export const DECISION_SETTINGS_KEY = "wfm_decision_settings";
+const DEFAULT_SETTINGS = {
+    backend: "unsloth",
+    baseUrl: DECISION_BACKENDS.unsloth.defaultUrl,
+    model: DEFAULT_DECISION_MODEL,
+    threshold: 0.8,
+};
+
+/** Saved Decision Model settings merged over the defaults. */
+export function getDecisionSettings() {
+    const saved = readJsonStorage(DECISION_SETTINGS_KEY);
+    const merged = { ...DEFAULT_SETTINGS, ...saved };
+    const th = Number(merged.threshold);
+    merged.threshold = th > 0 && th <= 1 ? th : DEFAULT_SETTINGS.threshold;
+    if (!DECISION_BACKENDS[merged.backend]) merged.backend = DEFAULT_SETTINGS.backend;
+    if (!merged.baseUrl) merged.baseUrl = DECISION_BACKENDS[merged.backend].defaultUrl;
+    if (!merged.model) merged.model = DEFAULT_DECISION_MODEL;
+    return merged;
+}
+
+export function saveDecisionSettings(patch) {
+    const data = { ...getDecisionSettings(), ...patch };
+    localStorage.setItem(DECISION_SETTINGS_KEY, JSON.stringify(data));
+    return data;
+}
 
 // ---- Question builders ----
 
@@ -53,11 +87,6 @@ export function score(instructions, levels) {
 
 // ---- Request ----
 
-/** Unsloth base URL: the AI TOOL setting when its backend is Unsloth, else the default port. */
-export function getDecisionBaseUrl() {
-    const ai = readJsonStorage("wfm_ai_settings");
-    return (ai.backend === "unsloth" && ai.backendUrl) || getAiBackendDefaultUrl("unsloth");
-}
 
 function _validateQuestions(questions) {
     const entries = Object.entries(questions || {});
@@ -85,12 +114,13 @@ function _validateQuestions(questions) {
  *
  * @param {string|object} state  Text or any JSON (e.g. { prompt, tags, model }).
  * @param {object} questions     { key: noul(...) | choice(...) | score(...) }, max 64.
- * @param {object} [opts]        { model, baseUrl }
+ * @param {object} [opts]        { model, baseUrl } — override the saved Decision Model settings.
  */
 export async function decide(state, questions, opts = {}) {
     _validateQuestions(questions);
-    const payload = { model: opts.model || DEFAULT_DECISION_MODEL, state, questions };
-    const data = await unslothProxy(opts.baseUrl || getDecisionBaseUrl(), "/v1/systemone", "POST", payload);
+    const settings = getDecisionSettings();
+    const payload = { model: opts.model || settings.model, state, questions };
+    const data = await unslothProxy(opts.baseUrl || settings.baseUrl, "/v1/systemone", "POST", payload);
     if (!data || typeof data.answers !== "object") throw new Error("Decision API returned no answers");
     return data.answers;
 }
@@ -118,12 +148,25 @@ export async function decideMany(states, questions, opts = {}) {
     return results;
 }
 
+/**
+ * Connection check for the Settings tab: one yes/no question, timed. The first request after
+ * Unsloth starts also loads the model (10-20 s), so callers should say that a slow first test is
+ * normal.
+ */
+export async function testDecisionConnection(opts = {}) {
+    const started = performance.now();
+    const answers = await decide("A cat is sitting on a sofa.", {
+        test: noul("Is there an animal in the text?"),
+    }, opts);
+    return { ms: Math.round(performance.now() - started), yes: answers.test?.noul };
+}
+
 // ---- Answer helpers ----
 // Threshold on `probabilities` (or noul's value), not `confidence` — per Unsloth's docs, confidence
 // only says how peaked the distribution is and its formula differs from Jev's.
 
 /** True when the yes-probability of a noul answer reaches `threshold`. */
-export function isYes(answer, threshold = 0.8) {
+export function isYes(answer, threshold = getDecisionSettings().threshold) {
     return typeof answer?.noul === "number" && answer.noul >= threshold;
 }
 
@@ -131,7 +174,7 @@ export function isYes(answer, threshold = 0.8) {
  * Most likely option of a choice answer. `confident` is false below `threshold` — callers should
  * then show the value as a suggestion for the user to confirm rather than apply it automatically.
  */
-export function pickChoice(answer, threshold = 0.8) {
+export function pickChoice(answer, threshold = getDecisionSettings().threshold) {
     const value = answer?.choice ?? null;
     const probability = value != null ? (answer.probabilities?.[value] ?? 0) : 0;
     return { value, probability, confident: value != null && probability >= threshold };
@@ -141,7 +184,7 @@ export function pickChoice(answer, threshold = 0.8) {
  * Most likely level of a score answer: { level (index from 0), label, value (expected score,
  * fractional), probability, confident }.
  */
-export function pickScore(answer, threshold = 0.8) {
+export function pickScore(answer, threshold = getDecisionSettings().threshold) {
     const probs = answer?.probabilities || {};
     let level = null, probability = 0;
     for (const [k, p] of Object.entries(probs)) {

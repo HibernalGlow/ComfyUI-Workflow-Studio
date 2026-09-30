@@ -7,6 +7,7 @@ import { comfyUI } from "./comfyui-client.js";
 import { t, getLang, getSummaryLang, setLang, setSummaryLang, getLanguageOptions, getSummaryLanguageOptions } from "./i18n.js";
 
 import { getSettings, readJsonStorage } from "./util.js";
+import { DECISION_BACKENDS, DECISION_MODELS, getDecisionSettings, saveDecisionSettings, testDecisionConnection } from "./decision-client.js";
 
 const SETTINGS_KEY = "wfm_settings";
 
@@ -455,6 +456,7 @@ export async function initSettingsTab() {
 
     const uiLang = getLang();
     const summaryLang = getSummaryLang();
+    const decisionSettings = getDecisionSettings();
 
     container.innerHTML = `
         <h2 style="font-size:18px;margin-bottom:20px;">${t("settingsTitle")}</h2>
@@ -801,6 +803,45 @@ export async function initSettingsTab() {
                     ${t("eagleAutoSave")}
                 </label>
             </div>
+        </details>
+
+        <!-- Decision Model (Laya) — independent of the AI TOOL / Tagger LLM/VLM backends -->
+        <details class="wfm-settings-section">
+            <summary class="wfm-settings-summary">${t("decisionSection")}</summary>
+            <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-bottom:8px;">
+                ${t("decisionHint")}
+            </small>
+            <div class="wfm-form-group">
+                <label>${t("decisionBackend")}</label>
+                <select class="wfm-select" id="wfm-settings-decision-backend">
+                    ${Object.keys(DECISION_BACKENDS).map(b => `<option value="${b}" ${decisionSettings.backend === b ? "selected" : ""}>${b === "unsloth" ? "Unsloth" : b}</option>`).join("")}
+                </select>
+            </div>
+            <div class="wfm-form-group">
+                <label>${t("decisionUrl")}</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" class="wfm-input" id="wfm-settings-decision-url"
+                        value="${decisionSettings.baseUrl}"
+                        placeholder="${DECISION_BACKENDS[decisionSettings.backend].defaultUrl}">
+                    <button class="wfm-btn" id="wfm-settings-decision-test">${t("test")}</button>
+                </div>
+                <div id="wfm-settings-decision-status" style="font-size:12px;margin-top:4px;"></div>
+            </div>
+            <div class="wfm-form-group">
+                <label>${t("decisionModel")}</label>
+                <select class="wfm-select" id="wfm-settings-decision-model">
+                    ${DECISION_MODELS.map(m => `<option value="${m}" ${decisionSettings.model === m ? "selected" : ""}>${m === "laya" ? t("decisionModelLaya") : m}</option>`).join("")}
+                </select>
+            </div>
+            <div class="wfm-form-group">
+                <label>${t("decisionThreshold")}</label>
+                <input type="number" class="wfm-input" id="wfm-settings-decision-threshold"
+                    value="${decisionSettings.threshold}" min="0.5" max="0.99" step="0.05" style="width:100px;">
+                <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-top:4px;">
+                    ${t("decisionThresholdHint")}
+                </small>
+            </div>
+            <button class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-settings-decision-save">${t("save")}</button>
         </details>
 
         <!-- G'MIC Integration -->
@@ -1234,6 +1275,55 @@ export async function initSettingsTab() {
             showToast(t("aiToastSettingsSaved"), "success");
         } catch (err) {
             showToast(`${t("saveError")}: ${err.message}`, "error");
+        }
+    });
+
+    // --- Decision Model (Laya) ---
+    const readDecisionForm = () => {
+        const baseUrl = document.getElementById("wfm-settings-decision-url")?.value.trim() || "";
+        const threshold = parseFloat(document.getElementById("wfm-settings-decision-threshold")?.value);
+        let urlOk = false;
+        try { urlOk = ["http:", "https:"].includes(new URL(baseUrl).protocol); } catch {}
+        if (!urlOk) throw new Error(t("decisionInvalidUrl"));
+        if (!(threshold >= 0.5 && threshold <= 0.99)) throw new Error(t("decisionInvalidThreshold"));
+        return {
+            backend: document.getElementById("wfm-settings-decision-backend")?.value || "unsloth",
+            baseUrl,
+            model: document.getElementById("wfm-settings-decision-model")?.value || "laya",
+            threshold,
+        };
+    };
+    document.getElementById("wfm-settings-decision-backend")?.addEventListener("change", (e) => {
+        const urlInput = document.getElementById("wfm-settings-decision-url");
+        const def = DECISION_BACKENDS[e.target.value]?.defaultUrl;
+        if (urlInput && def) { urlInput.value = def; urlInput.placeholder = def; }
+    });
+    document.getElementById("wfm-settings-decision-save")?.addEventListener("click", () => {
+        try {
+            saveDecisionSettings(readDecisionForm());
+            showToast(t("settingsSaved"), "success");
+        } catch (err) {
+            showToast(err.message, "error");
+        }
+    });
+    // Tests the values currently in the form (saved or not), same as the Eagle test button.
+    document.getElementById("wfm-settings-decision-test")?.addEventListener("click", async () => {
+        const statusEl = document.getElementById("wfm-settings-decision-status");
+        let form;
+        try { form = readDecisionForm(); } catch (err) {
+            statusEl.textContent = err.message;
+            statusEl.style.color = "var(--wfm-danger)";
+            return;
+        }
+        statusEl.textContent = t("decisionTesting");
+        statusEl.style.color = "var(--wfm-text-secondary)";
+        try {
+            const { ms, yes } = await testDecisionConnection({ baseUrl: form.baseUrl, model: form.model });
+            statusEl.textContent = `${t("connectedCheck")} ${t("decisionTestOk").replace("{ms}", ms).replace("{yes}", typeof yes === "number" ? yes.toFixed(3) : "?")}`;
+            statusEl.style.color = "var(--wfm-success)";
+        } catch (err) {
+            statusEl.textContent = `${t("failedConnect")}: ${err.message}`;
+            statusEl.style.color = "var(--wfm-danger)";
         }
     });
 
