@@ -1,17 +1,20 @@
 /**
- * Decision model client (Unsloth Decision API / Laya).
+ * Decision model client (Unsloth Decision API / Laya, Ollama 0.35+ / tev1・nimble).
  *
  * Laya is a *decision* model, not a generator: it takes a state (text or any JSON) plus typed
  * questions and returns calibrated probabilities in one forward pass — no free-form output, so no
  * format hallucination, and results can be thresholded directly. Text only (no image input):
  * image-based judgments must first be turned into text (Tagger tags / VLM caption).
  *
- * Unsloth requires an API key even on localhost, so requests go through the same server-side
- * proxy as the Unsloth chat backend (py/routes/unsloth_routes.py, key from .env — the same Unsloth
- * Desktop key the chat backend uses). Backend/URL/model/threshold come from the Settings tab's own
+ * Both backends speak the same TypeSafe-compatible POST /v1/systemone. Unsloth needs an API key
+ * even on localhost (unless Keyless API access is on), so its requests go through the same
+ * server-side proxy as the Unsloth chat backend (py/routes/unsloth_routes.py, key from .env).
+ * Ollama needs no key and allows CORS, so it's called directly from the browser like the existing
+ * Ollama LLM backend. Backend/URL/model/threshold come from the Settings tab's own
  * "Decision Model" section (wfm_decision_settings), independent of the AI TOOL / Tagger backends so
  * a decision model can run alongside whichever LLM/VLM those use.
- * API reference: https://unsloth.ai/docs/models/decision-laya
+ * API reference: https://unsloth.ai/docs/models/decision-laya,
+ * https://github.com/ollama/ollama/releases/tag/v0.35.0
  *
  * Usage (threshold defaults to the Settings tab value when omitted):
  *   import { decide, noul, choice, score, isYes, pickChoice } from "./decision-client.js";
@@ -28,15 +31,28 @@ import { unslothProxy, readJsonStorage } from "./util.js";
 // Limits documented by Unsloth's Decision API.
 export const DECISION_LIMITS = { maxQuestions: 64, maxChoiceOptions: 255, maxScoreLevels: 10 };
 
-// "laya" = the model picked in Unsloth's settings. Explicit variants: "laya-multilingual" (default
-// download, 100+ languages), "laya-english", "laya-typed-decisions" (structured data such as JSON
-// records — e.g. workflow node summaries).
-export const DECISION_MODELS = ["laya", "laya-multilingual", "laya-english", "laya-typed-decisions"];
-export const DEFAULT_DECISION_MODEL = "laya";
-
-// Only Unsloth for now; kept as a field so another TypeSafe-compatible server (e.g. ollaya on
-// :11435, which needs no key) can be added later without changing the stored settings shape.
-export const DECISION_BACKENDS = { unsloth: { defaultUrl: "http://localhost:8888" } };
+// Unsloth: "laya" = the model picked in Unsloth's settings. Explicit variants: "laya-multilingual"
+// (default download, 100+ languages), "laya-english", "laya-typed-decisions" (structured data such
+// as JSON records — e.g. workflow node summaries).
+// Ollama: decision models are ordinary pulled models whose /api/tags capabilities include
+// "decision" — listed live by listDecisionModels(); `models` below are only pull suggestions
+// (tev1 = 4B / 4.5 GB, tev1:0.8b = 812 MB, nimble = 9B / 9.5 GB).
+export const DECISION_BACKENDS = {
+    unsloth: {
+        label: "Unsloth",
+        defaultUrl: "http://localhost:8888",
+        models: ["laya", "laya-multilingual", "laya-english", "laya-typed-decisions"],
+        defaultModel: "laya",
+    },
+    ollama: {
+        label: "Ollama",
+        defaultUrl: "http://localhost:11434",
+        models: ["tev1", "tev1:0.8b", "nimble"],
+        defaultModel: "tev1",
+    },
+};
+export const DECISION_MODELS = DECISION_BACKENDS.unsloth.models;
+export const DEFAULT_DECISION_MODEL = DECISION_BACKENDS.unsloth.defaultModel;
 
 export const DECISION_SETTINGS_KEY = "wfm_decision_settings";
 const DEFAULT_SETTINGS = {
@@ -53,9 +69,31 @@ export function getDecisionSettings() {
     const th = Number(merged.threshold);
     merged.threshold = th > 0 && th <= 1 ? th : DEFAULT_SETTINGS.threshold;
     if (!DECISION_BACKENDS[merged.backend]) merged.backend = DEFAULT_SETTINGS.backend;
-    if (!merged.baseUrl) merged.baseUrl = DECISION_BACKENDS[merged.backend].defaultUrl;
-    if (!merged.model) merged.model = DEFAULT_DECISION_MODEL;
+    const backend = DECISION_BACKENDS[merged.backend];
+    if (!merged.baseUrl) merged.baseUrl = backend.defaultUrl;
+    // A model name from the other backend (e.g. "laya" after switching to Ollama) can't work.
+    const isLaya = /^laya/.test(merged.model || "");
+    if (!merged.model || (merged.backend === "ollama" && isLaya) || (merged.backend === "unsloth" && !isLaya)) {
+        merged.model = backend.defaultModel;
+    }
     return merged;
+}
+
+/**
+ * Model choices for the Settings dropdown. Unsloth: its fixed Laya names. Ollama: installed models
+ * whose /api/tags capabilities include "decision" (throws if Ollama can't be reached). Returns
+ * { models, installed } — installed is false for Unsloth (names aren't checked against the server).
+ */
+export async function listDecisionModels(backend, baseUrl) {
+    if (backend !== "ollama") return { models: [...DECISION_BACKENDS.unsloth.models], installed: false };
+    const res = await fetch(`${(baseUrl || DECISION_BACKENDS.ollama.defaultUrl).replace(/\/+$/, "")}/api/tags`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const models = (data.models || [])
+        .filter((m) => Array.isArray(m.capabilities) && m.capabilities.includes("decision"))
+        .map((m) => m.name)
+        .sort();
+    return { models, installed: true };
 }
 
 export function saveDecisionSettings(patch) {
@@ -114,14 +152,28 @@ function _validateQuestions(questions) {
  *
  * @param {string|object} state  Text or any JSON (e.g. { prompt, tags, model }).
  * @param {object} questions     { key: noul(...) | choice(...) | score(...) }, max 64.
- * @param {object} [opts]        { model, baseUrl } — override the saved Decision Model settings.
+ * @param {object} [opts]        { backend, model, baseUrl } — override the saved Decision Model settings.
  */
 export async function decide(state, questions, opts = {}) {
     _validateQuestions(questions);
     const settings = getDecisionSettings();
+    const backend = opts.backend || settings.backend;
+    const baseUrl = (opts.baseUrl || settings.baseUrl).replace(/\/+$/, "");
     const payload = { model: opts.model || settings.model, state, questions };
-    const data = await unslothProxy(opts.baseUrl || settings.baseUrl, "/v1/systemone", "POST", payload);
-    if (!data || typeof data.answers !== "object") throw new Error("Decision API returned no answers");
+    let data;
+    if (backend === "ollama") {
+        const res = await fetch(`${baseUrl}/v1/systemone`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        data = await res.json().catch(() => ({}));
+        // Ollama reports failures as { error } (e.g. 'model "tev1" not found, try pulling it first').
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    } else {
+        data = await unslothProxy(baseUrl, "/v1/systemone", "POST", payload);
+    }
+    if (!data || typeof data.answers !== "object") throw new Error(data?.error || "Decision API returned no answers");
     return data.answers;
 }
 

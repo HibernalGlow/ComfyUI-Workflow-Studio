@@ -6,8 +6,8 @@ import { showToast } from "./app.js";
 import { comfyUI } from "./comfyui-client.js";
 import { t, getLang, getSummaryLang, setLang, setSummaryLang, getLanguageOptions, getSummaryLanguageOptions } from "./i18n.js";
 
-import { getSettings, readJsonStorage } from "./util.js";
-import { DECISION_BACKENDS, DECISION_MODELS, getDecisionSettings, saveDecisionSettings, testDecisionConnection } from "./decision-client.js";
+import { getSettings, readJsonStorage, escapeHtml } from "./util.js";
+import { DECISION_BACKENDS, getDecisionSettings, saveDecisionSettings, testDecisionConnection, listDecisionModels } from "./decision-client.js";
 
 const SETTINGS_KEY = "wfm_settings";
 
@@ -814,7 +814,7 @@ export async function initSettingsTab() {
             <div class="wfm-form-group">
                 <label>${t("decisionBackend")}</label>
                 <select class="wfm-select" id="wfm-settings-decision-backend">
-                    ${Object.keys(DECISION_BACKENDS).map(b => `<option value="${b}" ${decisionSettings.backend === b ? "selected" : ""}>${b === "unsloth" ? "Unsloth" : b}</option>`).join("")}
+                    ${Object.entries(DECISION_BACKENDS).map(([b, def]) => `<option value="${b}" ${decisionSettings.backend === b ? "selected" : ""}>${def.label}</option>`).join("")}
                 </select>
             </div>
             <div class="wfm-form-group">
@@ -829,9 +829,13 @@ export async function initSettingsTab() {
             </div>
             <div class="wfm-form-group">
                 <label>${t("decisionModel")}</label>
-                <select class="wfm-select" id="wfm-settings-decision-model">
-                    ${DECISION_MODELS.map(m => `<option value="${m}" ${decisionSettings.model === m ? "selected" : ""}>${m === "laya" ? t("decisionModelLaya") : m}</option>`).join("")}
-                </select>
+                <div style="display:flex;gap:8px;">
+                    <select class="wfm-select" id="wfm-settings-decision-model" style="flex:1;">
+                        <option value="${escapeHtml(decisionSettings.model)}" selected>${escapeHtml(decisionSettings.model)}</option>
+                    </select>
+                    <button class="wfm-btn" id="wfm-settings-decision-refresh" title="${t("decisionRefreshModels")}">&#8635;</button>
+                </div>
+                <div id="wfm-settings-decision-model-hint" style="font-size:11px;color:var(--wfm-text-secondary);margin-top:4px;"></div>
             </div>
             <div class="wfm-form-group">
                 <label>${t("decisionThreshold")}</label>
@@ -1293,14 +1297,41 @@ export async function initSettingsTab() {
         return {
             backend: document.getElementById("wfm-settings-decision-backend")?.value || "unsloth",
             baseUrl,
-            model: document.getElementById("wfm-settings-decision-model")?.value || "laya",
+            model: document.getElementById("wfm-settings-decision-model")?.value || "",
             threshold,
         };
     };
+    // Unsloth: fixed Laya names. Ollama: installed models whose capabilities include "decision";
+    // none installed (or Ollama unreachable) → keep the preferred name selectable and show why.
+    const refreshDecisionModels = async (preferred) => {
+        const backend = document.getElementById("wfm-settings-decision-backend")?.value || "unsloth";
+        const baseUrl = document.getElementById("wfm-settings-decision-url")?.value.trim() || "";
+        const select = document.getElementById("wfm-settings-decision-model");
+        const hint = document.getElementById("wfm-settings-decision-model-hint");
+        if (!select) return;
+        const def = DECISION_BACKENDS[backend];
+        const current = preferred ?? select.value;
+        let models = [];
+        let hintText = "";
+        try {
+            ({ models } = await listDecisionModels(backend, baseUrl));
+            if (backend === "ollama" && models.length === 0) hintText = t("decisionNoOllamaModels");
+        } catch (err) {
+            hintText = `${t("failedConnect")}: ${err.message}`;
+        }
+        const list = models.length ? [...models] : [...def.models];
+        if (current && !list.includes(current) && (backend === "ollama") === !/^laya/.test(current)) list.unshift(current);
+        const selected = list.includes(current) ? current : (list.includes(def.defaultModel) ? def.defaultModel : list[0]);
+        select.innerHTML = list.map((m) => `<option value="${escapeHtml(m)}" ${m === selected ? "selected" : ""}>${m === "laya" ? t("decisionModelLaya") : escapeHtml(m)}</option>`).join("");
+        if (hint) hint.textContent = hintText;
+    };
+    refreshDecisionModels(decisionSettings.model);
+    document.getElementById("wfm-settings-decision-refresh")?.addEventListener("click", () => refreshDecisionModels());
     document.getElementById("wfm-settings-decision-backend")?.addEventListener("change", (e) => {
         const urlInput = document.getElementById("wfm-settings-decision-url");
         const def = DECISION_BACKENDS[e.target.value]?.defaultUrl;
         if (urlInput && def) { urlInput.value = def; urlInput.placeholder = def; }
+        refreshDecisionModels(DECISION_BACKENDS[e.target.value]?.defaultModel);
     });
     document.getElementById("wfm-settings-decision-save")?.addEventListener("click", () => {
         try {
@@ -1322,7 +1353,7 @@ export async function initSettingsTab() {
         statusEl.textContent = t("decisionTesting");
         statusEl.style.color = "var(--wfm-text-secondary)";
         try {
-            const { ms, yes } = await testDecisionConnection({ baseUrl: form.baseUrl, model: form.model });
+            const { ms, yes } = await testDecisionConnection({ backend: form.backend, baseUrl: form.baseUrl, model: form.model });
             statusEl.textContent = `${t("connectedCheck")} ${t("decisionTestOk").replace("{ms}", ms).replace("{yes}", typeof yes === "number" ? yes.toFixed(3) : "?")}`;
             statusEl.style.color = "var(--wfm-success)";
         } catch (err) {
