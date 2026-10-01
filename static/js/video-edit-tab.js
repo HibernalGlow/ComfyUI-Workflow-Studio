@@ -476,7 +476,7 @@ function _renderLaneTrack(track, view) {
                 if (!ov.text.trim()) continue;
                 const end = Math.min(ov.end, o.len);
                 if (end <= ov.start) continue;
-                items.push({ start: o.start + ov.start, end: o.start + end, label: ov.text, clipId: o.clip.id });
+                items.push({ start: o.start + ov.start, end: o.start + end, label: ov.text, clipId: o.clip.id, ov, clip: o.clip, clipStart: o.start, clipLen: o.len });
             }
         }
         items.sort((a, b) => a.start - b.start);
@@ -529,7 +529,8 @@ function _renderLaneTrack(track, view) {
         el.style.top = `${4 + rows[i] * ROW_H}px`;
         el.textContent = it.label;
         el.title = `${it.label} (${_fmtTime(it.start)} – ${_fmtTime(it.end)})`;
-        if (it.clipId != null) el.addEventListener("click", () => _selectClip(it.clipId));
+        if (it.ov) _wireTextItemDrag(el, it);
+        else if (it.clipId != null) el.addEventListener("click", () => _selectClip(it.clipId));
         lane.appendChild(el);
     });
 
@@ -543,6 +544,65 @@ function _renderLaneTrack(track, view) {
     const rowCount = all.length ? Math.max(...rows) + 1 : 1;
     track.style.height = `${Math.max(48, rowCount * ROW_H + 8)}px`;
     track.appendChild(lane);
+}
+
+// Drag a text band to move it, or drag its left/right edge to retime it. The
+// overlay keeps clip-relative times, so a move is clamped to the clip it
+// belongs to (use the clip's own text panel / reorder to go further).
+// A press without movement just selects the clip.
+function _wireTextItemDrag(el, it) {
+    const EDGE_PX = 6;
+    el.style.touchAction = "none";
+    el.addEventListener("pointermove", (e) => {
+        if (e.buttons) return;
+        const r = el.getBoundingClientRect();
+        el.style.cursor = (e.clientX - r.left < EDGE_PX || r.right - e.clientX < EDGE_PX) ? "ew-resize" : "grab";
+    });
+    el.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const r = el.getBoundingClientRect();
+        const mode = e.clientX - r.left < EDGE_PX ? "start" : r.right - e.clientX < EDGE_PX ? "end" : "move";
+        const { ov, clipLen } = it;
+        const orig = { start: ov.start, end: Math.min(ov.end, clipLen) };
+        const x0 = e.clientX;
+        let moved = false;
+        const MIN = 0.1;
+        el.setPointerCapture(e.pointerId);
+        const onMove = (ev) => {
+            const dx = (ev.clientX - x0) / _PX_PER_SEC;
+            if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+            moved = true;
+            let { start, end } = orig;
+            if (mode === "move") {
+                const d = Math.max(-orig.start, Math.min(dx, clipLen - orig.end));
+                start = orig.start + d;
+                end = orig.end + d;
+            } else if (mode === "start") {
+                start = Math.max(0, Math.min(orig.start + dx, orig.end - MIN));
+            } else {
+                end = Math.min(clipLen, Math.max(orig.end + dx, orig.start + MIN));
+            }
+            ov.start = Number(start.toFixed(2));
+            ov.end = Number(end.toFixed(2));
+            el.style.left = `${Math.round((it.clipStart + ov.start) * _PX_PER_SEC)}px`;
+            el.style.width = `${Math.max(24, Math.round((ov.end - ov.start) * _PX_PER_SEC))}px`;
+        };
+        const onUp = () => {
+            el.removeEventListener("pointermove", onMove);
+            el.removeEventListener("pointerup", onUp);
+            el.removeEventListener("pointercancel", onUp);
+            if (moved) {
+                if (_s.selectedId !== it.clipId) { _selectClip(it.clipId); } else { _renderTrimPanel(); }
+                _refreshTextPreview();
+            } else {
+                _selectClip(it.clipId);
+            }
+        };
+        el.addEventListener("pointermove", onMove);
+        el.addEventListener("pointerup", onUp);
+        el.addEventListener("pointercancel", onUp);
+    });
 }
 
 function _setTrackView(view) {
