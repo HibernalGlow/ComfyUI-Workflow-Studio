@@ -2962,18 +2962,10 @@
                         </div>
 
                         <div class="wfm-video-edit-main-row">
-                            <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
-
-                            <div class="wfm-video-edit-export-panel">
-                                <div id="wfm-video-edit-project-name" class="wfm-i2i-status" style="min-height:14px;margin-bottom:4px;"></div>
-                                <div style="display:flex;gap:6px;">
-                                    <button type="button" id="wfm-video-edit-save-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save</button>
-                                    <button type="button" id="wfm-video-edit-saveas-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save As</button>
-                                    <!-- File pickers are native <label>-wrapped inputs (same as the Video Source drop zone),
-                                         not a button calling input.click() from JS — that programmatic path can be refused
-                                         by the browser without any error (confirmed on a user's machine for the BGM picker). -->
-                                    <label id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm wfm-video-edit-file-btn" style="flex:1;" tabindex="0" role="button">Load<input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;"></label>
-                                </div>
+                            <!-- Tool menu: its contents follow the timeline's track view (data-view, set by _setTrackView):
+                                 video = trim + crop, text = text overlays, pip = overlay clips, audio = audio. Export stays fixed on the right. -->
+                            <div class="wfm-video-edit-tools" id="wfm-video-edit-tools" data-view="video">
+                                <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
                                 <div class="wfm-video-edit-pip-panel">
                                     <div class="wfm-video-edit-section-head"><span id="wfm-video-edit-pip-title">Overlay clips (PinP)</span></div>
                                     <div class="wfm-video-edit-sound-head">
@@ -3010,6 +3002,18 @@
                                         <label class="wfm-btn wfm-btn-xs wfm-video-edit-file-btn" tabindex="0" role="button"><span id="wfm-video-edit-sound-btn">+ Sound...</span><input type="file" id="wfm-video-edit-sound-input" multiple accept="audio/*,video/mp4,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4" style="display:none;"></label>
                                     </div>
                                     <div class="wfm-video-edit-sound-list" id="wfm-video-edit-sound-list"></div>
+                                </div>
+                            </div>
+
+                            <div class="wfm-video-edit-export-panel">
+                                <div id="wfm-video-edit-project-name" class="wfm-i2i-status" style="min-height:14px;margin-bottom:4px;"></div>
+                                <div style="display:flex;gap:6px;">
+                                    <button type="button" id="wfm-video-edit-save-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save</button>
+                                    <button type="button" id="wfm-video-edit-saveas-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save As</button>
+                                    <!-- File pickers are native <label>-wrapped inputs (same as the Video Source drop zone),
+                                         not a button calling input.click() from JS — that programmatic path can be refused
+                                         by the browser without any error (confirmed on a user's machine for the BGM picker). -->
+                                    <label id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm wfm-video-edit-file-btn" style="flex:1;" tabindex="0" role="button">Load<input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;"></label>
                                 </div>
                                 <button type="button" id="wfm-video-edit-export-btn" class="wfm-btn wfm-btn-primary" style="width:100%;margin-top:8px;">Export</button>
                                 <div class="wfm-gen-progress-container" style="margin-top:8px;">

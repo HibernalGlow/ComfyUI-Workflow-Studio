@@ -612,6 +612,7 @@ function _renderLaneTrack(track, view) {
         const hint = document.createElement("span");
         hint.className = "wfm-placeholder wfm-video-edit-timeline-placeholder";
         hint.style.position = "relative";
+        lane.style.width = "100%"; // an empty lane is as narrow as the timeline is short — keep the hint readable
         hint.textContent = view === "text" ? t("videoEditTrackNoText") : view === "pip" ? t("videoEditTrackNoPip") : t("videoEditTrackNoAudio");
         lane.appendChild(hint);
     }
@@ -676,7 +677,11 @@ function _wireBandDrag(el, it) {
 }
 
 function _setTrackView(view) {
+    // The crop editor lives in the video view's tool menu; leaving it ends editing like "Done".
+    if (view !== "video") _endCropEdit(true);
     _s.trackView = view;
+    const tools = document.getElementById("wfm-video-edit-tools");
+    if (tools) tools.dataset.view = view;
     document.querySelectorAll("#wfm-video-edit-track-tabs .wfm-video-edit-track-tab").forEach((b) => {
         b.classList.toggle("active", b.dataset.track === view);
     });
@@ -903,11 +908,11 @@ function _renderTrimPanel() {
     if (clip.kind === "image") {
         panel.innerHTML = `
             <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:6px;"></div>
-            <div class="wfm-video-edit-trim-field" style="max-width:160px;">
+            <div class="wfm-video-edit-trim-field wfm-video-edit-tool-trim" style="max-width:160px;">
                 <label>${t("videoEditImageDuration")}</label>
                 <input type="number" id="wfm-video-edit-image-duration" class="wfm-input" step="0.1" min="0.1" value="${clip.trimEnd.toFixed(2)}">
             </div>
-            <div class="wfm-video-edit-text-section" id="wfm-video-edit-text-section"></div>
+            <div class="wfm-video-edit-text-section wfm-video-edit-tool-text" id="wfm-video-edit-text-section"></div>
         `;
         const nameEl = document.getElementById("wfm-video-edit-trim-clip-name");
         if (nameEl) { nameEl.textContent = clip.name; nameEl.title = clip.name; }
@@ -928,7 +933,7 @@ function _renderTrimPanel() {
 
     panel.innerHTML = `
         <div class="wfm-video-edit-clip-name" id="wfm-video-edit-trim-clip-name" style="margin-bottom:16px;"></div>
-        <div class="wfm-video-trim-scrubber" id="wfm-video-trim-scrubber">
+        <div class="wfm-video-trim-scrubber wfm-video-edit-tool-trim" id="wfm-video-trim-scrubber">
             <div class="wfm-video-trim-ruler" id="wfm-video-trim-ruler"></div>
             <div class="wfm-video-trim-track" id="wfm-video-trim-track">
                 <div class="wfm-video-trim-range" id="wfm-video-trim-range"></div>
@@ -943,7 +948,7 @@ function _renderTrimPanel() {
                 </div>
             </div>
         </div>
-        <div class="wfm-video-edit-trim-row" style="margin-top:20px;">
+        <div class="wfm-video-edit-trim-row wfm-video-edit-tool-trim" style="margin-top:20px;">
             <div class="wfm-video-edit-trim-field">
                 <label>${t("videoEditTrimStart")}</label>
                 <input type="number" id="wfm-video-edit-trim-start" class="wfm-input" step="0.1" min="0" max="${clip.duration}" value="${clip.trimStart.toFixed(2)}">
@@ -955,8 +960,8 @@ function _renderTrimPanel() {
                 <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-playhead-btn" id="wfm-video-edit-trim-end-set">${t("videoEditSetFromPlayhead")}</button>
             </div>
         </div>
-        <div class="wfm-video-edit-crop-section" id="wfm-video-edit-crop-section"></div>
-        <div class="wfm-video-edit-text-section" id="wfm-video-edit-text-section"></div>
+        <div class="wfm-video-edit-crop-section wfm-video-edit-tool-trim" id="wfm-video-edit-crop-section"></div>
+        <div class="wfm-video-edit-text-section wfm-video-edit-tool-text" id="wfm-video-edit-text-section"></div>
     `;
     const nameEl = document.getElementById("wfm-video-edit-trim-clip-name");
     if (nameEl) { nameEl.textContent = clip.name; nameEl.title = clip.name; }
