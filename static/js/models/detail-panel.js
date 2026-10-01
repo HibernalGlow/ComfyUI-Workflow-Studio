@@ -815,10 +815,13 @@ export async function batchFetchCivitai() {
     }
 
     // Filter out models that already have CivitAI data
+    // Optionally also skip models previously recorded as "not found on CivitAI"
+    const skipNotFound = document.getElementById("wfm-models-civitai-skip-nf")?.checked;
     const meta = state.modelMetadata;
     const uncached = models.filter((m) => {
         const sha = meta[m]?.sha256;
-        return !sha || !state.civitaiCache[sha];
+        if (sha && state.civitaiCache[sha]) return false;
+        return !(skipNotFound && meta[m]?.civitaiNotFound);
     });
 
     if (uncached.length === 0) {
@@ -860,6 +863,7 @@ export async function batchFetchCivitai() {
                         const pct = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
                         const statusText = data.status === "hashing" ? t("civitaiHashing2")
                             : data.status === "fetching" ? t("civitaiFetching")
+                            : data.status === "previews" ? t("civitaiSavingPreviews")
                             : data.status === "cached" ? "✓"
                             : data.status === "found" ? "✓"
                             : data.status === "not_found" ? "—"

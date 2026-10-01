@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import shutil
 import time
 from datetime import datetime, timezone
@@ -39,6 +40,43 @@ MODEL_TYPE_FOLDER_KEYS = {
     "hypernetwork": "hypernetworks",
     "embedding": "embeddings",
 }
+
+
+def _iter_files(root):
+    """root 配下の全ファイルを返す。フォルダのシンボリックリンク／ジャンクションも辿る。
+
+    リンクが祖先フォルダを指していて循環する場合のみ、その枝には入らない
+    （rglob だとパス長上限まで再帰し続ける恐れがある）。
+    """
+    def walk(d, ancestors):
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            return
+        for e in entries:
+            try:
+                if e.is_dir():  # リンクは辿る
+                    real = os.path.realpath(e.path)
+                    if real in ancestors:
+                        logger.warning("Skipping looping folder link: %s -> %s", e.path, real)
+                        continue
+                    yield from walk(e.path, ancestors | {real})
+                elif e.is_file():
+                    yield Path(e.path)
+            except OSError:
+                continue
+
+    root = Path(root)
+    yield from walk(root, frozenset([os.path.realpath(root)]))
+
+
+def _is_within(path, root):
+    """path が root 配下か。`..` は正規化するが、リンクは解決しない（リンク先フォルダへの移動を許可）。"""
+    try:
+        a, r = os.path.abspath(path), os.path.abspath(root)
+        return os.path.commonpath([os.path.normcase(a), os.path.normcase(r)]) == os.path.normcase(r)
+    except ValueError:  # 別ドライブなど
+        return False
 
 
 def _get_model_dirs(model_type):
@@ -111,6 +149,12 @@ class ModelsService:
             entry["sha256"] = updates["sha256"]
         if "badges" in updates:
             entry["badges"] = updates["badges"]
+        if "civitaiNotFound" in updates:
+            # CivitAIに存在しなかった記録（一括取得のスキップ用）。None/False で解除
+            if updates["civitaiNotFound"]:
+                entry["civitaiNotFound"] = self._now_iso()
+            else:
+                entry.pop("civitaiNotFound", None)
         entry["updatedAt"] = self._now_iso()
         data[model_name] = entry
         self._save_metadata(data)
@@ -131,9 +175,7 @@ class ModelsService:
         for d in dirs:
             if not d.is_dir():
                 continue
-            for f in d.rglob("*"):
-                if not f.is_file():
-                    continue
+            for f in _iter_files(d):
                 try:
                     rel = str(f.relative_to(d)).replace("\\", "/")
                     if rel.endswith(_DISABLED_SUFFIX):
@@ -153,9 +195,7 @@ class ModelsService:
         for d in dirs:
             if not d.is_dir():
                 continue
-            for f in d.rglob("*"):
-                if not f.is_file():
-                    continue
+            for f in _iter_files(d):
                 name = f.name
                 if name.endswith(_DISABLED_SUFFIX):
                     name = name[: -len(_DISABLED_SUFFIX)]
@@ -280,8 +320,8 @@ class ModelsService:
         for d in dirs:
             if not d.is_dir():
                 continue
-            for f in d.rglob("*"):
-                if f.is_file() and f.name.endswith(_DISABLED_SUFFIX):
+            for f in _iter_files(d):
+                if f.name.endswith(_DISABLED_SUFFIX):
                     try:
                         rel = str(f.relative_to(d))
                         if rel.endswith(_DISABLED_SUFFIX):
@@ -436,11 +476,10 @@ class ModelsService:
                     errors.append({"model": model_name, "error": "Cannot determine root directory"})
                     continue
 
-                # Destination directory — verify it stays within root_dir after resolution
+                # Destination directory — verify it stays within root_dir (`..`/絶対パスは拒否。
+                # フォルダのシンボリックリンク／ジャンクション配下への移動は許可する)
                 dest_dir = root_dir / dest_subdir if dest_subdir else root_dir
-                try:
-                    dest_dir.resolve().relative_to(root_dir.resolve())
-                except ValueError:
+                if not _is_within(dest_dir, root_dir):
                     errors.append({"model": model_name, "error": "Destination is outside model root"})
                     continue
                 dest_dir.mkdir(parents=True, exist_ok=True)

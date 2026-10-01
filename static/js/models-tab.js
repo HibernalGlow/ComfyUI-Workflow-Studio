@@ -550,6 +550,16 @@ export function initModelsTab() {
     document.getElementById("wfm-models-civitai-batch-btn")?.addEventListener("click", () => {
         batchFetchCivitai();
     });
+    // Skip models already known to be missing on CivitAI (persisted per browser)
+    const skipNfEl = document.getElementById("wfm-models-civitai-skip-nf");
+    const skipNfLabel = document.getElementById("wfm-models-civitai-skip-nf-label");
+    if (skipNfLabel) skipNfLabel.textContent = t("civitaiSkipNotFound");
+    if (skipNfEl) {
+        skipNfEl.checked = localStorage.getItem("wfm_models_civitai_skip_nf") === "1";
+        skipNfEl.addEventListener("change", () => {
+            localStorage.setItem("wfm_models_civitai_skip_nf", skipNfEl.checked ? "1" : "0");
+        });
+    }
 
     // Side panel tab switching
     document.querySelectorAll(".wfm-models-side-tab-btn").forEach((btn) => {

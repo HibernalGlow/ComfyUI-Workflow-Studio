@@ -2,6 +2,7 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
+- **v0.7.9（2026-10-02）** — Models: CivitAIベースモデルからの自動バッジ作成
 - **v0.7.8（2026-10-01）** — Video Edit: マルチトラック化（ビデオ/オーバーレイ/テキスト/オーディオ）
 - **v0.7.7（2026-09-30）** — 意思決定モデル: Ollama 0.35+ バックエンド追加
 - **v0.7.6（2026-09-30）** — Settings: 意思決定モデル (Laya) の専用設定

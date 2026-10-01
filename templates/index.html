@@ -247,6 +247,9 @@
                     <span id="wfm-models-count" class="wfm-nodes-count"></span>
                     <button id="wfm-models-refresh-btn" class="wfm-btn wfm-btn-sm">Refresh</button>
                     <button id="wfm-models-civitai-batch-btn" class="wfm-btn wfm-btn-sm" title="Fetch CivitAI info for all models">CivitAI</button>
+                    <label style="font-size:11px;color:var(--wfm-text-secondary);white-space:nowrap;cursor:pointer;">
+                        <input type="checkbox" id="wfm-models-civitai-skip-nf"> <span id="wfm-models-civitai-skip-nf-label">Skip not found</span>
+                    </label>
                     <span id="wfm-models-civitai-progress" style="font-size:12px;color:var(--wfm-text-secondary);"></span>
                     <button id="wfm-models-badge-settings-btn" class="wfm-btn wfm-btn-sm" title="Badge settings">&#9881; Badge</button>
                     <button id="wfm-models-select-btn" class="wfm-btn wfm-btn-sm wfm-btn-success" title="Multi-select models">Select</button>
@@ -1824,7 +1827,7 @@
                             <h3 id="wfm-help-models-card-civitai-title">Side Panel &amp; CivitAI</h3>
                             <ul>
                                 <li id="wfm-help-models-4">Side panel: opens to CivitAI tab by default when a model is selected; Info (file path, tags, memo), Groups management, CivitAI integration</li>
-                                <li id="wfm-help-models-5">CivitAI integration: fetch model info by SHA256 hash, batch fetch per model type</li>
+                                <li id="wfm-help-models-5">CivitAI integration: fetch model info by SHA256 hash, batch fetch per model type; the batch fetch reuses saved hashes, imports from existing .metadata.json sidecars and hashes the rest in parallel; 'Skip not found' skips models known to be missing on CivitAI</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1838,7 +1841,7 @@
                             <h3 id="wfm-help-models-card-groups-title">Groups &amp; Badges</h3>
                             <ul>
                                 <li id="wfm-help-models-7">Group management: create, rename, delete groups and assign/remove models; Checkpoint and LoRA tabs support B (Batch) and S (Stack) quick-assign buttons per model in both card and table views</li>
-                                <li id="wfm-help-models-9">User-defined badges: assign free-label badges with custom colors shared with the Workflow tab</li>
+                                <li id="wfm-help-models-9">User-defined badges: assign free-label badges with custom colors shared with the Workflow tab; 'Auto badges from CivitAI' in Manage Badges creates badges from CivitAI base models</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">

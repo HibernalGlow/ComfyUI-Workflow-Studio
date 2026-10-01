@@ -117,7 +117,7 @@ class CivitaiService:
     # ── ハッシュ計算 ──────────────────────────────────────────
 
     @staticmethod
-    def calculate_sha256(file_path, chunk_size=65536):
+    def calculate_sha256(file_path, chunk_size=1024 * 1024):
         """Calculate SHA256 hash of a file."""
         h = hashlib.sha256()
         path = Path(file_path)
@@ -198,6 +198,7 @@ class CivitaiService:
         url = f"{CIVITAI_API_BASE}/model-versions/by-hash"
         results = {h.lower(): None for h in sha256_hashes}
         cache = self._load_cache()
+        failed = set()
 
         for chunk_start in range(0, len(sha256_hashes), _BATCH_CHUNK_SIZE):
             chunk = sha256_hashes[chunk_start:chunk_start + _BATCH_CHUNK_SIZE]
@@ -239,6 +240,7 @@ class CivitaiService:
                         time.sleep(wait)
                         continue
                     logger.warning("CivitAI batch POST error: %s %s", e.code, e.reason)
+                    failed.update(chunk_lower)
                     break
                 except (URLError, Exception) as e:
                     if attempt < _MAX_RETRIES - 1:
@@ -247,8 +249,11 @@ class CivitaiService:
                         time.sleep(wait)
                         continue
                     logger.warning("CivitAI batch POST failed: %s", e)
+                    failed.update(chunk_lower)
                     break
 
+        # 通信失敗したチャンクは「CivitAIに存在しない」と区別するため記録する
+        self.last_failed_hashes = failed
         self._save_cache()
         return results
 
@@ -338,64 +343,175 @@ class CivitaiService:
 
     # ── バッチフェッチ ────────────────────────────────────────
 
-    def batch_fetch(self, model_files, progress_callback=None):
+    @staticmethod
+    def _known_hash(known, st):
+        """メタデータに保存済みのsha256が、現在のファイルに対して有効ならそれを返す。
+
+        size/mtime が記録されていれば一致を確認する（ファイル差し替え検知）。
+        記録の無い旧データは信頼する。
+        """
+        sha = (known or {}).get("sha256")
+        if not sha:
+            return None
+        try:
+            ks, km = known.get("size"), known.get("mtime")
+            if ks is not None and int(ks) != st.st_size:
+                return None
+            if km is not None and abs(float(km) - st.st_mtime) > 2:
+                return None
+        except (TypeError, ValueError):
+            return None
+        return str(sha).lower()
+
+    def _read_sidecar(self, file_path, size):
+        """`<stem>.metadata.json` サイドカーからsha256とCivitAI情報を読む（ハッシュ計算・通信不要）。
+
+        サイドカーのsizeがファイルサイズと一致する場合のみ採用する。
+        Returns: (sha256_lower or None, extracted_info or None)
+        """
+        sc = file_path.with_name(file_path.stem + ".metadata.json")
+        try:
+            with open(sc, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            sha = str(d.get("sha256", "")).lower()
+            if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+                return None, None
+            if d.get("size") is None or int(float(d["size"])) != size:
+                return None, None
+        except Exception:
+            return None, None
+
+        info = None
+        civ = d.get("civitai")
+        if isinstance(civ, dict) and civ.get("id"):
+            # 別ファイルの情報を取り込まないよう、files[].hashes.SHA256 に一致するものだけ採用
+            matched = any(
+                str(f.get("hashes", {}).get("SHA256", "")).lower() == sha
+                for f in civ.get("files", []) if isinstance(f, dict)
+            )
+            if matched:
+                try:
+                    info = self._extract_info(civ)
+                except Exception:
+                    info = None
+        return sha, info
+
+    def batch_fetch(self, model_files, progress_callback=None, known=None, on_hash=None, workers=3):
         """Batch fetch CivitAI info for multiple model files.
 
-        Phase 1: SHA256 計算（"hashing"）
+        Phase 0: 保存済みsha256 / サイドカーから解決（ハッシュ計算・通信なし）
+        Phase 1: 残りのSHA256を並列計算（"hashing"）
         Phase 2: POST で一括取得（"fetching"）— キャッシュ済みはスキップ
 
         Args:
             model_files: list of (model_name, file_path) tuples
             progress_callback: fn(current, total, model_name, status) called per model
+            known: { model_name: {"sha256", "size", "mtime"} } メタデータ保存済みハッシュ
+            on_hash: fn(model_name, sha256, size, mtime) ハッシュが新たに確定するたびに呼ばれる
+            workers: ハッシュ計算の並列数
 
         Returns: dict of { model_name: { sha256, civitai_info_or_none } }
         """
         results = {}
         total = len(model_files)
         cache = self._load_cache()
+        known = known or {}
+        finished = 0
+        cache_dirty = False
 
-        # Phase 1: ハッシュ計算
-        hashes_needed = []  # [(model_name, sha256_lower, original_index)]
+        hashes_needed = []  # [(model_name, sha256_lower)]
+        to_hash = []        # [(model_name, file_path, stat)]
 
-        for i, (model_name, file_path) in enumerate(model_files):
-            if progress_callback:
-                progress_callback(i, total, model_name, "hashing")
-
-            sha256 = self.calculate_sha256(file_path)
-            if not sha256:
-                results[model_name] = {"sha256": None, "civitai": None, "error": "hash_failed"}
+        def _resolved(name, sha, st, new_hash):
+            """sha256確定後の共通処理。キャッシュにあれば完了、無ければ取得待ちへ。"""
+            nonlocal finished
+            results[name] = {"sha256": sha, "civitai": None}
+            if new_hash and on_hash:
+                on_hash(name, sha, st.st_size, st.st_mtime)
+            if sha in cache:
+                results[name]["civitai"] = cache[sha]
+                finished += 1
                 if progress_callback:
-                    progress_callback(i + 1, total, model_name, "not_found")
+                    progress_callback(finished, total, name, "cached")
+            else:
+                hashes_needed.append((name, sha))
+
+        # Phase 0: ハッシュ計算なしで解決できるものを先に処理
+        for model_name, file_path in model_files:
+            try:
+                st = Path(file_path).stat()
+            except OSError:
+                results[model_name] = {"sha256": None, "civitai": None, "error": "hash_failed"}
+                finished += 1
+                if progress_callback:
+                    progress_callback(finished, total, model_name, "not_found")
                 continue
 
-            sha256_lower = sha256.lower()
-            results[model_name] = {"sha256": sha256_lower, "civitai": None}
+            sha = self._known_hash(known.get(model_name), st)
+            if sha:
+                _resolved(model_name, sha, st, new_hash=False)
+                continue
 
-            if sha256_lower in cache:
-                results[model_name]["civitai"] = cache[sha256_lower]
-                if progress_callback:
-                    progress_callback(i + 1, total, model_name, "cached")
-            else:
-                hashes_needed.append((model_name, sha256_lower, i))
+            sha, info = self._read_sidecar(Path(file_path), st.st_size)
+            if sha:
+                if info and sha not in cache:
+                    cache[sha] = info
+                    cache_dirty = True
+                _resolved(model_name, sha, st, new_hash=True)
+                continue
+
+            to_hash.append((model_name, file_path, st))
+
+        if cache_dirty:
+            self._save_cache()
+
+        # Phase 1: 残りを並列でハッシュ計算（hashlibは大きなチャンクでGILを解放する）
+        if to_hash:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _hash(item):
+                return self.calculate_sha256(item[1])
+
+            with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+                futures = {pool.submit(_hash, item): item for item in to_hash}
+                for fut in as_completed(futures):
+                    model_name, _fp, st = futures[fut]
+                    try:
+                        sha = fut.result()
+                    except Exception:
+                        sha = None
+                    if not sha:
+                        results[model_name] = {"sha256": None, "civitai": None, "error": "hash_failed"}
+                        finished += 1
+                        if progress_callback:
+                            progress_callback(finished, total, model_name, "not_found")
+                        continue
+                    if progress_callback:
+                        progress_callback(finished, total, model_name, "hashing")
+                    _resolved(model_name, sha.lower(), st, new_hash=True)
 
         # Phase 2: POST で一括取得（未キャッシュ分）
         if hashes_needed:
             if progress_callback:
-                progress_callback(len(results), total, "", "fetching")
+                progress_callback(finished, total, "", "fetching")
 
             # 同一ハッシュが複数モデルに対応する場合を考慮
-            sha256_to_entries: dict[str, list] = {}
-            for name, sha256_lower, idx in hashes_needed:
-                sha256_to_entries.setdefault(sha256_lower, []).append((name, idx))
+            sha256_to_names: dict[str, list] = {}
+            for name, sha256_lower in hashes_needed:
+                sha256_to_names.setdefault(sha256_lower, []).append(name)
 
-            batch_results = self._batch_fetch_post(list(sha256_to_entries.keys()))
+            batch_results = self._batch_fetch_post(list(sha256_to_names.keys()))
+            failed = getattr(self, "last_failed_hashes", set())
 
             for sha256_lower, info in batch_results.items():
-                for name, idx in sha256_to_entries.get(sha256_lower, []):
+                for name in sha256_to_names.get(sha256_lower, []):
                     results[name]["civitai"] = info
+                    if not info and sha256_lower in failed:
+                        results[name]["fetch_failed"] = True
+                    finished += 1
                     if progress_callback:
                         status = "found" if info else "not_found"
-                        progress_callback(idx + 1, total, name, status)
+                        progress_callback(finished, total, name, status)
 
         if progress_callback:
             progress_callback(total, total, "", "done")

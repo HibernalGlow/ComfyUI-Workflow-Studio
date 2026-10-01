@@ -6,6 +6,7 @@ import { openModal } from "../app.js";
 import { t } from "../i18n.js";
 import { escapeHtml, readJsonStorage } from "../util.js";
 import { state } from "./state.js";
+import { openAutoBadgeModal } from "./auto-badge.js";
 
 // Grid re-render is owned by models-tab.js (grid rendering hasn't been split
 // out yet); registered once from initModelsTab() to avoid a circular import.
@@ -61,6 +62,9 @@ export function openBadgeEditModal(onPaletteChange = null) {
                 <input type="color" id="wfm-badge-new-color" value="#6366f1" style="width:36px;height:28px;padding:1px;border-radius:4px;cursor:pointer;">
                 <button class="wfm-btn wfm-btn-sm wfm-btn-primary" id="wfm-badge-add-btn">${t("badgeAdd")}</button>
             </div>
+            <div style="margin-top:8px;">
+                <button class="wfm-btn wfm-btn-sm" id="wfm-badge-auto-btn" title="${t("autoBadgeDesc")}">&#10024; ${t("autoBadgeTitle")}</button>
+            </div>
         </div>`;
 
     openModal(t("badgeManage"), html);
@@ -92,6 +96,10 @@ function bindBadgeModalEvents(onPaletteChange = null) {
     };
 
     bindBadgeRowEvents(refreshList, afterChange);
+
+    document.getElementById("wfm-badge-auto-btn")?.addEventListener("click", () => {
+        openAutoBadgeModal(onPaletteChange);
+    });
 
     document.getElementById("wfm-badge-add-btn")?.addEventListener("click", () => {
         const labelInput = document.getElementById("wfm-badge-new-label");
