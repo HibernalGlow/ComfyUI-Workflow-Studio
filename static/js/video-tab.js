@@ -127,6 +127,9 @@ function _applyVideoI18n() {
         if (el) el.title = t(key);
     };
     setText("wfm-video-edit-export-btn", "videoEditExportBtn");
+    setText("wfm-video-edit-track-video", "videoEditTrackVideo");
+    setText("wfm-video-edit-track-text", "videoEditTrackText");
+    setText("wfm-video-edit-track-audio", "videoEditTrackAudio");
     setTitle("wfm-video-edit-move-left-btn", "videoEditMoveLeft");
     setTitle("wfm-video-edit-move-right-btn", "videoEditMoveRight");
     setText("wfm-video-edit-duplicate-btn", "videoEditDuplicate");

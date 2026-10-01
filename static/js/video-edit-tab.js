@@ -91,6 +91,7 @@ const _s = {
     exporting: false,
     nextId: 1,
     outputDir: "",
+    trackView: "video", // which track the timeline bar shows: "video" | "text" | "audio" (UI-only view, not saved/undone)
     projectFilename: null, // currently loaded/saved project's server filename, or null if unsaved
     // Timeline-wide soundtrack settings (Phase 4). bgm: { name, file, serverRef, duration } | null
     audio: _defaultAudio(),
@@ -380,6 +381,14 @@ function _renderTimeline() {
     const track = document.getElementById("wfm-video-edit-timeline-track");
     if (!track) return;
     track.innerHTML = "";
+    track.dataset.track = _s.trackView;
+    track.style.height = "";
+
+    if (_s.clips.length > 0 && _s.trackView !== "video") {
+        _renderLaneTrack(track, _s.trackView);
+        _updateToolbarState();
+        return;
+    }
 
     if (_s.clips.length === 0) {
         const placeholder = document.createElement("span");
@@ -425,6 +434,123 @@ function _renderTimeline() {
     });
 
     _updateToolbarState();
+}
+
+// ============================================
+// Text / Audio track views. The data model is unchanged (text overlays live on
+// their clip with clip-relative times; BGM is timeline-wide) — these tracks are
+// absolute-time views of it: each clip's offset on the timeline is the sum of
+// the preceding clips' trimmed lengths. Clicking an item selects its clip, so
+// the trim panel's "Text overlays" section edits it.
+// ============================================
+
+function _clipOffsets() {
+    let acc = 0;
+    return _s.clips.map((c) => {
+        const start = acc;
+        const len = c.probing || c.error ? 0 : _clipLength(c);
+        acc += len;
+        return { clip: c, start, len };
+    });
+}
+
+// Greedy row packing so overlapping items (e.g. two texts at once) stack
+// instead of hiding each other. items: [{ start, end }] -> row index per item.
+function _packRows(items) {
+    const rowEnds = [];
+    return items.map((it) => {
+        let row = rowEnds.findIndex((e) => it.start >= e - 1e-6);
+        if (row < 0) { row = rowEnds.length; rowEnds.push(0); }
+        rowEnds[row] = it.end;
+        return row;
+    });
+}
+
+function _renderLaneTrack(track, view) {
+    const offsets = _clipOffsets();
+    const total = offsets.reduce((sum, o) => sum + o.len, 0);
+    const items = []; // { start, end, label, clipId, dim }
+    if (view === "text") {
+        for (const o of offsets) {
+            for (const ov of o.clip.texts) {
+                if (!ov.text.trim()) continue;
+                const end = Math.min(ov.end, o.len);
+                if (end <= ov.start) continue;
+                items.push({ start: o.start + ov.start, end: o.start + end, label: ov.text, clipId: o.clip.id });
+            }
+        }
+        items.sort((a, b) => a.start - b.start);
+    } else {
+        // Clip audio: only video clips that actually carry sound, and only while
+        // "keep original audio" is on (mirrors what export mixes in).
+        if (_s.audio.keepOriginal) {
+            for (const o of offsets) {
+                if (o.clip.kind === "video" && o.clip.hasAudio && o.len > 0) {
+                    items.push({ start: o.start, end: o.start + o.len, label: `♪ ${o.clip.name}`, clipId: o.clip.id, dim: true });
+                }
+            }
+        }
+    }
+    // BGM always starts at timeline 0 (bgmOffset is the in-file start point)
+    // and is cut to the timeline length at export.
+    const bgm = view === "audio" ? _s.audio.bgm : null;
+    let bgmItem = null;
+    if (bgm) {
+        const avail = bgm.duration ? Math.max(0, bgm.duration - (_s.audio.bgmOffset || 0)) : total;
+        bgmItem = { start: 0, end: Math.min(total, avail) || total, label: `♫ ${t("videoEditTrackBgm")}: ${bgm.name}`, clipId: null };
+    }
+
+    const lane = document.createElement("div");
+    lane.className = "wfm-video-edit-lane";
+    lane.style.width = `${Math.max(_MIN_BLOCK_PX, Math.round(total * _PX_PER_SEC))}px`;
+
+    // Clip boundary bands, so items can be related to the clips they sit on.
+    for (const o of offsets) {
+        if (o.len <= 0) continue;
+        const band = document.createElement("div");
+        band.className = "wfm-video-edit-lane-clipband" + (o.clip.id === _s.selectedId ? " selected" : "");
+        band.style.left = `${Math.round(o.start * _PX_PER_SEC)}px`;
+        band.style.width = `${Math.round(o.len * _PX_PER_SEC)}px`;
+        band.title = o.clip.name;
+        band.addEventListener("click", () => _selectClip(o.clip.id));
+        lane.appendChild(band);
+    }
+
+    const all = bgmItem ? [...items, bgmItem] : items;
+    const rows = _packRows(all);
+    const ROW_H = 24;
+    all.forEach((it, i) => {
+        const el = document.createElement("div");
+        el.className = "wfm-video-edit-lane-item"
+            + (it.dim ? " dim" : "")
+            + (it.clipId != null && it.clipId === _s.selectedId ? " selected" : "");
+        el.style.left = `${Math.round(it.start * _PX_PER_SEC)}px`;
+        el.style.width = `${Math.max(24, Math.round((it.end - it.start) * _PX_PER_SEC))}px`;
+        el.style.top = `${4 + rows[i] * ROW_H}px`;
+        el.textContent = it.label;
+        el.title = `${it.label} (${_fmtTime(it.start)} – ${_fmtTime(it.end)})`;
+        if (it.clipId != null) el.addEventListener("click", () => _selectClip(it.clipId));
+        lane.appendChild(el);
+    });
+
+    if (all.length === 0) {
+        const hint = document.createElement("span");
+        hint.className = "wfm-placeholder wfm-video-edit-timeline-placeholder";
+        hint.style.position = "relative";
+        hint.textContent = view === "text" ? t("videoEditTrackNoText") : t("videoEditTrackNoAudio");
+        lane.appendChild(hint);
+    }
+    const rowCount = all.length ? Math.max(...rows) + 1 : 1;
+    track.style.height = `${Math.max(48, rowCount * ROW_H + 8)}px`;
+    track.appendChild(lane);
+}
+
+function _setTrackView(view) {
+    _s.trackView = view;
+    document.querySelectorAll("#wfm-video-edit-track-tabs .wfm-video-edit-track-tab").forEach((b) => {
+        b.classList.toggle("active", b.dataset.track === view);
+    });
+    _renderTimeline();
 }
 
 function _reorderByDrop(targetId) {
@@ -1227,6 +1353,7 @@ function _refreshSourceTextPreview() {
 
 function _refreshTextPreview() {
     _scheduleRecord();
+    if (_s.trackView === "text") _renderTimeline();
     _refreshSourceTextPreview();
     if (_previewPlaying) _refreshResultTextPreview();
 }
@@ -1741,6 +1868,9 @@ async function _exportTimeline() {
 // ============================================
 
 function _wireToolbar() {
+    document.querySelectorAll("#wfm-video-edit-track-tabs .wfm-video-edit-track-tab").forEach((b) => {
+        b.addEventListener("click", () => _setTrackView(b.dataset.track));
+    });
     document.getElementById("wfm-video-edit-move-left-btn")?.addEventListener("click", () => {
         if (_s.selectedId != null) _moveClip(_s.selectedId, -1);
     });
@@ -1978,6 +2108,7 @@ export async function setBgmFromFile(file, displayName) {
 
 function _syncAudioPanel() {
     _scheduleRecord();
+    if (_s.trackView === "audio") _renderTimeline();
     _updateToolbarState();
     const a = _s.audio;
     const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };

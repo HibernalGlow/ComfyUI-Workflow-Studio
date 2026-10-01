@@ -409,6 +409,75 @@
     flex: none; /* stay a fixed-height full-width bar; never shrink/stretch with clip content */
 }
 
+/* ── Edit: トラック切替(ビデオ=青/テキスト=緑/オーディオ=赤)──
+   --wfm-track-color は表示中トラックの色。トラックバーの枠線・ブロックの帯色に使う。
+   ビデオ色はテーマ可変の--wfm-primaryではなく固定の青にして、他トラックと並べても色が変わらないようにする。 */
+.wfm-video-edit-track-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+.wfm-video-edit-track-tab {
+    --tab-color: var(--wfm-track-video);
+    border-bottom: 2px solid var(--tab-color);
+}
+.wfm-video-edit-track-tab[data-track="video"] { --tab-color: var(--wfm-track-video); }
+.wfm-video-edit-track-tab[data-track="text"] { --tab-color: var(--wfm-track-text); }
+.wfm-video-edit-track-tab[data-track="audio"] { --tab-color: var(--wfm-track-audio); }
+.wfm-video-edit-track-tab.active {
+    background: var(--tab-color);
+    border-color: var(--tab-color);
+    color: #fff;
+}
+
+.wfm-video-edit-timeline-track {
+    --wfm-track-video: #4a9eff;
+    --wfm-track-text: #3fb950;
+    --wfm-track-audio: #f85149;
+    --wfm-track-color: var(--wfm-track-video);
+}
+.wfm-video-edit-track-tabs { --wfm-track-video: #4a9eff; --wfm-track-text: #3fb950; --wfm-track-audio: #f85149; }
+.wfm-video-edit-timeline-track[data-track="text"] { --wfm-track-color: var(--wfm-track-text); }
+.wfm-video-edit-timeline-track[data-track="audio"] { --wfm-track-color: var(--wfm-track-audio); }
+.wfm-video-edit-timeline-track[data-track="text"],
+.wfm-video-edit-timeline-track[data-track="audio"] { border-color: var(--wfm-track-color); }
+.wfm-video-edit-timeline-track[data-track="video"] .wfm-video-edit-timeline-block {
+    border-left: 3px solid var(--wfm-track-color);
+}
+
+/* テキスト/オーディオ表示: 絶対時間(秒×px/秒)で配置するレーン */
+.wfm-video-edit-lane {
+    position: relative;
+    flex: none;
+    min-height: 100%;
+}
+.wfm-video-edit-lane-clipband {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-left: 1px dashed var(--wfm-border);
+    box-sizing: border-box;
+    cursor: pointer;
+}
+.wfm-video-edit-lane-clipband.selected { background: rgba(255, 255, 255, 0.06); }
+.wfm-video-edit-lane-item {
+    position: absolute;
+    height: 20px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--wfm-track-color) 35%, transparent);
+    border: 1px solid var(--wfm-track-color);
+    font-size: 11px;
+    line-height: 18px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.wfm-video-edit-lane-item.selected { background: var(--wfm-track-color); color: #fff; }
+.wfm-video-edit-lane-item.dim { opacity: 0.55; }
+
 .wfm-video-edit-timeline-placeholder {
     display: flex;
     align-items: center;
