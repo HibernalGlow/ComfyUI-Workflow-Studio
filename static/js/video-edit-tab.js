@@ -2412,6 +2412,11 @@ function _makePipThumb(file, kind, atSec) {
     });
 }
 
+// Default centres for freshly-added overlay clips: bottom-right, top-left,
+// top-right, bottom-left, then the middle — so consecutive additions don't
+// land exactly on top of each other. (Scale defaults to 30% of the frame width.)
+const _PIP_DEFAULT_SPOTS = [[0.78, 0.78], [0.22, 0.22], [0.78, 0.22], [0.22, 0.78], [0.5, 0.5]];
+
 async function _addPip(file, displayName, init = {}) {
     try {
         const kind = file.type.startsWith("image/") ? "image" : "video";
@@ -2439,10 +2444,11 @@ async function _addPip(file, displayName, init = {}) {
         const length = init.length ?? Math.max(0.1, room ? Math.min(natural, room) : natural);
         const srcStart = kind === "video" ? (init.srcStart ?? 0) : 0;
         const thumb = await _makePipThumb(file, kind, srcStart);
+        const spot = _PIP_DEFAULT_SPOTS[_s.pips.length % _PIP_DEFAULT_SPOTS.length];
         _s.pips.push({
             id: _nextPipId++, name: displayName || file.name, file, kind, serverRef, duration, width, height, thumb,
             srcStart, length, start,
-            x: init.x ?? 0.78, y: init.y ?? 0.78, scale: init.scale ?? 0.3, opacity: init.opacity ?? 1,
+            x: init.x ?? spot[0], y: init.y ?? spot[1], scale: init.scale ?? 0.3, opacity: init.opacity ?? 1,
         });
     } catch (err) {
         showToast(t("errorWithMsg", err.message), "error");
