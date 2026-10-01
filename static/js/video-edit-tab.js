@@ -89,6 +89,9 @@ const _s = {
     clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, hasAudio, trimStart, trimEnd, crop:{x,y,w,h}(0..1)|null, probing, error }
     selectedId: null,
     // Text overlays belong to the timeline, not to a clip: start/end are absolute timeline seconds.
+    // Extra audio clips placed on the timeline (sound effects, voice, ...), alongside the full-length BGM.
+    // start/length are timeline seconds; srcStart is the in-file start point.
+    sounds: [], // { id, name, file, serverRef, duration, srcStart, length, start, volumeDb }
     texts: [], // { id, text, start, end, fontSize, color, anchor, outline, background }
     exporting: false,
     nextId: 1,
@@ -108,7 +111,7 @@ function _defaultAudio() {
 
 function _isAudioDefault() {
     const d = _defaultAudio();
-    return Object.keys(d).every((k) => _s.audio[k] === d[k]);
+    return !_s.sounds.length && Object.keys(d).every((k) => _s.audio[k] === d[k]);
 }
 
 // Save/load persists only the timeline's editorial state (order, trim points,
@@ -144,6 +147,7 @@ const _TEXT_ANCHORS = [
     "bottom-left", "bottom-center", "bottom-right",
 ];
 let _nextTextId = 1;
+let _nextSoundId = 1;
 
 let _dragClipId = null; // clip being dragged for timeline reordering
 
@@ -313,12 +317,14 @@ function _clearTimeline() {
     _s.clips = [];
     _s.selectedId = null;
     _s.audio = _defaultAudio();
+    _s.sounds = [];
     _s.texts = [];
     setSourcePreview(null, null);
     _clearTextLayer("source");
     _clearCropLayer("source");
     _renderTimeline();
     _renderTrimPanel();
+    _renderSoundList();
     _syncAudioPanel();
 }
 
@@ -485,7 +491,22 @@ function _renderLaneTrack(track, view) {
             if (!ov.text.trim()) continue;
             const end = Math.min(ov.end, total);
             if (end <= ov.start) continue;
-            items.push({ start: ov.start, end, label: ov.text, clipId: _windowAt(ov.start)?.clip.id ?? null, ov, total });
+            items.push({
+                start: ov.start, end, label: ov.text, clipId: _windowAt(ov.start)?.clip.id ?? null,
+                drag: {
+                    total,
+                    read: () => ({ start: ov.start, end: Math.min(ov.end, total) }),
+                    write: (start, end) => { ov.start = start; ov.end = end; },
+                    minStart: () => 0,
+                    maxEnd: () => total,
+                    commit: (moved, it) => {
+                        if (!moved) { if (it.clipId != null) _selectClip(it.clipId); return; }
+                        const owner = _windowAt(ov.start)?.clip.id ?? null;
+                        if (owner != null && owner !== _s.selectedId) _selectClip(owner); else _renderTrimPanel();
+                        _refreshTextPreview();
+                    },
+                },
+            });
         }
         items.sort((a, b) => a.start - b.start);
     } else {
@@ -499,6 +520,26 @@ function _renderLaneTrack(track, view) {
             }
         }
     }
+    if (view === "audio") {
+        for (const snd of _s.sounds) {
+            items.push({
+                start: snd.start, end: snd.start + snd.length, label: `\u266a ${snd.name}`, clipId: null,
+                drag: {
+                    total,
+                    read: () => ({ start: snd.start, end: snd.start + snd.length, srcStart: snd.srcStart }),
+                    write: (start, end, mode, orig) => {
+                        snd.start = start;
+                        snd.length = end - start;
+                        if (mode === "start") snd.srcStart = Math.max(0, Number((orig.srcStart + (start - orig.start)).toFixed(2)));
+                    },
+                    // Trimming the left edge moves the in-file start too, so it can't go before the file's beginning.
+                    minStart: (orig) => Math.max(0, orig.start - orig.srcStart),
+                    maxEnd: (orig) => (snd.duration ? orig.start + (snd.duration - orig.srcStart) : Math.max(total, orig.end)),
+                    commit: () => { _renderSoundList(); _syncAudioPanel(); },
+                },
+            });
+        }
+    }
     // BGM always starts at timeline 0 (bgmOffset is the in-file start point)
     // and is cut to the timeline length at export.
     const bgm = view === "audio" ? _s.audio.bgm : null;
@@ -510,7 +551,6 @@ function _renderLaneTrack(track, view) {
 
     const lane = document.createElement("div");
     lane.className = "wfm-video-edit-lane";
-    lane.style.width = `${Math.max(_MIN_BLOCK_PX, Math.round(total * _PX_PER_SEC))}px`;
 
     // Clip boundary bands, so items can be related to the clips they sit on.
     for (const o of offsets) {
@@ -525,6 +565,8 @@ function _renderLaneTrack(track, view) {
     }
 
     const all = bgmItem ? [...items, bgmItem] : items;
+    const laneEnd = Math.max(total, ...all.map((i) => i.end));
+    lane.style.width = `${Math.max(_MIN_BLOCK_PX, Math.round(laneEnd * _PX_PER_SEC))}px`;
     const rows = _packRows(all);
     const ROW_H = 24;
     all.forEach((it, i) => {
@@ -537,7 +579,7 @@ function _renderLaneTrack(track, view) {
         el.style.top = `${4 + rows[i] * ROW_H}px`;
         el.textContent = it.label;
         el.title = `${it.label} (${_fmtTime(it.start)} – ${_fmtTime(it.end)})`;
-        if (it.ov) _wireTextItemDrag(el, it);
+        if (it.drag) _wireBandDrag(el, it);
         else if (it.clipId != null) el.addEventListener("click", () => _selectClip(it.clipId));
         lane.appendChild(el);
     });
@@ -554,11 +596,13 @@ function _renderLaneTrack(track, view) {
     track.appendChild(lane);
 }
 
-// Drag a text band to move it (across clips too - overlay times are absolute
-// timeline seconds), or drag its left/right edge to retime it. A press without
-// movement just selects the clip under the band.
-function _wireTextItemDrag(el, it) {
+// Drag a band to move it, or drag its left/right edge to retime it; a press
+// without movement is a click. it.drag is an adapter so text overlays and
+// sounds share this: { total, read() -> {start,end,...}, write(start,end,mode,orig),
+// minStart(orig), maxEnd(orig), commit(moved, it) }. Times are absolute timeline seconds.
+function _wireBandDrag(el, it) {
     const EDGE_PX = 6;
+    const MIN = 0.1;
     el.style.touchAction = "none";
     el.addEventListener("pointermove", (e) => {
         if (e.buttons) return;
@@ -568,13 +612,12 @@ function _wireTextItemDrag(el, it) {
     el.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
+        const d = it.drag;
         const r = el.getBoundingClientRect();
         const mode = e.clientX - r.left < EDGE_PX ? "start" : r.right - e.clientX < EDGE_PX ? "end" : "move";
-        const { ov, total } = it;
-        const orig = { start: ov.start, end: Math.min(ov.end, total) };
+        const orig = d.read();
         const x0 = e.clientX;
         let moved = false;
-        const MIN = 0.1;
         el.setPointerCapture(e.pointerId);
         const onMove = (ev) => {
             const dx = (ev.clientX - x0) / _PX_PER_SEC;
@@ -582,30 +625,25 @@ function _wireTextItemDrag(el, it) {
             moved = true;
             let { start, end } = orig;
             if (mode === "move") {
-                const d = Math.max(-orig.start, Math.min(dx, total - orig.end));
-                start = orig.start + d;
-                end = orig.end + d;
+                const delta = Math.max(-orig.start, Math.min(dx, Math.max(0, d.total - orig.end)));
+                start = orig.start + delta;
+                end = orig.end + delta;
             } else if (mode === "start") {
-                start = Math.max(0, Math.min(orig.start + dx, orig.end - MIN));
+                start = Math.max(d.minStart(orig), Math.min(orig.start + dx, orig.end - MIN));
             } else {
-                end = Math.min(total, Math.max(orig.end + dx, orig.start + MIN));
+                end = Math.min(d.maxEnd(orig), Math.max(orig.end + dx, orig.start + MIN));
             }
-            ov.start = Number(start.toFixed(2));
-            ov.end = Number(end.toFixed(2));
-            el.style.left = `${Math.round(ov.start * _PX_PER_SEC)}px`;
-            el.style.width = `${Math.max(24, Math.round((ov.end - ov.start) * _PX_PER_SEC))}px`;
+            start = Number(start.toFixed(2));
+            end = Number(end.toFixed(2));
+            d.write(start, end, mode, orig);
+            el.style.left = `${Math.round(start * _PX_PER_SEC)}px`;
+            el.style.width = `${Math.max(24, Math.round((end - start) * _PX_PER_SEC))}px`;
         };
         const onUp = () => {
             el.removeEventListener("pointermove", onMove);
             el.removeEventListener("pointerup", onUp);
             el.removeEventListener("pointercancel", onUp);
-            if (moved) {
-                const owner = _windowAt(ov.start)?.clip.id ?? null;
-                if (owner != null && owner !== _s.selectedId) _selectClip(owner); else _renderTrimPanel();
-                _refreshTextPreview();
-            } else if (it.clipId != null) {
-                _selectClip(it.clipId);
-            }
+            d.commit(moved, it);
         };
         el.addEventListener("pointermove", onMove);
         el.addEventListener("pointerup", onUp);
@@ -1461,6 +1499,7 @@ let _previewIndex = 0;
 let _previewImageTimer = null; // holds an image clip on screen for its duration (setTimeout, no video events to hook)
 let _previewImageStartedAt = 0; // performance.now() when the current image clip went on screen
 let _previewTextTimer = null; // redraws the Result pane's text overlays while previewing
+let _soundPreviews = []; // { el, timers } per timeline sound, started/stopped on the preview clock
 let _bgmPreviewEl = null; // <audio> playing the BGM alongside the preview
 let _savedResultAudio = null; // { muted, volume } of the Result <video>, restored on stop
 
@@ -1502,9 +1541,26 @@ function _startPreviewAudio() {
         _bgmPreviewEl.currentTime = _s.audio.bgmOffset || 0;
         _bgmPreviewEl.play().catch(() => {});
     }
+    // Timeline sounds are scheduled off the preview start (same drift caveat as the BGM).
+    for (const snd of _s.sounds) {
+        if (!snd.file) continue;
+        const el = new Audio(URL.createObjectURL(snd.file));
+        el.volume = _dbToGain(snd.volumeDb);
+        const timers = [
+            setTimeout(() => { el.currentTime = snd.srcStart || 0; el.play().catch(() => {}); }, snd.start * 1000),
+            setTimeout(() => el.pause(), (snd.start + snd.length) * 1000),
+        ];
+        _soundPreviews.push({ el, timers });
+    }
 }
 
 function _stopPreviewAudio() {
+    for (const { el, timers } of _soundPreviews) {
+        timers.forEach(clearTimeout);
+        el.pause();
+        URL.revokeObjectURL(el.src);
+    }
+    _soundPreviews = [];
     if (_bgmPreviewEl) {
         _bgmPreviewEl.pause();
         URL.revokeObjectURL(_bgmPreviewEl.src);
@@ -1639,7 +1695,8 @@ function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video
     // A separate soundtrack (ConcatenateVideo complete_audio) is only built
     // when something actually has to be mixed: a BGM, several clips' audio
     // joined end to end, or a volume change on the original audio.
-    const buildTrack = hasBgm || (clipAudioUsed && (clips.length > 1 || Math.round(audio.originalVolumeDb) !== 0));
+    const sounds = _s.sounds.filter((x) => x.serverRef);
+    const buildTrack = hasBgm || sounds.length > 0 || (clipAudioUsed && (clips.length > 1 || Math.round(audio.originalVolumeDb) !== 0));
     // A lone video clip whose audio is kept as-is skips decode/re-encode
     // entirely: its Video Slice output goes straight to SaveVideo.
     const passthrough = clips.length === 1 && clips[0].kind === "video" && audio.keepOriginal && !buildTrack;
@@ -1792,6 +1849,35 @@ function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video
             // shorter one is padded with silence to match.
             const mixId = alloc();
             prompt[mixId] = { class_type: "AudioMerge", inputs: { audio1: base, audio2: bgmOut, merge_method: "add" } };
+            base = [mixId, 0];
+        }
+        // Timeline sounds: trim to its in-file range, set the level, delay it to
+        // its timeline position with leading silence, then mix over the base
+        // (AudioMerge pads/cuts to base's length, so a sound running past the
+        // end is cut).
+        for (const snd of sounds) {
+            if (snd.start >= total - 0.05) continue;
+            const loadId = alloc();
+            prompt[loadId] = { class_type: "LoadAudio", inputs: { audio: _serverFilePath(snd.serverRef) } };
+            const trimId = alloc();
+            prompt[trimId] = {
+                class_type: "TrimAudioDuration",
+                inputs: { audio: [loadId, 0], start_index: Math.max(0, snd.srcStart || 0), duration: Math.max(0.1, Math.min(snd.length, total - snd.start)) },
+            };
+            let out = [trimId, 0];
+            const db = Math.round(snd.volumeDb);
+            if (db !== 0) {
+                const volId = alloc();
+                prompt[volId] = { class_type: "AudioAdjustVolume", inputs: { audio: out, volume: db } };
+                out = [volId, 0];
+            }
+            if (snd.start > 0.01) {
+                const padId = alloc();
+                prompt[padId] = { class_type: "AudioConcat", inputs: { audio1: emptyAudio(snd.start), audio2: out, direction: "after" } };
+                out = [padId, 0];
+            }
+            const mixId = alloc();
+            prompt[mixId] = { class_type: "AudioMerge", inputs: { audio1: base, audio2: out, merge_method: "add" } };
             base = [mixId, 0];
         }
         completeAudio = base;
@@ -1988,6 +2074,7 @@ function _wireToolbar() {
 const _HISTORY_LIMIT = 100;
 const _clipRegistry = new Map(); // clip id -> clip object (static fields: file, serverRef, size, ...)
 const _bgmRegistry = new Map(); // bgm key -> bgm object
+const _soundRegistry = new Map(); // sound id -> static fields { name, file, serverRef, duration }
 const _history = { stack: [], index: -1, restoring: false, timer: null };
 
 function _bgmKey(bgm) {
@@ -2004,6 +2091,7 @@ function _snapshot() {
             crop: c.crop,
         })),
         texts: _s.texts,
+        sounds: _s.sounds.map(({ id, srcStart, length, start, volumeDb }) => ({ id, srcStart, length, start, volumeDb })),
         audio: {
             keepOriginal: _s.audio.keepOriginal,
             originalVolumeDb: _s.audio.originalVolumeDb,
@@ -2026,6 +2114,7 @@ function _recordState() {
     // re-renders the timeline, which records the settled state.
     if (_history.restoring || _s.clips.some((c) => c.probing)) return;
     if (_s.audio.bgm) _bgmRegistry.set(_bgmKey(_s.audio.bgm), _s.audio.bgm);
+    for (const x of _s.sounds) _soundRegistry.set(x.id, { name: x.name, file: x.file, serverRef: x.serverRef, duration: x.duration });
     const snap = _snapshot();
     if (_history.stack[_history.index] === snap) return;
     _history.stack.splice(_history.index + 1);
@@ -2063,6 +2152,7 @@ function _restoreSnapshot(snap) {
                 return clip;
             });
         _s.texts = (data.texts || []).map((o) => ({ ...o }));
+        _s.sounds = (data.sounds || []).filter((e) => _soundRegistry.has(e.id)).map((e) => ({ ..._soundRegistry.get(e.id), ...e }));
         _s.audio = {
             keepOriginal: data.audio.keepOriginal,
             originalVolumeDb: data.audio.originalVolumeDb,
@@ -2074,6 +2164,7 @@ function _restoreSnapshot(snap) {
         _cropEditing = false;
         _renderTimeline();
         _renderTrimPanel();
+        _renderSoundList();
         _syncAudioPanel();
         const clip = _selectedClip();
         if (!clip) { setSourcePreview(null, null); _clearTextLayer("source"); _clearCropLayer("source"); }
@@ -2147,30 +2238,120 @@ function _isVideoLike(file) {
     return file.type.startsWith("video/") || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
 }
 
+// Uploads an audio source (BGM or a timeline sound) to ComfyUI's input folder
+// and returns { duration, serverRef }; throws if it's a video without audio.
+async function _prepareAudioFile(file) {
+    // Duration first: reading it after the upload can fail if the picked
+    // file is itself the one the upload just overwrote on disk.
+    const duration = await _readAudioDuration(file);
+    const uploaded = await comfyUI.uploadImage(file, file.name);
+    const serverRef = { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" };
+    // A video works as an audio source too (LoadAudio decodes its audio
+    // track) — but only if it has one; otherwise export would fail later.
+    if (_isVideoLike(file)) {
+        const params = new URLSearchParams(serverRef);
+        const res = await fetch(`/api/wfm/video/edit/probe?${params}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        if (!json.has_audio) throw new Error(t("videoEditBgmNoAudio"));
+    }
+    return { duration, serverRef };
+}
+
 async function _setBgmFile(file, displayName) {
     const nameEl = document.getElementById("wfm-video-edit-bgm-name");
     if (nameEl) nameEl.textContent = t("videoEditProbing");
     try {
-        // Duration first: reading it after the upload can fail if the picked
-        // file is itself the one the upload just overwrote on disk.
-        const duration = await _readAudioDuration(file);
-        const uploaded = await comfyUI.uploadImage(file, file.name);
-        const serverRef = { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" };
-        // A video works as a BGM source too (LoadAudio decodes its audio
-        // track) — but only if it has one; otherwise export would fail later.
-        if (_isVideoLike(file)) {
-            const params = new URLSearchParams(serverRef);
-            const res = await fetch(`/api/wfm/video/edit/probe?${params}`);
-            const json = await res.json();
-            if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-            if (!json.has_audio) throw new Error(t("videoEditBgmNoAudio"));
-        }
+        const { duration, serverRef } = await _prepareAudioFile(file);
         _s.audio.bgm = { name: displayName || file.name, file, serverRef, duration };
     } catch (err) {
         // Keep whatever BGM was set before — a failed pick shouldn't clear it.
         showToast(t("errorWithMsg", err.message), "error");
     }
     _syncAudioPanel();
+}
+
+// A sound is an extra audio clip placed at a timeline position (default: the
+// selected clip's start, full length capped to the timeline).
+async function _addSound(file, displayName, init = {}) {
+    try {
+        const { duration, serverRef } = await _prepareAudioFile(file);
+        const win = _clipOffsets().find((o) => o.clip.id === _s.selectedId);
+        const total = _totalLength();
+        const start = init.start ?? (win ? win.start : 0);
+        const room = total > start ? total - start : 0;
+        const natural = duration || 5;
+        const length = init.length ?? Math.max(0.1, room ? Math.min(natural, room) : natural);
+        _s.sounds.push({
+            id: _nextSoundId++,
+            name: displayName || file.name,
+            file,
+            serverRef,
+            duration,
+            srcStart: init.srcStart ?? 0,
+            length,
+            start,
+            volumeDb: init.volumeDb ?? 0,
+        });
+    } catch (err) {
+        showToast(t("errorWithMsg", err.message), "error");
+    }
+    _renderSoundList();
+    _syncAudioPanel();
+}
+
+// Rebuilt only on add/remove/restore/drag-end — never on a plain edit, which
+// would replace the input the user is typing in.
+function _renderSoundList() {
+    const host = document.getElementById("wfm-video-edit-sound-list");
+    if (!host) return;
+    host.innerHTML = "";
+    if (!_s.sounds.length) {
+        host.innerHTML = `<span class="wfm-placeholder">${t("videoEditSoundNone")}</span>`;
+        return;
+    }
+    for (const snd of _s.sounds) {
+        const row = document.createElement("div");
+        row.className = "wfm-video-edit-sound-row";
+        row.innerHTML = `
+            <div class="wfm-video-edit-sound-row-head">
+                <span class="wfm-video-edit-sound-name" data-k="name"></span>
+                <button type="button" class="wfm-btn wfm-btn-xs wfm-btn-danger" data-act="delete" title="${t("videoEditDelete")}">\u2715</button>
+            </div>
+            <div class="wfm-video-edit-sound-grid">
+                <label>${t("videoEditSoundStart")}<input type="number" class="wfm-input" data-k="start" step="0.1" min="0"></label>
+                <label>${t("videoEditSoundLength")}<input type="number" class="wfm-input" data-k="length" step="0.1" min="0.1"></label>
+                <label>${t("videoEditSoundVolume")}<input type="number" class="wfm-input" data-k="volumeDb" step="1" min="-30" max="12"></label>
+            </div>`;
+        const el = (k) => row.querySelector(`[data-k="${k}"]`);
+        el("name").textContent = snd.name;
+        el("name").title = snd.name;
+        el("start").value = snd.start.toFixed(2);
+        el("length").value = snd.length.toFixed(2);
+        el("volumeDb").value = snd.volumeDb;
+        el("start").addEventListener("change", () => {
+            snd.start = Math.max(0, Number(el("start").value) || 0);
+            el("start").value = snd.start.toFixed(2);
+            _syncAudioPanel();
+        });
+        el("length").addEventListener("change", () => {
+            const max = snd.duration ? Math.max(0.1, snd.duration - snd.srcStart) : Infinity;
+            snd.length = Math.max(0.1, Math.min(Number(el("length").value) || 0.1, max));
+            el("length").value = snd.length.toFixed(2);
+            _syncAudioPanel();
+        });
+        el("volumeDb").addEventListener("change", () => {
+            snd.volumeDb = Math.max(-30, Math.min(12, Math.round(Number(el("volumeDb").value) || 0)));
+            el("volumeDb").value = snd.volumeDb;
+            _syncAudioPanel();
+        });
+        row.querySelector('[data-act="delete"]').addEventListener("click", () => {
+            _s.sounds = _s.sounds.filter((x) => x.id !== snd.id);
+            _renderSoundList();
+            _syncAudioPanel();
+        });
+        host.appendChild(row);
+    }
 }
 
 // Entry point for video-asset-tab.js's "Set as BGM" button (a video asset's
@@ -2251,11 +2432,17 @@ function _wireAudioPanel() {
         _s.audio.bgmOffset = 0;
         _setBgmFile(file);
     });
+    byId("wfm-video-edit-sound-input")?.addEventListener("change", async (e) => {
+        const files = [...(e.target.files || [])];
+        e.target.value = "";
+        for (const file of files) await _addSound(file);
+    });
     byId("wfm-video-edit-bgm-clear")?.addEventListener("click", () => {
         _s.audio.bgm = null;
         _s.audio.bgmOffset = 0;
         _syncAudioPanel();
     });
+    _renderSoundList();
     _syncAudioPanel();
 }
 
@@ -2285,6 +2472,9 @@ function _buildProjectData() {
         // Timeline-absolute text overlays (projects saved before this have
         // clip-relative "texts" inside each clip entry - migrated on load).
         texts: _s.texts.map(({ id, ...rest }) => rest),
+        sounds: _s.sounds
+            .filter((x) => x.serverRef)
+            .map((x) => ({ name: x.name, serverRef: x.serverRef, srcStart: x.srcStart, length: x.length, start: x.start, volumeDb: x.volumeDb })),
         audio: {
             keepOriginal: _s.audio.keepOriginal,
             originalVolumeDb: _s.audio.originalVolumeDb,
@@ -2419,6 +2609,29 @@ async function _restoreAudioFromSaved(saved) {
     _syncAudioPanel();
 }
 
+// Re-fetches and re-uploads each saved sound the same way the BGM is restored.
+async function _restoreSoundsFromSaved(saved) {
+    _s.sounds = [];
+    for (const e of Array.isArray(saved) ? saved : []) {
+        const ref = e?.serverRef;
+        if (!ref?.filename) continue;
+        try {
+            const params = new URLSearchParams({ filename: ref.filename, subfolder: ref.subfolder || "", type: ref.type || "input" });
+            const res = await fetch(`${comfyUI.baseUrl}/view?${params}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            await _addSound(new File([blob], ref.filename, { type: blob.type || "audio/mpeg" }), e.name || ref.filename, {
+                start: Math.max(0, Number(e.start) || 0),
+                length: Math.max(0.1, Number(e.length) || 0.1),
+                srcStart: Math.max(0, Number(e.srcStart) || 0),
+                volumeDb: Number(e.volumeDb) || 0,
+            });
+        } catch (err) {
+            showToast(t("errorWithMsg", `${e.name || ""}: ${err.message}`), "error");
+        }
+    }
+}
+
 async function _loadProjectData(filename, data) {
     _stopPreview();
     _s.clips = [];
@@ -2454,6 +2667,7 @@ async function _loadProjectData(filename, data) {
         }
     }
     await _restoreAudioFromSaved(data.audio);
+    await _restoreSoundsFromSaved(data.sounds);
 
     _s.projectFilename = filename;
     _updateProjectNameUI();

@@ -145,6 +145,7 @@ function _applyVideoI18n() {
     setText("wfm-video-edit-bgm-vol-label", "videoEditBgmVolume");
     setText("wfm-video-edit-bgm-offset-label", "videoEditBgmOffset");
     setText("wfm-video-edit-bgm-hint", "videoEditBgmHint");
+    setText("wfm-video-edit-sound-btn", "videoEditSoundAdd");
     setText("wfm-video-source-add-to-edit", "videoSourceAddToEdit");
     setText("wfm-video-source-label", "videoSourceLabel");
     setText("wfm-video-source-hint", "videoSourceHint");

@@ -1110,3 +1110,18 @@
 }
 
 .wfm-video-project-item-delete:hover { color: var(--wfm-danger); }
+
+/* ── Edit: 追加サウンド(オーディオトラックに配置する効果音など)のリスト ── */
+.wfm-video-edit-sound-head { margin-top: 8px; }
+.wfm-video-edit-sound-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.wfm-video-edit-sound-row {
+    padding: 4px 6px;
+    border: 1px solid var(--wfm-border);
+    border-left: 3px solid #f85149;
+    border-radius: 3px;
+}
+.wfm-video-edit-sound-row-head { display: flex; align-items: center; gap: 6px; }
+.wfm-video-edit-sound-name { flex: 1; min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wfm-video-edit-sound-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 4px; }
+.wfm-video-edit-sound-grid label { display: flex; flex-direction: column; font-size: 10px; color: var(--wfm-text-secondary); }
+.wfm-video-edit-sound-grid input { min-width: 0; }
