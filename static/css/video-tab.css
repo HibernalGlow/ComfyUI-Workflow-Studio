@@ -422,6 +422,7 @@
     border-bottom: 2px solid var(--tab-color);
 }
 .wfm-video-edit-track-tab[data-track="video"] { --tab-color: var(--wfm-track-video); }
+.wfm-video-edit-track-tab[data-track="pip"] { --tab-color: var(--wfm-track-video); }
 .wfm-video-edit-track-tab[data-track="text"] { --tab-color: var(--wfm-track-text); }
 .wfm-video-edit-track-tab[data-track="audio"] { --tab-color: var(--wfm-track-audio); }
 .wfm-video-edit-track-tab.active {
@@ -437,8 +438,10 @@
     --wfm-track-color: var(--wfm-track-video);
 }
 .wfm-video-edit-track-tabs { --wfm-track-video: #4a9eff; --wfm-track-text: #3fb950; --wfm-track-audio: #f85149; }
+.wfm-video-edit-timeline-track[data-track="pip"] { --wfm-track-color: var(--wfm-track-video); }
 .wfm-video-edit-timeline-track[data-track="text"] { --wfm-track-color: var(--wfm-track-text); }
 .wfm-video-edit-timeline-track[data-track="audio"] { --wfm-track-color: var(--wfm-track-audio); }
+.wfm-video-edit-timeline-track[data-track="pip"],
 .wfm-video-edit-timeline-track[data-track="text"],
 .wfm-video-edit-timeline-track[data-track="audio"] { border-color: var(--wfm-track-color); }
 .wfm-video-edit-timeline-track[data-track="video"] .wfm-video-edit-timeline-block {
@@ -1125,3 +1128,16 @@
 .wfm-video-edit-sound-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 4px; }
 .wfm-video-edit-sound-grid label { display: flex; flex-direction: column; font-size: 10px; color: var(--wfm-text-secondary); }
 .wfm-video-edit-sound-grid input { min-width: 0; }
+
+/* ── Edit: オーバーレイクリップ(PinP)パネル・プレビュー枠 ── */
+.wfm-video-edit-pip-panel { margin-bottom: 10px; }
+.wfm-video-edit-pip-row { border-left-color: #4a9eff; }
+.wfm-video-edit-pip-preset { width: auto; max-width: 96px; padding: 0 2px; font-size: 10px; }
+.wfm-video-edit-pip-box {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed #4a9eff;
+    background: rgba(74, 158, 255, 0.15);
+    overflow: hidden;
+}
+.wfm-video-edit-pip-box img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; }

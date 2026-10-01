@@ -2943,6 +2943,7 @@
                         <div class="wfm-video-timeline-wrap">
                             <div class="wfm-video-edit-track-tabs" id="wfm-video-edit-track-tabs">
                                 <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab active" data-track="video" id="wfm-video-edit-track-video">Video</button>
+                                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab" data-track="pip" id="wfm-video-edit-track-pip">Overlay</button>
                                 <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab" data-track="text" id="wfm-video-edit-track-text">Text</button>
                                 <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab" data-track="audio" id="wfm-video-edit-track-audio">Audio</button>
                             </div>
@@ -2972,6 +2973,13 @@
                                          not a button calling input.click() from JS — that programmatic path can be refused
                                          by the browser without any error (confirmed on a user's machine for the BGM picker). -->
                                     <label id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm wfm-video-edit-file-btn" style="flex:1;" tabindex="0" role="button">Load<input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;"></label>
+                                </div>
+                                <div class="wfm-video-edit-pip-panel">
+                                    <div class="wfm-video-edit-section-head"><span id="wfm-video-edit-pip-title">Overlay clips (PinP)</span></div>
+                                    <div class="wfm-video-edit-sound-head">
+                                        <label class="wfm-btn wfm-btn-xs wfm-video-edit-file-btn" tabindex="0" role="button"><span id="wfm-video-edit-pip-btn">+ Overlay clip...</span><input type="file" id="wfm-video-edit-pip-input" multiple accept="video/*,image/*,.mp4,.webm,.mov,.png,.jpg,.jpeg,.webp,.gif" style="display:none;"></label>
+                                    </div>
+                                    <div class="wfm-video-edit-sound-list" id="wfm-video-edit-pip-list"></div>
                                 </div>
                                 <div class="wfm-video-edit-audio-panel">
                                     <div class="wfm-video-edit-section-head"><span id="wfm-video-edit-audio-title">Audio</span></div>

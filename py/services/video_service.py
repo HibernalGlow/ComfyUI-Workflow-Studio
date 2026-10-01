@@ -101,6 +101,104 @@ def _render_text_layer(width: int, height: int, ov: dict):
     return layer
 
 
+def _fit_layer(img, base_w: int, base_h: int, pip: dict):
+    """Scales a picture-in-picture frame to its target width (a fraction of the
+    base frame's width, aspect preserved), applies opacity, and returns
+    (layer, left, top) with the position of its top-left corner on the base
+    frame (pip["x"]/["y"] are the layer's centre as fractions of the frame)."""
+    layer = img.convert("RGBA")
+    pw = max(2, int(round(float(pip["scale"]) * base_w)))
+    ph = max(2, int(round(pw * layer.height / max(1, layer.width))))
+    layer = layer.resize((pw, ph), _RESAMPLE)
+    opacity = float(pip.get("opacity", 1.0))
+    if opacity < 0.999:
+        layer.putalpha(layer.getchannel("A").point(lambda a: int(a * opacity)))
+    left = int(round(float(pip["x"]) * base_w - pw / 2))
+    top = int(round(float(pip["y"]) * base_h - ph / 2))
+    return layer, left, top
+
+
+class _PipSource:
+    """One overlay clip's frame source. Images are decoded once; videos are
+    decoded sequentially (seek once to the in-file start, then only forward),
+    since the base video is also processed strictly in time order. After a
+    video's last frame it holds that frame until the overlay's end."""
+
+    def __init__(self, path: Path, pip: dict, base_w: int, base_h: int):
+        import av  # type: ignore
+
+        self.pip = pip
+        self.base_w, self.base_h = base_w, base_h
+        self.start = float(pip["start"])
+        self.end = self.start + float(pip["length"])
+        self.src_start = max(0.0, float(pip.get("src_start") or 0.0))
+        self.container = None
+        self._cache_key = None
+        self._cache = None
+        if pip.get("kind") == "image":
+            with Image.open(path) as im:
+                im.load()
+                self.static = _fit_layer(im, base_w, base_h, pip)
+        else:
+            self.static = None
+            self.container = av.open(str(path))
+            self.stream = self.container.streams.video[0]
+            if self.src_start > 0.05:
+                self.container.seek(int(self.src_start * 1_000_000))
+            self.gen = self.container.decode(self.stream)
+            self.cur = None
+            self.nxt = None
+            self.done = False
+
+    def _time(self, frame) -> float:
+        return float(frame.pts * self.stream.time_base) if frame.pts is not None else 0.0
+
+    def layer_at(self, t: float):
+        """(layer, left, top) for timeline time t, or None when inactive."""
+        if not (self.start <= t < self.end):
+            return None
+        if self.static is not None:
+            return self.static
+        target = self.src_start + (t - self.start)
+        while True:
+            if self.nxt is None and not self.done:
+                try:
+                    self.nxt = next(self.gen)
+                except StopIteration:
+                    self.done = True
+            if self.nxt is not None and self._time(self.nxt) <= target + 1e-3:
+                self.cur, self.nxt = self.nxt, None
+                continue
+            break
+        frame = self.cur or self.nxt
+        if frame is None:
+            return None
+        key = id(frame)
+        if key != self._cache_key:
+            self._cache = _fit_layer(frame.to_image(), self.base_w, self.base_h, self.pip)
+            self._cache_key = key
+        return self._cache
+
+    def close(self):
+        if self.container is not None:
+            self.container.close()
+            self.container = None
+
+
+def _paste_layer(base, layer, left: int, top: int):
+    """Alpha-composites `layer` onto the RGBA `base` at (left, top), clipping
+    whatever falls outside the frame (a plain alpha_composite() dest can't be
+    negative)."""
+    x0, y0 = max(0, left), max(0, top)
+    x1, y1 = min(base.width, left + layer.width), min(base.height, top + layer.height)
+    if x1 <= x0 or y1 <= y0:
+        return
+    piece = layer.crop((x0 - left, y0 - top, x1 - left, y1 - top))
+    region = base.crop((x0, y0, x1, y1))
+    region.alpha_composite(piece)
+    base.paste(region, (x0, y0))
+
+
 class VideoService:
     def _resolve_media_path(self, filename: str, subfolder: str, type_: str) -> Path:
         """Resolves a ComfyUI-style {filename, subfolder, type} reference to an
@@ -248,8 +346,11 @@ class VideoService:
         overlays: list,
         filename_prefix: str = "video/wfm_edit",
         delete_source: bool = False,
+        pips: list = None,
     ) -> dict:
-        """Burns timed text overlays into a video (Video Edit tab, Phase 3).
+        """Burns timed text overlays - and picture-in-picture overlay clips
+        (video or image, placed/scaled/faded on the frame) - into a video
+        (Video Edit tab, Phase 3 + overlay track).
 
         ComfyUI core has no time-ranged video text node (core TextOverlay draws
         on every frame of an IMAGE batch, top/bottom only), and routing the
@@ -262,6 +363,12 @@ class VideoService:
         overlays: [{text, start, end, font_size (% of frame height), color,
         anchor ("<top|middle|bottom>-<left|center|right>"), outline, background}]
         with start/end in seconds from the start of the video.
+
+        pips: [{filename, subfolder, type (input), kind ("video"|"image"),
+        src_start (in-file start, s), start (timeline s), length (s),
+        x, y (centre, fractions of the frame), scale (width as a fraction of
+        the frame width), opacity (0..1)}]. Overlay audio is not mixed.
+        Pips are drawn first (in list order), then text on top.
         """
         import av  # type: ignore
         import folder_paths  # type: ignore
@@ -276,8 +383,20 @@ class VideoService:
                 continue
             if end > start and str(ov.get("text") or "").strip():
                 items.append((start, end, ov))
-        if not items:
-            raise ValueError("No valid text overlays")
+        valid_pips = []
+        for pip in pips or []:
+            try:
+                if float(pip["length"]) > 0 and float(pip["scale"]) > 0 and pip.get("filename"):
+                    valid_pips.append(pip)
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not items and not valid_pips:
+            raise ValueError("No valid text or overlay clips")
+        # Resolve overlay files up front so a missing one fails before any encoding.
+        pip_paths = [
+            self._resolve_media_path(p["filename"], p.get("subfolder", ""), p.get("type", "input"))
+            for p in valid_pips
+        ]
 
         output_dir = folder_paths.get_output_directory()
         full_output_folder, out_filename, counter, out_subfolder, _ = folder_paths.get_save_image_path(filename_prefix, output_dir)
@@ -286,12 +405,14 @@ class VideoService:
 
         in_c = av.open(str(src_path))
         out_c = None
+        pip_sources = []
         try:
             in_v = in_c.streams.video[0]
             in_a = in_c.streams.audio[0] if in_c.streams.audio else None
             width, height = in_v.codec_context.width, in_v.codec_context.height
             rate = in_v.average_rate or in_v.guessed_rate or 24
 
+            pip_sources = [_PipSource(path, pip, width, height) for path, pip in zip(pip_paths, valid_pips)]
             layers = [(s, e, _render_text_layer(width, height, ov)) for s, e, ov in items]
 
             out_c = av.open(str(save_path), mode="w")
@@ -317,8 +438,11 @@ class VideoService:
                         first_pts = frame.pts
                     t = float((frame.pts - first_pts) * in_v.time_base) if frame.pts is not None else index / float(rate)
                     active = [layer for s, e, layer in layers if s <= t < e]
-                    if active:
+                    pip_layers = [pl for pl in (src.layer_at(t) for src in pip_sources) if pl is not None]
+                    if active or pip_layers:
                         img = frame.to_image().convert("RGBA")
+                        for layer, left, top in pip_layers:
+                            _paste_layer(img, layer, left, top)
                         for layer in active:
                             img.alpha_composite(layer)
                         out_frame = av.VideoFrame.from_image(img.convert("RGB"))
@@ -340,6 +464,8 @@ class VideoService:
         finally:
             if out_c is not None:
                 out_c.close()
+            for src in pip_sources:
+                src.close()
             in_c.close()
 
         # The export graph's intermediate file is only deleted when the caller

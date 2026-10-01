@@ -104,15 +104,16 @@ async def handle_overlay_text(request: web.Request) -> web.Response:
         type_ = body.get("type", "output")
         overlays = body.get("overlays") or []
         delete_source = bool(body.get("delete_source"))
+        pips = body.get("pips") or []
         if not filename:
             return web.json_response({"error": "filename required"}, status=400)
-        if not isinstance(overlays, list):
-            return web.json_response({"error": "overlays must be a list"}, status=400)
+        if not isinstance(overlays, list) or not isinstance(pips, list):
+            return web.json_response({"error": "overlays and pips must be lists"}, status=400)
 
         # Decode+re-encode of every frame — run off the event loop so other
         # requests aren't stalled for the duration of the burn-in.
         result = await asyncio.to_thread(
-            _service.overlay_text_on_video, filename, subfolder, type_, overlays, "video/wfm_edit", delete_source
+            _service.overlay_text_on_video, filename, subfolder, type_, overlays, "video/wfm_edit", delete_source, pips
         )
         return web.json_response({"status": "ok", **result})
     except FileNotFoundError as e:

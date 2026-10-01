@@ -128,6 +128,9 @@ function _applyVideoI18n() {
     };
     setText("wfm-video-edit-export-btn", "videoEditExportBtn");
     setText("wfm-video-edit-track-video", "videoEditTrackVideo");
+    setText("wfm-video-edit-track-pip", "videoEditTrackPip");
+    setText("wfm-video-edit-pip-title", "videoEditPipTitle");
+    setText("wfm-video-edit-pip-btn", "videoEditPipAdd");
     setText("wfm-video-edit-track-text", "videoEditTrackText");
     setText("wfm-video-edit-track-audio", "videoEditTrackAudio");
     setTitle("wfm-video-edit-move-left-btn", "videoEditMoveLeft");

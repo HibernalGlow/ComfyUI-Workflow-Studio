@@ -92,6 +92,9 @@ const _s = {
     // Extra audio clips placed on the timeline (sound effects, voice, ...), alongside the full-length BGM.
     // start/length are timeline seconds; srcStart is the in-file start point.
     sounds: [], // { id, name, file, serverRef, duration, srcStart, length, start, volumeDb }
+    // Overlay clips (picture-in-picture) on a second video track, composited over the base clips at export.
+    // x/y = centre and scale = width, all as fractions of the output frame; start/length are timeline seconds.
+    pips: [], // { id, name, file, kind, serverRef, duration, width, height, thumb, srcStart, length, start, x, y, scale, opacity }
     texts: [], // { id, text, start, end, fontSize, color, anchor, outline, background }
     exporting: false,
     nextId: 1,
@@ -148,6 +151,7 @@ const _TEXT_ANCHORS = [
 ];
 let _nextTextId = 1;
 let _nextSoundId = 1;
+let _nextPipId = 1;
 
 let _dragClipId = null; // clip being dragged for timeline reordering
 
@@ -311,13 +315,14 @@ function _deleteClip(id) {
 // Clears clips AND resets the Audio section (BGM, volumes, keep-original) to
 // its initial state — both can be brought back with Undo.
 function _clearTimeline() {
-    if (_s.clips.length === 0 && _isAudioDefault() && !_s.texts.length) return;
+    if (_s.clips.length === 0 && _isAudioDefault() && !_s.texts.length && !_s.pips.length) return;
     if (!confirm(t("videoEditConfirmClear"))) return;
     _stopPreview();
     _s.clips = [];
     _s.selectedId = null;
     _s.audio = _defaultAudio();
     _s.sounds = [];
+    _s.pips = [];
     _s.texts = [];
     setSourcePreview(null, null);
     _clearTextLayer("source");
@@ -325,6 +330,7 @@ function _clearTimeline() {
     _renderTimeline();
     _renderTrimPanel();
     _renderSoundList();
+    _renderPipList();
     _syncAudioPanel();
 }
 
@@ -509,6 +515,24 @@ function _renderLaneTrack(track, view) {
             });
         }
         items.sort((a, b) => a.start - b.start);
+    } else if (view === "pip") {
+        for (const p of _s.pips) {
+            items.push({
+                start: p.start, end: p.start + p.length, label: `${p.kind === "image" ? "\ud83d\uddbc" : "\ud83c\udfac"} ${p.name}`, clipId: null,
+                drag: {
+                    total,
+                    read: () => ({ start: p.start, end: p.start + p.length, srcStart: p.srcStart }),
+                    write: (start, end, mode, orig) => {
+                        p.start = start;
+                        p.length = end - start;
+                        if (mode === "start" && p.kind === "video") p.srcStart = Math.max(0, Number((orig.srcStart + (start - orig.start)).toFixed(2)));
+                    },
+                    minStart: (orig) => (p.kind === "video" ? Math.max(0, orig.start - orig.srcStart) : 0),
+                    maxEnd: (orig) => (p.kind === "video" && p.duration ? orig.start + (p.duration - orig.srcStart) : Math.max(total, orig.end)),
+                    commit: () => { _renderPipList(); _refreshTextPreview(); },
+                },
+            });
+        }
     } else {
         // Clip audio: only video clips that actually carry sound, and only while
         // "keep original audio" is on (mirrors what export mixes in).
@@ -588,7 +612,7 @@ function _renderLaneTrack(track, view) {
         const hint = document.createElement("span");
         hint.className = "wfm-placeholder wfm-video-edit-timeline-placeholder";
         hint.style.position = "relative";
-        hint.textContent = view === "text" ? t("videoEditTrackNoText") : t("videoEditTrackNoAudio");
+        hint.textContent = view === "text" ? t("videoEditTrackNoText") : view === "pip" ? t("videoEditTrackNoPip") : t("videoEditTrackNoAudio");
         lane.appendChild(hint);
     }
     const rowCount = all.length ? Math.max(...rows) + 1 : 1;
@@ -690,7 +714,7 @@ function _updateToolbarState() {
     setDisabled("wfm-video-edit-move-right-btn", !hasSelection || idx === _s.clips.length - 1);
     setDisabled("wfm-video-edit-duplicate-btn", !hasSelection);
     setDisabled("wfm-video-edit-delete-btn", !hasSelection);
-    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0 && _isAudioDefault() && !_s.texts.length);
+    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0 && _isAudioDefault() && !_s.texts.length && !_s.pips.length);
     setDisabled("wfm-video-edit-preview-btn", _s.clips.length === 0);
     _updateTotalDuration();
 }
@@ -1395,12 +1419,12 @@ function _clearTextLayer(pane) {
 
 // crop (normalized, optional): the burn-in happens on the cropped frame, so
 // the preview layer covers only that sub-rect of the displayed media.
-function _drawTextLayer(pane, overlays, crop = null) {
+function _drawTextLayer(pane, overlays, crop = null, pips = []) {
     const found = _getTextLayer(pane);
     if (!found) return;
     const { layer, media } = found;
     layer.replaceChildren();
-    if (!overlays.length || !media || media.style.display === "none" || !media.clientHeight) return;
+    if ((!overlays.length && !pips.length) || !media || media.style.display === "none" || !media.clientHeight) return;
 
     const c = crop || { x: 0, y: 0, w: 1, h: 1 };
     const w = media.clientWidth * c.w;
@@ -1410,6 +1434,26 @@ function _drawTextLayer(pane, overlays, crop = null) {
     layer.style.width = `${w}px`;
     layer.style.height = `${h}px`;
     const margin = 0.04 * Math.min(w, h);
+
+    // Overlay clips sit under the text. The box shows a still of the clip (not live playback).
+    for (const p of pips) {
+        const pw = p.scale * w;
+        const ratio = p.width && p.height ? p.height / p.width : 9 / 16;
+        const box = document.createElement("div");
+        box.className = "wfm-video-edit-pip-box";
+        box.style.left = `${p.x * w - pw / 2}px`;
+        box.style.top = `${p.y * h - (pw * ratio) / 2}px`;
+        box.style.width = `${pw}px`;
+        box.style.height = `${pw * ratio}px`;
+        box.style.opacity = String(p.opacity);
+        if (p.thumb) {
+            const img = document.createElement("img");
+            img.src = p.thumb;
+            img.draggable = false;
+            box.appendChild(img);
+        }
+        layer.appendChild(box);
+    }
 
     for (const ov of overlays) {
         const [v, hz] = (ov.anchor || "bottom-center").split("-");
@@ -1432,6 +1476,10 @@ function _drawTextLayer(pane, overlays, crop = null) {
         div.style.transform = `translate(${tx}, ${ty})`;
         layer.appendChild(div);
     }
+}
+
+function _activePipsAt(time) {
+    return _s.pips.filter((p) => time >= p.start && time < p.start + p.length);
 }
 
 // Overlays showing at an absolute timeline time.
@@ -1459,17 +1507,18 @@ function _refreshSourceTextPreview() {
         // A still has no playhead: show every overlay that touches its window.
         const start = _clipStartOffset(clip);
         const end = start + _exportClipLength(clip);
-        _drawTextLayer("source", _s.texts.filter((o) => o.text.trim() && o.start < end && o.end > start));
+        _drawTextLayer("source", _s.texts.filter((o) => o.text.trim() && o.start < end && o.end > start), null,
+            _s.pips.filter((p) => p.start < end && p.start + p.length > start));
         return;
     }
     const t0 = _clipStartOffset(clip) + (els.video?.currentTime || 0) - clip.trimStart;
-    _drawTextLayer("source", _activeOverlaysAt(t0), clip.crop);
+    _drawTextLayer("source", _activeOverlaysAt(t0), clip.crop, _activePipsAt(t0));
     _refreshCropPreview();
 }
 
 function _refreshTextPreview() {
     _scheduleRecord();
-    if (_s.trackView === "text") _renderTimeline();
+    if (_s.trackView === "text" || _s.trackView === "pip") _renderTimeline();
     _refreshSourceTextPreview();
     if (_previewPlaying) _refreshResultTextPreview();
 }
@@ -1517,7 +1566,7 @@ function _refreshResultTextPreview() {
     const t0 = base + (clip.kind === "image"
         ? (performance.now() - _previewImageStartedAt) / 1000
         : (getResultPreviewVideoElement()?.currentTime || 0) - clip.trimStart);
-    _drawTextLayer("result", _activeOverlaysAt(t0), clip.kind === "video" ? clip.crop : null);
+    _drawTextLayer("result", _activeOverlaysAt(t0), clip.kind === "video" ? clip.crop : null, _activePipsAt(t0));
     if (clip.kind === "video" && clip.crop) _drawCropLayer("result", clip, false);
     else _clearCropLayer("result");
 }
@@ -1928,6 +1977,25 @@ function _collectTimelineOverlays(clips) {
     return out;
 }
 
+// Overlay clips in the shape /api/wfm/video/edit/overlay-text expects.
+function _collectPips(total) {
+    return _s.pips
+        .filter((p) => p.serverRef && p.length > 0 && p.start < total - 0.05)
+        .map((p) => ({
+            filename: p.serverRef.filename,
+            subfolder: p.serverRef.subfolder || "",
+            type: "input",
+            kind: p.kind,
+            src_start: p.kind === "video" ? p.srcStart : 0,
+            start: p.start,
+            length: Math.min(p.length, total - p.start),
+            x: p.x,
+            y: p.y,
+            scale: p.scale,
+            opacity: p.opacity,
+        }));
+}
+
 function _setExportUi(running, pct, label) {
     const btn = document.getElementById("wfm-video-edit-export-btn");
     const bar = document.getElementById("wfm-video-edit-progress-bar");
@@ -1984,8 +2052,10 @@ async function _exportTimeline() {
         // With text overlays the graph's output is only an intermediate
         // ("wfm_edit_pre", deleted by the burn-in step once it succeeds).
         const overlays = _collectTimelineOverlays(readyClips);
+        const pips = _collectPips(readyClips.reduce((sum, c) => sum + _exportClipLength(c), 0));
+        const needsBurn = overlays.length > 0 || pips.length > 0;
         const { prompt, saveId } = _buildExportWorkflow(readyClips, {
-            filenamePrefix: overlays.length ? "video/wfm_edit_pre" : "video/wfm_edit",
+            filenamePrefix: needsBurn ? "video/wfm_edit_pre" : "video/wfm_edit",
         });
         const result = await comfyUI.queuePrompt(prompt);
         await comfyUI.trackProgress(result.prompt_id, (pct) => _setExportUi(true, pct));
@@ -1994,7 +2064,7 @@ async function _exportTimeline() {
         let output = history?.outputs?.[saveId]?.images?.[0];
         if (!output) throw new Error("No output produced");
 
-        if (overlays.length) {
+        if (needsBurn) {
             _setExportUi(true, 1, t("videoEditBurningText"));
             const res = await fetch("/api/wfm/video/edit/overlay-text", {
                 method: "POST",
@@ -2004,6 +2074,7 @@ async function _exportTimeline() {
                     subfolder: output.subfolder || "",
                     type: "output",
                     overlays,
+                    pips,
                     delete_source: true,
                 }),
             });
@@ -2075,6 +2146,7 @@ const _HISTORY_LIMIT = 100;
 const _clipRegistry = new Map(); // clip id -> clip object (static fields: file, serverRef, size, ...)
 const _bgmRegistry = new Map(); // bgm key -> bgm object
 const _soundRegistry = new Map(); // sound id -> static fields { name, file, serverRef, duration }
+const _pipRegistry = new Map(); // overlay clip id -> static fields { name, file, kind, serverRef, duration, width, height, thumb }
 const _history = { stack: [], index: -1, restoring: false, timer: null };
 
 function _bgmKey(bgm) {
@@ -2092,6 +2164,7 @@ function _snapshot() {
         })),
         texts: _s.texts,
         sounds: _s.sounds.map(({ id, srcStart, length, start, volumeDb }) => ({ id, srcStart, length, start, volumeDb })),
+        pips: _s.pips.map(({ id, srcStart, length, start, x, y, scale, opacity }) => ({ id, srcStart, length, start, x, y, scale, opacity })),
         audio: {
             keepOriginal: _s.audio.keepOriginal,
             originalVolumeDb: _s.audio.originalVolumeDb,
@@ -2114,6 +2187,7 @@ function _recordState() {
     // re-renders the timeline, which records the settled state.
     if (_history.restoring || _s.clips.some((c) => c.probing)) return;
     if (_s.audio.bgm) _bgmRegistry.set(_bgmKey(_s.audio.bgm), _s.audio.bgm);
+    for (const x of _s.pips) _pipRegistry.set(x.id, { name: x.name, file: x.file, kind: x.kind, serverRef: x.serverRef, duration: x.duration, width: x.width, height: x.height, thumb: x.thumb });
     for (const x of _s.sounds) _soundRegistry.set(x.id, { name: x.name, file: x.file, serverRef: x.serverRef, duration: x.duration });
     const snap = _snapshot();
     if (_history.stack[_history.index] === snap) return;
@@ -2153,6 +2227,7 @@ function _restoreSnapshot(snap) {
             });
         _s.texts = (data.texts || []).map((o) => ({ ...o }));
         _s.sounds = (data.sounds || []).filter((e) => _soundRegistry.has(e.id)).map((e) => ({ ..._soundRegistry.get(e.id), ...e }));
+        _s.pips = (data.pips || []).filter((e) => _pipRegistry.has(e.id)).map((e) => ({ ..._pipRegistry.get(e.id), ...e }));
         _s.audio = {
             keepOriginal: data.audio.keepOriginal,
             originalVolumeDb: data.audio.originalVolumeDb,
@@ -2165,6 +2240,7 @@ function _restoreSnapshot(snap) {
         _renderTimeline();
         _renderTrimPanel();
         _renderSoundList();
+        _renderPipList();
         _syncAudioPanel();
         const clip = _selectedClip();
         if (!clip) { setSourcePreview(null, null); _clearTextLayer("source"); _clearCropLayer("source"); }
@@ -2300,6 +2376,157 @@ async function _addSound(file, displayName, init = {}) {
     _syncAudioPanel();
 }
 
+// Overlay-clip frame height as a fraction of the output frame height (its own
+// aspect ratio at the chosen width, against the first video clip's output size).
+function _pipHeightFrac(p) {
+    const base = _effectiveSize(_s.clips.find((c) => c.kind === "video") || _s.clips[0] || {});
+    const baseAspect = base.width && base.height ? base.width / base.height : 16 / 9;
+    const ratio = p.width && p.height ? p.height / p.width : 9 / 16;
+    return p.scale * ratio * baseAspect;
+}
+
+// A still frame to show inside the preview box: the image itself, or the
+// video's frame at its in-file start captured through a canvas.
+function _makePipThumb(file, kind, atSec) {
+    return new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        if (kind === "image") { resolve(url); return; }
+        const v = document.createElement("video");
+        const done = (d) => { URL.revokeObjectURL(url); resolve(d); };
+        const guard = setTimeout(() => done(""), 4000);
+        v.muted = true;
+        v.preload = "auto";
+        v.onerror = () => { clearTimeout(guard); done(""); };
+        v.onloadeddata = () => { v.currentTime = Math.min(atSec, Math.max(0, (v.duration || 0) - 0.05)); };
+        v.onseeked = () => {
+            clearTimeout(guard);
+            try {
+                const c = document.createElement("canvas");
+                c.width = 160;
+                c.height = Math.max(1, Math.round(160 * v.videoHeight / Math.max(1, v.videoWidth)));
+                c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+                done(c.toDataURL("image/jpeg", 0.7));
+            } catch { done(""); }
+        };
+        v.src = url;
+    });
+}
+
+async function _addPip(file, displayName, init = {}) {
+    try {
+        const kind = file.type.startsWith("image/") ? "image" : "video";
+        const uploaded = await comfyUI.uploadImage(file, file.name);
+        const serverRef = { filename: uploaded.name, subfolder: uploaded.subfolder || "", type: "input" };
+        let duration = 0;
+        let width = 0;
+        let height = 0;
+        if (kind === "video") {
+            const params = new URLSearchParams(serverRef);
+            const res = await fetch(`/api/wfm/video/edit/probe?${params}`);
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+            duration = json.duration || 0;
+            width = json.width || 0;
+            height = json.height || 0;
+        } else {
+            ({ width, height } = await _readImageDimensions(file));
+        }
+        const win = _clipOffsets().find((o) => o.clip.id === _s.selectedId);
+        const total = _totalLength();
+        const start = init.start ?? (win ? win.start : 0);
+        const room = total > start ? total - start : 0;
+        const natural = kind === "image" ? _DEFAULT_IMAGE_DURATION : (duration || 5);
+        const length = init.length ?? Math.max(0.1, room ? Math.min(natural, room) : natural);
+        const srcStart = kind === "video" ? (init.srcStart ?? 0) : 0;
+        const thumb = await _makePipThumb(file, kind, srcStart);
+        _s.pips.push({
+            id: _nextPipId++, name: displayName || file.name, file, kind, serverRef, duration, width, height, thumb,
+            srcStart, length, start,
+            x: init.x ?? 0.78, y: init.y ?? 0.78, scale: init.scale ?? 0.3, opacity: init.opacity ?? 1,
+        });
+    } catch (err) {
+        showToast(t("errorWithMsg", err.message), "error");
+    }
+    _renderPipList();
+    _refreshTextPreview();
+}
+
+// Same rebuild-only-when-needed rule as the sound list.
+function _renderPipList() {
+    const host = document.getElementById("wfm-video-edit-pip-list");
+    if (!host) return;
+    host.innerHTML = "";
+    if (!_s.pips.length) {
+        host.innerHTML = `<span class="wfm-placeholder">${t("videoEditPipNone")}</span>`;
+        return;
+    }
+    const anchorLabels = t("videoEditTextAnchorLabels");
+    const presetOptions = `<option value="">${t("videoEditPipPreset")}</option>` + _TEXT_ANCHORS
+        .map((a, i) => `<option value="${a}">${Array.isArray(anchorLabels) ? anchorLabels[i] : a}</option>`)
+        .join("");
+    for (const p of _s.pips) {
+        const row = document.createElement("div");
+        row.className = "wfm-video-edit-sound-row wfm-video-edit-pip-row";
+        row.innerHTML = `
+            <div class="wfm-video-edit-sound-row-head">
+                <span class="wfm-video-edit-sound-name" data-k="name"></span>
+                <select class="wfm-input wfm-video-edit-pip-preset" data-k="preset">${presetOptions}</select>
+                <button type="button" class="wfm-btn wfm-btn-xs wfm-btn-danger" data-act="delete" title="${t("videoEditDelete")}">\u2715</button>
+            </div>
+            <div class="wfm-video-edit-sound-grid">
+                <label>${t("videoEditSoundStart")}<input type="number" class="wfm-input" data-k="start" step="0.1" min="0"></label>
+                <label>${t("videoEditSoundLength")}<input type="number" class="wfm-input" data-k="length" step="0.1" min="0.1"></label>
+                <label>${t("videoEditPipSize")}<input type="number" class="wfm-input" data-k="scale" step="1" min="5" max="100"></label>
+                <label>${t("videoEditPipX")}<input type="number" class="wfm-input" data-k="x" step="1" min="0" max="100"></label>
+                <label>${t("videoEditPipY")}<input type="number" class="wfm-input" data-k="y" step="1" min="0" max="100"></label>
+                <label>${t("videoEditPipOpacity")}<input type="number" class="wfm-input" data-k="opacity" step="5" min="0" max="100"></label>
+            </div>`;
+        const el = (k) => row.querySelector(`[data-k="${k}"]`);
+        const fill = () => {
+            el("start").value = p.start.toFixed(2);
+            el("length").value = p.length.toFixed(2);
+            el("scale").value = Math.round(p.scale * 100);
+            el("x").value = Math.round(p.x * 100);
+            el("y").value = Math.round(p.y * 100);
+            el("opacity").value = Math.round(p.opacity * 100);
+        };
+        el("name").textContent = p.name;
+        el("name").title = p.name;
+        fill();
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        el("start").addEventListener("change", () => { p.start = Math.max(0, Number(el("start").value) || 0); fill(); _refreshTextPreview(); });
+        el("length").addEventListener("change", () => {
+            const max = p.kind === "video" && p.duration ? Math.max(0.1, p.duration - p.srcStart) : Infinity;
+            p.length = clamp(Number(el("length").value) || 0.1, 0.1, max);
+            fill();
+            _refreshTextPreview();
+        });
+        el("scale").addEventListener("change", () => { p.scale = clamp((Number(el("scale").value) || 30) / 100, 0.05, 1); fill(); _refreshTextPreview(); });
+        el("x").addEventListener("change", () => { p.x = clamp((Number(el("x").value) || 0) / 100, 0, 1); fill(); _refreshTextPreview(); });
+        el("y").addEventListener("change", () => { p.y = clamp((Number(el("y").value) || 0) / 100, 0, 1); fill(); _refreshTextPreview(); });
+        el("opacity").addEventListener("change", () => { p.opacity = clamp((Number(el("opacity").value) || 0) / 100, 0, 1); fill(); _refreshTextPreview(); });
+        el("preset").addEventListener("change", () => {
+            const [v, hz] = (el("preset").value || "").split("-");
+            el("preset").value = "";
+            if (!v) return;
+            const m = 0.03;
+            const hf = _pipHeightFrac(p);
+            p.x = hz === "left" ? m + p.scale / 2 : hz === "right" ? 1 - m - p.scale / 2 : 0.5;
+            p.y = v === "top" ? m + hf / 2 : v === "bottom" ? 1 - m - hf / 2 : 0.5;
+            p.x = clamp(p.x, 0, 1);
+            p.y = clamp(p.y, 0, 1);
+            fill();
+            _refreshTextPreview();
+        });
+        row.querySelector('[data-act="delete"]').addEventListener("click", () => {
+            _s.pips = _s.pips.filter((x) => x.id !== p.id);
+            _renderPipList();
+            _refreshTextPreview();
+        });
+        host.appendChild(row);
+    }
+}
+
 // Rebuilt only on add/remove/restore/drag-end — never on a plain edit, which
 // would replace the input the user is typing in.
 function _renderSoundList() {
@@ -2432,6 +2659,11 @@ function _wireAudioPanel() {
         _s.audio.bgmOffset = 0;
         _setBgmFile(file);
     });
+    byId("wfm-video-edit-pip-input")?.addEventListener("change", async (e) => {
+        const files = [...(e.target.files || [])];
+        e.target.value = "";
+        for (const file of files) await _addPip(file);
+    });
     byId("wfm-video-edit-sound-input")?.addEventListener("change", async (e) => {
         const files = [...(e.target.files || [])];
         e.target.value = "";
@@ -2443,6 +2675,7 @@ function _wireAudioPanel() {
         _syncAudioPanel();
     });
     _renderSoundList();
+    _renderPipList();
     _syncAudioPanel();
 }
 
@@ -2472,6 +2705,9 @@ function _buildProjectData() {
         // Timeline-absolute text overlays (projects saved before this have
         // clip-relative "texts" inside each clip entry - migrated on load).
         texts: _s.texts.map(({ id, ...rest }) => rest),
+        pips: _s.pips
+            .filter((x) => x.serverRef)
+            .map((x) => ({ name: x.name, kind: x.kind, serverRef: x.serverRef, srcStart: x.srcStart, length: x.length, start: x.start, x: x.x, y: x.y, scale: x.scale, opacity: x.opacity })),
         sounds: _s.sounds
             .filter((x) => x.serverRef)
             .map((x) => ({ name: x.name, serverRef: x.serverRef, srcStart: x.srcStart, length: x.length, start: x.start, volumeDb: x.volumeDb })),
@@ -2632,6 +2868,33 @@ async function _restoreSoundsFromSaved(saved) {
     }
 }
 
+// Re-fetches and re-uploads each saved overlay clip (see _restoreSoundsFromSaved).
+async function _restorePipsFromSaved(saved) {
+    _s.pips = [];
+    for (const e of Array.isArray(saved) ? saved : []) {
+        const ref = e?.serverRef;
+        if (!ref?.filename) continue;
+        try {
+            const params = new URLSearchParams({ filename: ref.filename, subfolder: ref.subfolder || "", type: ref.type || "input" });
+            const res = await fetch(`${comfyUI.baseUrl}/view?${params}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const fallback = e.kind === "image" ? "image/png" : "video/mp4";
+            await _addPip(new File([blob], ref.filename, { type: blob.type || fallback }), e.name || ref.filename, {
+                start: Math.max(0, Number(e.start) || 0),
+                length: Math.max(0.1, Number(e.length) || 0.1),
+                srcStart: Math.max(0, Number(e.srcStart) || 0),
+                x: Number.isFinite(e.x) ? e.x : 0.78,
+                y: Number.isFinite(e.y) ? e.y : 0.78,
+                scale: Number.isFinite(e.scale) ? e.scale : 0.3,
+                opacity: Number.isFinite(e.opacity) ? e.opacity : 1,
+            });
+        } catch (err) {
+            showToast(t("errorWithMsg", `${e.name || ""}: ${err.message}`), "error");
+        }
+    }
+}
+
 async function _loadProjectData(filename, data) {
     _stopPreview();
     _s.clips = [];
@@ -2668,6 +2931,7 @@ async function _loadProjectData(filename, data) {
     }
     await _restoreAudioFromSaved(data.audio);
     await _restoreSoundsFromSaved(data.sounds);
+    await _restorePipsFromSaved(data.pips);
 
     _s.projectFilename = filename;
     _updateProjectNameUI();
