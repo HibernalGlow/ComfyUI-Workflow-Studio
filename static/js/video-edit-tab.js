@@ -86,8 +86,10 @@ import {
 import { VTEMP_GROUP, ensureVideoGroup } from "./gallery-tab.js";
 
 const _s = {
-    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, hasAudio, trimStart, trimEnd, crop:{x,y,w,h}(0..1)|null, texts:[textOverlay], probing, error }
+    clips: [], // { id, name, file, kind:"video"|"image", serverRef:{filename,subfolder,type}|null, duration, width, height, fps, hasAudio, trimStart, trimEnd, crop:{x,y,w,h}(0..1)|null, probing, error }
     selectedId: null,
+    // Text overlays belong to the timeline, not to a clip: start/end are absolute timeline seconds.
+    texts: [], // { id, text, start, end, fontSize, color, anchor, outline, background }
     exporting: false,
     nextId: 1,
     outputDir: "",
@@ -189,7 +191,6 @@ export function addClipFromFile(file, displayName) {
         trimStart: 0,
         trimEnd: kind === "image" ? _DEFAULT_IMAGE_DURATION : 0,
         crop: null,
-        texts: [],
         probing: true,
         error: null,
     };
@@ -283,7 +284,6 @@ function _duplicateClip(id) {
         ...src,
         id: _s.nextId++,
         crop: src.crop ? { ...src.crop } : null,
-        texts: src.texts.map((o) => ({ ...o, id: _nextTextId++ })),
     };
     _s.clips.splice(idx + 1, 0, clone);
     _clipRegistry.set(clone.id, clone);
@@ -307,12 +307,13 @@ function _deleteClip(id) {
 // Clears clips AND resets the Audio section (BGM, volumes, keep-original) to
 // its initial state — both can be brought back with Undo.
 function _clearTimeline() {
-    if (_s.clips.length === 0 && _isAudioDefault()) return;
+    if (_s.clips.length === 0 && _isAudioDefault() && !_s.texts.length) return;
     if (!confirm(t("videoEditConfirmClear"))) return;
     _stopPreview();
     _s.clips = [];
     _s.selectedId = null;
     _s.audio = _defaultAudio();
+    _s.texts = [];
     setSourcePreview(null, null);
     _clearTextLayer("source");
     _clearCropLayer("source");
@@ -444,11 +445,20 @@ function _renderTimeline() {
 // the trim panel's "Text overlays" section edits it.
 // ============================================
 
+function _totalLength() {
+    return _clipOffsets().reduce((sum, o) => sum + o.len, 0);
+}
+
+// The { clip, start, len } window the given timeline time falls in (null past the end).
+function _windowAt(time) {
+    return _clipOffsets().find((o) => o.len > 0 && time >= o.start - 1e-6 && time < o.start + o.len) || null;
+}
+
 function _clipOffsets() {
     let acc = 0;
     return _s.clips.map((c) => {
         const start = acc;
-        const len = c.probing || c.error ? 0 : _clipLength(c);
+        const len = c.probing || c.error ? 0 : _exportClipLength(c);
         acc += len;
         return { clip: c, start, len };
     });
@@ -471,13 +481,11 @@ function _renderLaneTrack(track, view) {
     const total = offsets.reduce((sum, o) => sum + o.len, 0);
     const items = []; // { start, end, label, clipId, dim }
     if (view === "text") {
-        for (const o of offsets) {
-            for (const ov of o.clip.texts) {
-                if (!ov.text.trim()) continue;
-                const end = Math.min(ov.end, o.len);
-                if (end <= ov.start) continue;
-                items.push({ start: o.start + ov.start, end: o.start + end, label: ov.text, clipId: o.clip.id, ov, clip: o.clip, clipStart: o.start, clipLen: o.len });
-            }
+        for (const ov of _s.texts) {
+            if (!ov.text.trim()) continue;
+            const end = Math.min(ov.end, total);
+            if (end <= ov.start) continue;
+            items.push({ start: ov.start, end, label: ov.text, clipId: _windowAt(ov.start)?.clip.id ?? null, ov, total });
         }
         items.sort((a, b) => a.start - b.start);
     } else {
@@ -546,10 +554,9 @@ function _renderLaneTrack(track, view) {
     track.appendChild(lane);
 }
 
-// Drag a text band to move it, or drag its left/right edge to retime it. The
-// overlay keeps clip-relative times, so a move is clamped to the clip it
-// belongs to (use the clip's own text panel / reorder to go further).
-// A press without movement just selects the clip.
+// Drag a text band to move it (across clips too - overlay times are absolute
+// timeline seconds), or drag its left/right edge to retime it. A press without
+// movement just selects the clip under the band.
 function _wireTextItemDrag(el, it) {
     const EDGE_PX = 6;
     el.style.touchAction = "none";
@@ -563,8 +570,8 @@ function _wireTextItemDrag(el, it) {
         e.preventDefault();
         const r = el.getBoundingClientRect();
         const mode = e.clientX - r.left < EDGE_PX ? "start" : r.right - e.clientX < EDGE_PX ? "end" : "move";
-        const { ov, clipLen } = it;
-        const orig = { start: ov.start, end: Math.min(ov.end, clipLen) };
+        const { ov, total } = it;
+        const orig = { start: ov.start, end: Math.min(ov.end, total) };
         const x0 = e.clientX;
         let moved = false;
         const MIN = 0.1;
@@ -575,17 +582,17 @@ function _wireTextItemDrag(el, it) {
             moved = true;
             let { start, end } = orig;
             if (mode === "move") {
-                const d = Math.max(-orig.start, Math.min(dx, clipLen - orig.end));
+                const d = Math.max(-orig.start, Math.min(dx, total - orig.end));
                 start = orig.start + d;
                 end = orig.end + d;
             } else if (mode === "start") {
                 start = Math.max(0, Math.min(orig.start + dx, orig.end - MIN));
             } else {
-                end = Math.min(clipLen, Math.max(orig.end + dx, orig.start + MIN));
+                end = Math.min(total, Math.max(orig.end + dx, orig.start + MIN));
             }
             ov.start = Number(start.toFixed(2));
             ov.end = Number(end.toFixed(2));
-            el.style.left = `${Math.round((it.clipStart + ov.start) * _PX_PER_SEC)}px`;
+            el.style.left = `${Math.round(ov.start * _PX_PER_SEC)}px`;
             el.style.width = `${Math.max(24, Math.round((ov.end - ov.start) * _PX_PER_SEC))}px`;
         };
         const onUp = () => {
@@ -593,9 +600,10 @@ function _wireTextItemDrag(el, it) {
             el.removeEventListener("pointerup", onUp);
             el.removeEventListener("pointercancel", onUp);
             if (moved) {
-                if (_s.selectedId !== it.clipId) { _selectClip(it.clipId); } else { _renderTrimPanel(); }
+                const owner = _windowAt(ov.start)?.clip.id ?? null;
+                if (owner != null && owner !== _s.selectedId) _selectClip(owner); else _renderTrimPanel();
                 _refreshTextPreview();
-            } else {
+            } else if (it.clipId != null) {
                 _selectClip(it.clipId);
             }
         };
@@ -644,7 +652,7 @@ function _updateToolbarState() {
     setDisabled("wfm-video-edit-move-right-btn", !hasSelection || idx === _s.clips.length - 1);
     setDisabled("wfm-video-edit-duplicate-btn", !hasSelection);
     setDisabled("wfm-video-edit-delete-btn", !hasSelection);
-    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0 && _isAudioDefault());
+    setDisabled("wfm-video-edit-clear-btn", _s.clips.length === 0 && _isAudioDefault() && !_s.texts.length);
     setDisabled("wfm-video-edit-preview-btn", _s.clips.length === 0);
     _updateTotalDuration();
 }
@@ -849,7 +857,7 @@ function _renderTrimPanel() {
             clip.duration = val;
             durInput.value = val.toFixed(2);
             _renderTimeline();
-            _updateTextLimits(clip);
+            _updateTextLimits();
         });
         _renderTextSection(clip);
         _refreshTextPreview();
@@ -915,7 +923,7 @@ function _renderTrimPanel() {
         syncScrubber();
         if (!skipTimelineRerender) {
             _renderTimeline();
-            _updateTextLimits(clip);
+            _updateTextLimits();
         }
         _refreshTextPreview();
     };
@@ -1204,12 +1212,14 @@ function _clipLength(clip) {
     return Math.max(0, clip.trimEnd - clip.trimStart);
 }
 
+// New overlays span the selected clip's window on the timeline.
 function _newTextOverlay(clip) {
+    const win = _clipOffsets().find((o) => o.clip === clip) || { start: 0, len: _totalLength() };
     return {
         id: _nextTextId++,
         text: t("videoEditTextDefault"),
-        start: 0,
-        end: Number(_clipLength(clip).toFixed(2)),
+        start: Number(win.start.toFixed(2)),
+        end: Number((win.start + win.len).toFixed(2)),
         fontSize: 6,
         color: "#ffffff",
         anchor: "bottom-center",
@@ -1229,12 +1239,12 @@ function _renderTextSection(clip) {
         <div class="wfm-video-edit-text-list" id="wfm-video-edit-text-list"></div>
     `;
     const list = document.getElementById("wfm-video-edit-text-list");
-    if (!clip.texts.length) {
+    if (!_s.texts.length) {
         list.innerHTML = `<span class="wfm-placeholder">${t("videoEditTextEmpty")}</span>`;
     }
-    for (const ov of clip.texts) list.appendChild(_buildTextRow(clip, ov));
+    for (const ov of _s.texts) list.appendChild(_buildTextRow(clip, ov));
     document.getElementById("wfm-video-edit-text-add")?.addEventListener("click", () => {
-        clip.texts.push(_newTextOverlay(clip));
+        _s.texts.push(_newTextOverlay(clip));
         _renderTextSection(clip);
         _refreshTextPreview();
     });
@@ -1245,14 +1255,14 @@ function _renderTextSection(clip) {
 // which fires on blur, i.e. on mousedown of whatever the user clicks next.
 // Rebuilding the section there would replace that button under the cursor
 // (e.g. "+ Add text") and swallow the click.
-function _updateTextLimits(clip) {
-    const len = _clipLength(clip);
+function _updateTextLimits() {
+    const len = _totalLength();
     document.querySelectorAll('#wfm-video-edit-text-list [data-k="start"], #wfm-video-edit-text-list [data-k="end"]')
         .forEach((input) => { input.max = len; });
 }
 
 function _buildTextRow(clip, ov) {
-    const len = _clipLength(clip);
+    const len = _totalLength();
     const anchorLabels = t("videoEditTextAnchorLabels");
     const anchorOptions = _TEXT_ANCHORS
         .map((a, i) => `<option value="${a}">${Array.isArray(anchorLabels) ? anchorLabels[i] : a}</option>`)
@@ -1288,7 +1298,7 @@ function _buildTextRow(clip, ov) {
 
     el("text").addEventListener("input", () => { ov.text = el("text").value; _refreshTextPreview(); });
     const commitTimes = () => {
-        const len = _clipLength(clip); // live: the clip may have been re-trimmed since this row was built
+        const len = _totalLength(); // live: clips may have been re-trimmed since this row was built
         const start = Math.max(0, Math.min(Number(el("start").value) || 0, len));
         let end = Math.max(0, Math.min(Number(el("end").value) || 0, len));
         if (end <= start) end = Math.min(len, start + 0.1);
@@ -1310,7 +1320,7 @@ function _buildTextRow(clip, ov) {
     el("outline").addEventListener("change", () => { ov.outline = el("outline").checked; _refreshTextPreview(); });
     el("background").addEventListener("change", () => { ov.background = el("background").checked; _refreshTextPreview(); });
     row.querySelector('[data-act="delete"]').addEventListener("click", () => {
-        clip.texts = clip.texts.filter((o) => o.id !== ov.id);
+        _s.texts = _s.texts.filter((o) => o.id !== ov.id);
         _renderTextSection(clip);
         _refreshTextPreview();
     });
@@ -1386,8 +1396,13 @@ function _drawTextLayer(pane, overlays, crop = null) {
     }
 }
 
-function _activeOverlaysAt(clip, clipTime) {
-    return clip.texts.filter((o) => o.text.trim() && clipTime >= o.start && clipTime < o.end);
+// Overlays showing at an absolute timeline time.
+function _activeOverlaysAt(time) {
+    return _s.texts.filter((o) => o.text.trim() && time >= o.start && time < o.end);
+}
+
+function _clipStartOffset(clip) {
+    return _clipOffsets().find((o) => o.clip === clip)?.start ?? 0;
 }
 
 // Source pane: the selected clip's overlays at the source <video>'s current
@@ -1403,11 +1418,14 @@ function _refreshSourceTextPreview() {
         return;
     }
     if (clip.kind === "image") {
-        _drawTextLayer("source", clip.texts.filter((o) => o.text.trim()));
+        // A still has no playhead: show every overlay that touches its window.
+        const start = _clipStartOffset(clip);
+        const end = start + _exportClipLength(clip);
+        _drawTextLayer("source", _s.texts.filter((o) => o.text.trim() && o.start < end && o.end > start));
         return;
     }
-    const t0 = (els.video?.currentTime || 0) - clip.trimStart;
-    _drawTextLayer("source", _activeOverlaysAt(clip, t0), clip.crop);
+    const t0 = _clipStartOffset(clip) + (els.video?.currentTime || 0) - clip.trimStart;
+    _drawTextLayer("source", _activeOverlaysAt(t0), clip.crop);
     _refreshCropPreview();
 }
 
@@ -1456,10 +1474,11 @@ function _refreshResultTextPreview() {
         _clearTextLayer("result");
         return;
     }
-    const t0 = clip.kind === "image"
+    const base = _previewClips.slice(0, _previewIndex).reduce((sum, c) => sum + _exportClipLength(c), 0);
+    const t0 = base + (clip.kind === "image"
         ? (performance.now() - _previewImageStartedAt) / 1000
-        : (getResultPreviewVideoElement()?.currentTime || 0) - clip.trimStart;
-    _drawTextLayer("result", _activeOverlaysAt(clip, t0), clip.kind === "video" ? clip.crop : null);
+        : (getResultPreviewVideoElement()?.currentTime || 0) - clip.trimStart);
+    _drawTextLayer("result", _activeOverlaysAt(t0), clip.kind === "video" ? clip.crop : null);
     if (clip.kind === "video" && clip.crop) _drawCropLayer("result", clip, false);
     else _clearCropLayer("result");
 }
@@ -1802,27 +1821,23 @@ function _buildExportWorkflow(clips, { audio = _s.audio, filenamePrefix = "video
 // Flattens every clip's (clip-relative) text overlays onto the exported
 // timeline, in the shape /api/wfm/video/edit/overlay-text expects.
 function _collectTimelineOverlays(clips) {
+    const total = clips.reduce((sum, c) => sum + _exportClipLength(c), 0);
     const out = [];
-    let offset = 0;
-    for (const clip of clips) {
-        const len = _exportClipLength(clip);
-        for (const o of clip.texts) {
-            if (!o.text.trim()) continue;
-            const start = Math.min(o.start, len);
-            const end = Math.min(o.end, len);
-            if (end <= start) continue;
-            out.push({
-                text: o.text,
-                start: offset + start,
-                end: offset + end,
-                font_size: o.fontSize,
-                color: o.color,
-                anchor: o.anchor,
-                outline: o.outline,
-                background: o.background,
-            });
-        }
-        offset += len;
+    for (const o of _s.texts) {
+        if (!o.text.trim()) continue;
+        const start = Math.min(o.start, total);
+        const end = Math.min(o.end, total);
+        if (end <= start) continue;
+        out.push({
+            text: o.text,
+            start,
+            end,
+            font_size: o.fontSize,
+            color: o.color,
+            anchor: o.anchor,
+            outline: o.outline,
+            background: o.background,
+        });
     }
     return out;
 }
@@ -1987,8 +2002,8 @@ function _snapshot() {
             trimEnd: c.trimEnd,
             duration: c.duration,
             crop: c.crop,
-            texts: c.texts,
         })),
+        texts: _s.texts,
         audio: {
             keepOriginal: _s.audio.keepOriginal,
             originalVolumeDb: _s.audio.originalVolumeDb,
@@ -2043,11 +2058,11 @@ function _restoreSnapshot(snap) {
                     trimEnd: e.trimEnd,
                     duration: e.duration,
                     crop: e.crop ? { ...e.crop } : null,
-                    texts: e.texts.map((o) => ({ ...o })),
                 };
                 _clipRegistry.set(clip.id, clip);
                 return clip;
             });
+        _s.texts = (data.texts || []).map((o) => ({ ...o }));
         _s.audio = {
             keepOriginal: data.audio.keepOriginal,
             originalVolumeDb: data.audio.originalVolumeDb,
@@ -2266,8 +2281,10 @@ function _buildProjectData() {
                 height: c.height,
                 fps: c.fps,
                 crop: c.crop,
-                texts: c.texts.map(({ id, ...rest }) => rest),
             })),
+        // Timeline-absolute text overlays (projects saved before this have
+        // clip-relative "texts" inside each clip entry - migrated on load).
+        texts: _s.texts.map(({ id, ...rest }) => rest),
         audio: {
             keepOriginal: _s.audio.keepOriginal,
             originalVolumeDb: _s.audio.originalVolumeDb,
@@ -2336,7 +2353,7 @@ function _waitForProbe(id) {
 // settles, the saved trim points are applied on top of the freshly-probed
 // (full-length) defaults.
 async function _restoreClipFromSaved(entry) {
-    if (!entry?.serverRef?.filename) return;
+    if (!entry?.serverRef?.filename) return null;
     try {
         const params = new URLSearchParams({
             filename: entry.serverRef.filename,
@@ -2352,11 +2369,11 @@ async function _restoreClipFromSaved(entry) {
         const beforeIds = new Set(_s.clips.map((c) => c.id));
         addClipFromFile(file, entry.name);
         const newClip = _s.clips.find((c) => !beforeIds.has(c.id));
-        if (!newClip) return;
+        if (!newClip) return null;
 
         await _waitForProbe(newClip.id);
         const c = _s.clips.find((cl) => cl.id === newClip.id);
-        if (!c || c.error) return;
+        if (!c || c.error) return null;
         if (c.kind === "video") {
             c.trimStart = Math.max(0, Math.min(entry.trimStart ?? 0, c.duration));
             c.trimEnd = Math.max(c.trimStart + 0.1, Math.min(entry.trimEnd ?? c.duration, c.duration));
@@ -2365,15 +2382,12 @@ async function _restoreClipFromSaved(entry) {
         }
         const sc = entry.crop;
         c.crop = c.kind === "video" && sc && [sc.x, sc.y, sc.w, sc.h].every(Number.isFinite) ? { x: sc.x, y: sc.y, w: sc.w, h: sc.h } : null;
-        c.texts = (Array.isArray(entry.texts) ? entry.texts : []).map((o) => ({
-            ..._newTextOverlay(c),
-            ...o,
-            id: _nextTextId++,
-        }));
         _renderTimeline();
         if (_s.selectedId === c.id) _renderTrimPanel();
+        return c;
     } catch (err) {
         showToast(t("errorWithMsg", `${entry.name || ""}: ${err.message}`), "error");
+        return null;
     }
 }
 
@@ -2416,8 +2430,28 @@ async function _loadProjectData(filename, data) {
     // Sequential, not parallel: addClipFromFile() appends to _s.clips, so
     // restoring one at a time is what keeps the reloaded timeline in the
     // same clip order it was saved in.
+    const restored = [];
     for (const entry of entries) {
-        await _restoreClipFromSaved(entry);
+        restored.push({ entry, clip: await _restoreClipFromSaved(entry) });
+    }
+    const asOverlay = (o, shift = 0) => ({
+        ..._newTextOverlay(null),
+        ...o,
+        start: (Number(o.start) || 0) + shift,
+        end: (Number(o.end) || 0) + shift,
+        id: _nextTextId++,
+    });
+    _s.texts = [];
+    if (Array.isArray(data.texts)) {
+        _s.texts = data.texts.map((o) => asOverlay(o));
+    } else {
+        // Legacy project: overlays were clip-relative - shift each onto its clip's timeline window.
+        for (const { entry, clip } of restored) {
+            if (clip && Array.isArray(entry.texts)) {
+                const start = _clipStartOffset(clip);
+                _s.texts.push(...entry.texts.map((o) => asOverlay(o, start)));
+            }
+        }
     }
     await _restoreAudioFromSaved(data.audio);
 
