@@ -307,8 +307,8 @@ def _add_external_dir_to_zip(zf: zipfile.ZipFile, src_dir: Path, zip_prefix: str
 
 
 # Video Edit projects (video_edit_project/*.json, inside DATA_DIR so always backed up) only
-# store *references* — serverRef {filename, subfolder, type:"input"} — to clips and the BGM
-# uploaded into ComfyUI's input dir, not the media itself. Backing up just the JSON means a
+# store *references* — serverRef {filename, subfolder, type:"input"} — to clips, the BGM,
+# timeline sounds and overlay (PinP) clips uploaded into ComfyUI's input dir, not the media itself. Backing up just the JSON means a
 # restored project on another machine (or after input/ is cleaned up) opens with its clips
 # missing. Opt-in (include_video_media) because the media can be large; stored under its own
 # prefix so _apply_full_backup_zip can route it back into the input dir, not DATA_DIR.
@@ -322,7 +322,8 @@ def _comfyui_input_dir() -> Path:
 
 def _iter_video_edit_media_refs():
     """Yields (subfolder, filename) for every input-dir file referenced by a saved Video
-    Edit project (clips + BGM). Unreadable project files are skipped."""
+    Edit project (clips + BGM + timeline sounds + overlay clips). Unreadable project files
+    are skipped."""
     if not VIDEO_EDIT_PROJECT_DIR.is_dir():
         return
     for path in sorted(VIDEO_EDIT_PROJECT_DIR.glob("*.json")):
@@ -331,7 +332,13 @@ def _iter_video_edit_media_refs():
                 data = json.load(f)
         except Exception:
             continue
-        refs = [c.get("serverRef") for c in data.get("clips") or [] if isinstance(c, dict)]
+        # "sounds" / "pips" are top-level lists of {name, serverRef, ...} (absent in older projects).
+        refs = [
+            c.get("serverRef")
+            for key in ("clips", "sounds", "pips")
+            for c in data.get(key) or []
+            if isinstance(c, dict)
+        ]
         bgm = (data.get("audio") or {}).get("bgm")
         if isinstance(bgm, dict):
             refs.append(bgm.get("serverRef"))
