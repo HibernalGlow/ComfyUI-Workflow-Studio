@@ -2422,7 +2422,14 @@ function _makePipThumb(file, kind, atSec) {
 // land exactly on top of each other. (Scale defaults to 30% of the frame width.)
 const _PIP_DEFAULT_SPOTS = [[0.78, 0.78], [0.22, 0.22], [0.78, 0.22], [0.22, 0.78], [0.5, 0.5]];
 
+// Exported for video-asset-tab.js's "Add as overlay" button. Resolves to
+// whether the overlay was actually added (a failed upload/probe only toasts).
+export function addPipFromFile(file, displayName) {
+    return _addPip(file, displayName);
+}
+
 async function _addPip(file, displayName, init = {}) {
+    let added = false;
     try {
         const kind = file.type.startsWith("image/") ? "image" : "video";
         const uploaded = await comfyUI.uploadImage(file, file.name);
@@ -2455,11 +2462,13 @@ async function _addPip(file, displayName, init = {}) {
             srcStart, length, start,
             x: init.x ?? spot[0], y: init.y ?? spot[1], scale: init.scale ?? 0.3, opacity: init.opacity ?? 1,
         });
+        added = true;
     } catch (err) {
         showToast(t("errorWithMsg", err.message), "error");
     }
     _renderPipList();
     _refreshTextPreview();
+    return added;
 }
 
 // Same rebuild-only-when-needed rule as the sound list.
