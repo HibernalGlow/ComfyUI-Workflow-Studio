@@ -260,6 +260,21 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
         if m.get("sha256"):
             known[n] = {"sha256": m["sha256"], "size": m.get("sha256Size"), "mtime": m.get("sha256Mtime")}
 
+    # 未計算のものは Lora Manager が保持済みのsha256を借りる（サイズ一致時のみ。ハッシュ計算を省く）
+    if len(known) < len(model_files):
+        from ..services.lora_manager_bridge import fetch_lm_hashes, _norm
+        origin = f"{request.scheme}://{request.host}"
+        lm = await asyncio.to_thread(fetch_lm_hashes, origin, model_type)
+        for n, p in model_files:
+            if n in known:
+                continue
+            e = lm.get(_norm(p))
+            try:
+                if e and e.get("size") is not None and int(e["size"]) == p.stat().st_size:
+                    known[n] = {"sha256": e["sha256"], "size": int(e["size"]), "mtime": None}
+            except OSError:
+                pass
+
     # ハッシュ確定ごとに溜め、5秒おきにメタデータへ書き出す（途中で止めても計算済み分が残る）
     pending_hashes = {}
     last_flush = [_time.monotonic()]
