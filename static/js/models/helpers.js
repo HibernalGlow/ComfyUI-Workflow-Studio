@@ -3,6 +3,7 @@
  */
 
 import { state } from "./state.js";
+import { safeHttpUrl } from "../util.js";
 
 export function parseModelPath(fullName) {
     const lastSlash = Math.max(fullName.lastIndexOf("/"), fullName.lastIndexOf("\\"));
@@ -68,7 +69,7 @@ export function loadPreviewImage(imgEl, placeholderEl, modelName, modelType) {
         const meta = state.modelMetadata[modelName] || {};
         const sha256 = meta.sha256;
         const civitai = sha256 && state.civitaiCache[sha256];
-        const civitaiImg = civitai && civitai.images && civitai.images[0];
+        const civitaiImg = safeHttpUrl(civitai && civitai.images && civitai.images[0]);
         if (civitaiImg) {
             imgEl.onerror = () => {
                 imgEl.style.display = "none";

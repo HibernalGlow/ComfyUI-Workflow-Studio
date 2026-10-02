@@ -71,6 +71,23 @@ def _as_int(v):
         return None
 
 
+# プレビュー画像のダウンロード許可ホスト（サイドカーJSON由来のURLでSSRF/ローカルファイル読み取りをさせない）
+_IMAGE_HOST_SUFFIXES = (".civitai.com", ".civitai.red", ".civitai.green")
+_IMAGE_HOST_EXACT = ("civitai.com", "civitai.red", "civitai.green")
+_IMAGE_MAX_BYTES = 50 * 1024 * 1024
+
+
+def _is_allowed_image_url(url):
+    """https かつ CivitAI 系ホストのURLだけ許可する（file:// や内部アドレス、他ホストは拒否）。"""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(str(url).strip())
+        host = (u.hostname or "").lower()
+        return u.scheme == "https" and (host in _IMAGE_HOST_EXACT or host.endswith(_IMAGE_HOST_SUFFIXES))
+    except Exception:
+        return False
+
+
 class CivitaiService:
     """Fetch and cache CivitAI model metadata."""
 
@@ -663,10 +680,25 @@ class CivitaiService:
     @staticmethod
     def download_image(url, save_path, timeout=15):
         """Download an image from URL and save to save_path. Returns True on success."""
+        if not _is_allowed_image_url(url):
+            logger.warning("Refusing to download preview from non-CivitAI URL: %s", str(url)[:120])
+            return False
         try:
+            from urllib.request import HTTPRedirectHandler, HTTPSHandler, build_opener
+
+            class _SafeRedirect(HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    if not _is_allowed_image_url(newurl):  # リダイレクト先も検証
+                        raise ValueError("redirect to disallowed host")
+                    return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+            opener = build_opener(_SafeRedirect, HTTPSHandler(context=_get_ssl_context()))
             req = Request(url, headers={"User-Agent": "ComfyUI-Workflow-Studio/1.0"})
-            with urlopen(req, timeout=timeout, context=_get_ssl_context()) as resp:
-                data = resp.read()
+            with opener.open(req, timeout=timeout) as resp:
+                data = resp.read(_IMAGE_MAX_BYTES + 1)
+            if len(data) > _IMAGE_MAX_BYTES:
+                logger.warning("Preview too large, skipped: %s", str(url)[:120])
+                return False
             with open(save_path, "wb") as f:
                 f.write(data)
             return True

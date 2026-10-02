@@ -619,7 +619,7 @@ export async function fetchCivitaiForModel(modelName, el) {
                     if (data.preview_saved) {
                         sideImg.src = previewUrl(modelName) + "&t=" + Date.now();
                     } else {
-                        const civitaiImg = data.civitai.images && data.civitai.images[0];
+                        const civitaiImg = safeHttpUrl(data.civitai.images && data.civitai.images[0]);
                         if (civitaiImg) sideImg.src = civitaiImg;
                     }
                     sideImg.style.display = "";

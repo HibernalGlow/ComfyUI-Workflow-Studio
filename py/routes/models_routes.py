@@ -267,7 +267,10 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
     # 未計算のものは Lora Manager が保持済みのsha256を借りる（サイズ一致時のみ。ハッシュ計算を省く）
     if len(known) < len(model_files):
         from ..services.lora_manager_bridge import fetch_lm_hashes, _norm
-        origin = f"{request.scheme}://{request.host}"
+        # Hostヘッダは信用せず、自分自身のループバック＋実際のポートへ接続する（Host偽装/DNSリバインディング対策）
+        sockname = request.transport.get_extra_info("sockname") if request.transport else None
+        port = sockname[1] if sockname else (request.url.port or 8188)
+        origin = f"http://127.0.0.1:{port}"
         lm = await asyncio.to_thread(fetch_lm_hashes, origin, model_type)
         for n, p in model_files:
             if n in known:

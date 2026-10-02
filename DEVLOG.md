@@ -10,6 +10,14 @@
 - `static/js/util.js` に許可リスト方式の `sanitizeHtml()` と `safeHttpUrl()` を追加し、説明文・モデルURL・サンプル画像URLに適用。`script/style/iframe/svg/form` 等の要素、`on*` 属性、`style` 属性、`javascript:`/`data:` URL、**相対URL**（ComfyUI自身のURLへリクエストを送らせる経路）を除去する。許可するのは段落・見出し・リスト・強調・表・`code`・`a`/`img`（絶対http(s) URLのみ）など。
 - Playwright（実ブラウザ）で攻撃文字列16種を検証し、スクリプトが一度も実行されないことを確認。
 
+### セキュリティ: サイドカー経由のSSRF/ローカルファイル読み取りと、Hostヘッダ依存の接続先
+
+取り込み経路の再点検で見つかった2件を修正。
+
+- **プレビュー画像のダウンロード（`download_image`）のURLが無検証だった**。URLは `.metadata.json`（Lora Manager形式のローカルサイドカー）の `civitai.images` から来るため、細工されたサイドカーがあると、サーバーが任意のURLへ接続する（SSRF）。`file://` を指定すればローカルファイルを読んでプレビュー画像として保存でき、プレビューAPI経由で取り出せた。**https かつ CivitAI系ホスト（`civitai.com`/`civitai.red`/`civitai.green` とそのサブドメイン）のみ許可**し、リダイレクト先も同じ条件で検証、サイズ上限50MBを設定。正規のCivitAI画像の取得は実環境で確認済み。
+- **Lora Manager連携（`lora_manager_bridge`）の接続先を、リクエストのHostヘッダから組み立てていた**。Hostの偽装（DNSリバインディング等）で任意のホストへ接続させられるため、**ループバック（`127.0.0.1`）＋実際に待ち受けているポート**に固定。
+- サンプル画像・フォールバック画像のURLにも `safeHttpUrl()`（絶対http(s)のみ）を適用。
+
 ### `.cm-info.json` / `.metadata.json` 取り込みの堅牢化
 
 - `ModelId`/`VersionId` は正の整数のみ受け付ける（URLに文字列を埋め込まない）。不正なら情報は採用せず、sha256のみ利用。
