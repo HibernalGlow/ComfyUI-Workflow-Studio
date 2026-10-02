@@ -2,6 +2,42 @@
 
 ---
 
+## v0.7.10（2026-10-02）
+
+### Windows: ComfyUIが固まる問題の原因特定と対策（Selectorイベントループ）
+
+v0.7.9で「原因未特定」としていたComfyUIの無応答は、ほぼ素の環境（ComfyUI 0.34 / Workflow Studio 0.7.2〜0.7.9、ComfyUI Desktop・Stability Matrix両方）でも再現し、`/system_stats` すら応答しなかった。py-spy（`dump --native`）でメインスレッド（イベントループ）が `asyncio proactor _call_connection_lost → socket.close → closesocket → NtClose` で停止していることを確認。ハッシュ計算・モデルファイル・CivitAI取得・Windows更新（26H2を戻しても再現）・ComfyUI/WSL/Windows Firewall Controlのいずれも原因ではなかった。
+
+- きっかけは「プレビュー画像の多い一覧を開き、続けて他の一覧へ切り替える」操作。ブラウザが読み込み中の画像リクエストを一斉に中止し、短時間に多数の接続が開閉する。
+- **対策**: `prestartup_script.py` でWindowsのasyncioループをProactorからSelectorへ切り替えるスイッチを追加（既定オフ）。設定画面の「Windowsの安定性（イベントループ）」のチェック、または環境変数 `WFS_SELECTOR_LOOP=1` で有効化（ComfyUI再起動後に反映）。有効化すると同じ操作で再現しなくなった。
+- トレードオフ: asyncioのサブプロセス機能が使えない／同時接続数の上限が約512。ComfyUI-Managerの閲覧・CivitAI取得は問題なし。
+- 固まったプロセスは `taskkill` しても終了せずポートを握り続けるため、再起動が必要になる。固まったときは `py-spy dump --native --pid <PID>` でメインスレッドの位置を確認する。
+
+### Models: プレビュー画像の404削減
+
+- プレビューが無いモデルにも画像リクエストを出しており、一覧の切り替えごとに大量の404と接続の開閉が発生していた。
+- 新API `GET /api/wfm/models/preview-keys?type=` がフォルダを1回走査して「プレビューを持つモデル」の一覧を返し、画面側は無いモデルへ画像リクエストを出さない（取得失敗時は従来動作）。サムネ変更・CivitAI取得でのプレビュー保存・一括取得後は一覧を更新。
+- **無効化（`.disabled`）されたモデルのプレビューが表示されなかった問題を修正**（`find_preview_image` が `<名前>.disabled` を見ていなかった）。
+
+### Models: モデルフォルダ設定（Stability Matrix対応）
+
+- 設定に「モデルフォルダ」を追加。追加のモデルルート（例: Stability Matrixの `Models`、`;` 区切りで複数可）直下の `StableDiffusion/Lora/VAE/ControlNet/TextEncoders/DiffusionModels/Embeddings/HyperNetworks`（またはComfyUI名 `checkpoints/loras` …）をModelsタブの一覧とフォルダ解決に追加する。
+- Modelsタブの一覧はComfyUIの `/object_info` 由来で追加フォルダを含まないため、`/api/wfm/models/files?extra_only=1` の結果を合流させている。
+
+### CivitAI取得: ハッシュ計算を行わない運用へ
+
+- 一括取得は**ハッシュ計算をしない**。保存済みsha256、`.metadata.json`（Lora Manager）、`.cm-info.json`（Stability Matrix）、Lora Managerの `/api/lm/{loras,checkpoints,embeddings}/list` のsha256から解決できる分だけを取得し、未確定のモデルは「ハッシュ未計算」として件数を表示する（大きなモデルを多数ハッシュするとディスクが飽和するため）。
+- **`.cm-info.json` 取り込み**: `Hashes.SHA256` とCivitAI情報を読む。ファイルサイズが無いため `ImportedAt` より後にモデルが更新されていたら不採用。画像一覧を持たないので `source: "cm-info"` を付け、個別の取得/更新でAPIの完全な情報に置き換える。
+- 詳細パネルのCivitAIタブで、ハッシュ未計算のモデルは赤字「未計算」を表示。取得/更新ボタンでハッシュ計算して取得する（ファイルサイズ/更新日時も保存）。
+- クライアント切断（再読み込み・タブ遷移）で一括取得を中断し、計算済みのハッシュだけ保存して終了。ハッシュ計算を3→2並列、読み込み1MB→512KB、プレビュー保存4→2並列に抑制。
+- 詳細パネルの「ファイルパス」表示を削除。
+
+### ヘルプ・i18n
+
+- 設定のヘルプに「モデルフォルダ」「Windowsの安定性」を追加（英日中）。
+
+---
+
 ## v0.7.9（2026-10-02）
 
 ### Models: CivitAIベースモデルからの自動バッジ作成

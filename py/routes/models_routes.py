@@ -20,6 +20,7 @@ def setup_routes(app: web.Application):
     app.router.add_get("/api/wfm/models/metadata", handle_get_metadata)
     app.router.add_post("/api/wfm/models/metadata", handle_save_metadata)
     app.router.add_get("/api/wfm/models/preview", handle_get_preview)
+    app.router.add_get("/api/wfm/models/preview-keys", handle_get_preview_keys)
     app.router.add_get("/api/wfm/models/groups", handle_get_groups)
     app.router.add_post("/api/wfm/models/groups", handle_save_groups)
     app.router.add_post("/api/wfm/models/civitai/fetch", handle_civitai_fetch)
@@ -139,10 +140,13 @@ async def handle_civitai_fetch(request: web.Request) -> web.Response:
             )
             if not sha256:
                 return web.json_response({"error": "Failed to calculate hash"}, status=500)
-            # Cache the hash in model metadata
-            await asyncio.to_thread(
-                _service.update_metadata, model_name, {"sha256": sha256}
-            )
+            # Cache the hash (+ size/mtime so a replaced file invalidates it) in model metadata
+            try:
+                st = file_path.stat()
+                hash_meta = {"sha256": sha256, "sha256Size": st.st_size, "sha256Mtime": st.st_mtime}
+            except OSError:
+                hash_meta = {"sha256": sha256}
+            await asyncio.to_thread(_service.update_metadata, model_name, hash_meta)
 
         # Fetch from CivitAI
         info = await asyncio.to_thread(_civitai.fetch_by_hash, sha256)
@@ -408,6 +412,7 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
         "found": sum(1 for r in results.values() if r.get("civitai")),
         "not_found": sum(1 for r in results.values() if r.get("sha256") and not r.get("civitai")),
         "errors": sum(1 for r in results.values() if r.get("error")),
+        "needs_hash": sum(1 for r in results.values() if r.get("needs_hash")),
         "hashes": {name: r.get("sha256") for name, r in results.items() if r.get("sha256")},
         "preview_saved": preview_saved_count,
     }
@@ -417,6 +422,22 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
 
 
 # ── Model Preview Image ───────────────────────────────────
+
+
+async def handle_get_preview_keys(request: web.Request) -> web.Response:
+    """GET /api/wfm/models/preview-keys?type=checkpoint
+
+    プレビュー画像を持つモデルのキー一覧を返す（無いモデルへの画像リクエスト＝404を避けるため）。
+    """
+    model_type = request.query.get("type", "")
+    if not model_type:
+        return web.json_response({"error": "type required"}, status=400)
+    try:
+        keys = await asyncio.to_thread(_service.list_preview_keys, model_type)
+        return web.json_response({"keys": keys})
+    except Exception as e:
+        logger.error("Error listing preview keys: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def handle_get_preview(request: web.Request) -> web.Response:

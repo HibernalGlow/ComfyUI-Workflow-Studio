@@ -13,6 +13,7 @@ import { openBadgeEditModal, renderBadgeFilter, setGridChangeCallback } from "./
 import { isModelDisabled, renderTagFilter, renderGroupFilter, renderDirFilter } from "./models/filters.js";
 import { renderModelGrid, clearBatchGroup, clearStackGroup } from "./models/grid-view.js";
 import { toggleSelectMode, renderBulkActionBar, fetchSubdirs } from "./models/selection-bulk.js";
+import { fetchPreviewKeys } from "./models/helpers.js";
 import { closeSidePanel, renderSideCivitai, renderSideInfo, batchFetchCivitai, fetchCivitaiCache } from "./models/detail-panel.js";
 
 export { openBadgeEditModal };
@@ -302,7 +303,7 @@ async function loadModelsForCurrentType() {
         if (!fetchFn) throw new Error("Unknown model type: " + type);
 
         const [models, disabledList, groups] = await Promise.all([
-            fetchFn(), fetchDisabledModels(type), fetchModelGroups(),
+            fetchFn(), fetchDisabledModels(type), fetchModelGroups(), fetchPreviewKeys(type),
         ]);
         const disabledSet = new Set(Array.isArray(disabledList) ? disabledList : []);
         state.disabledModels[type] = disabledSet;

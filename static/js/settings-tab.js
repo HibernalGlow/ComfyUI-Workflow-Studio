@@ -694,6 +694,20 @@ export async function initSettingsTab() {
             </div>
         </details>
 
+        <!-- Windows Event Loop (stability) -->
+        <details class="wfm-settings-section">
+            <summary class="wfm-settings-summary">${t("selectorLoop")}</summary>
+            <div class="wfm-form-group">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" id="wfm-settings-selector-loop" ${serverSettings.windows_selector_event_loop ? "checked" : ""}>
+                    <span>${t("selectorLoopLabel")}</span>
+                </label>
+                <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-top:4px;">
+                    ${t("selectorLoopHint")}
+                </small>
+            </div>
+        </details>
+
         <!-- Gallery Output Folder -->
         <details class="wfm-settings-section">
             <summary class="wfm-settings-summary">${t("galleryOutputDir")}</summary>
@@ -1186,6 +1200,19 @@ export async function initSettingsTab() {
             showToast(t("workflowsDirChanged"), "success");
         } catch (err) {
             showToast(`${t("workflowsDirError")}: ${err.message}`, "error");
+        }
+    });
+
+    // --- Windows selector event loop (needs ComfyUI restart) ---
+    document.getElementById("wfm-settings-selector-loop")?.addEventListener("change", async (e) => {
+        const enabled = !!e.target.checked;
+        try {
+            await saveServerSettings({ windows_selector_event_loop: enabled });
+            serverSettings.windows_selector_event_loop = enabled;
+            showToast(t("selectorLoopSaved"), "success");
+        } catch (err) {
+            e.target.checked = !enabled;
+            showToast(`${t("saveError")}: ${err.message}`, "error");
         }
     });
 

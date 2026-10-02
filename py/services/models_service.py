@@ -389,6 +389,32 @@ class ModelsService:
                         pass
         return disabled
 
+    def list_preview_keys(self, model_type):
+        """プレビュー画像を持つモデルのキー（`サブフォルダ/ファイル名(拡張子なし)`、小文字・/区切り）を返す。
+
+        一覧表示で「プレビューが無いモデルには画像リクエストを出さない」ために、フォルダを1回走査して求める
+        （画像ごとの404リクエストと接続の開閉を避ける）。判定は find_preview_image と同じ拡張子・サイズ条件。
+        """
+        keys = set()
+        for d in _get_model_dirs(model_type):
+            if not d.is_dir():
+                continue
+            for f in _iter_files(d):
+                lname = f.name.lower()
+                exts = [e for e in _PREVIEW_EXTENSIONS if lname.endswith(e)]
+                if not exts:
+                    continue
+                try:
+                    if f.stat().st_size < 100:
+                        continue
+                    parent = str(f.parent.relative_to(d)).replace("\\", "/")
+                except (OSError, ValueError):
+                    continue
+                prefix = "" if parent == "." else parent.lower() + "/"
+                for e in exts:
+                    keys.add(prefix + lname[: -len(e)])
+        return sorted(keys)
+
     def find_preview_image(self, model_type, model_name):
         """Find preview image for a model file.
 
@@ -409,7 +435,8 @@ class ModelsService:
         for type_dir in dirs:
             # model_name can include subdirectory (e.g., "subdir/model.safetensors")
             model_path = type_dir / model_name
-            if not model_path.is_file():
+            # 無効化されたモデル（<name>.disabled）でも、隣のプレビュー画像は探す
+            if not model_path.is_file() and not (type_dir / (model_name + _DISABLED_SUFFIX)).is_file():
                 continue
 
             stem = model_path.stem

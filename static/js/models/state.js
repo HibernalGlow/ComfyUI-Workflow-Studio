@@ -27,6 +27,7 @@ export const state = {
     allModelGroups: {},  // { type: { groupName: [models] } } — all types
     civitaiCache: {},
     disabledModels: {},   // { type: Set<modelName> }
+    previewKeys: {},      // { type: Set<"subdir/stem"(小文字)> } プレビュー画像を持つモデル。未取得の型は従来どおり都度リクエスト
     subdirs: [],
     selectMode: false,
     selectedModels: new Set(),

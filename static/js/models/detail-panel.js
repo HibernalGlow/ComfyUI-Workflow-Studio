@@ -12,7 +12,7 @@ import { escapeHtml } from "../util.js";
 import { state, RESERVED_GROUPS, GENUI_TYPE_MAP } from "./state.js";
 import { getCurrentModels, renderTagFilter, renderDirFilter } from "./filters.js";
 import { getBadgePalette, modelBadgesHtml, openBadgeEditModal } from "./badges.js";
-import { parseModelPath, getExtension, getStem, loadPreviewImage, previewUrl } from "./helpers.js";
+import { parseModelPath, getExtension, getStem, loadPreviewImage, previewUrl, markHasPreview, fetchPreviewKeys } from "./helpers.js";
 import { renderModelGrid } from "./grid-view.js";
 import {
     applyToGenUI, applyEmbeddingToPrompt, saveModelMetadata, toggleGroupEnable,
@@ -200,6 +200,7 @@ export function openDetailModal(modelName) {
                 const res = await fetch("/api/wfm/models/change-preview", { method: "POST", body: fd });
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
+                markHasPreview(modelName);
                 // Reload preview in modal
                 const newUrl = previewUrl(modelName) + "&t=" + Date.now();
                 const mImg = document.querySelector(".wfm-modal-thumb-img");
@@ -309,12 +310,6 @@ export function renderSideInfo(modelName) {
             </div>
         </div>
         <div class="wfm-node-detail-section">
-            <div class="wfm-node-detail-label">${t("modelsFilePath")}</div>
-            <div class="wfm-node-detail-value">
-                <span id="wfm-models-side-filepath" class="wfm-model-filepath" title="${t("modelsCopyPath")}" style="cursor:pointer;word-break:break-all;font-size:0.85em;color:#aaa;">${t("modelsLoading")}...</span>
-            </div>
-        </div>
-        <div class="wfm-node-detail-section">
             <div class="wfm-node-detail-label">${t("modelsTags")}</div>
             <div class="wfm-node-detail-value">
                 <input type="text" id="wfm-models-side-tags" class="wfm-search-input" value="${escapeHtml(tagsStr)}" placeholder="${t("modelsTagsPlaceholder")}">
@@ -346,33 +341,6 @@ export function renderSideInfo(modelName) {
         navigator.clipboard.writeText(modelName).then(() => {
             showToast(t("modelsCopiedName"), "success");
         });
-    });
-
-    // Fetch and display file path
-    fetch(`/api/wfm/models/filepath?type=${encodeURIComponent(state.activeModelType)}&name=${encodeURIComponent(modelName)}`)
-        .then((r) => r.json())
-        .then((data) => {
-            const fpEl = document.getElementById("wfm-models-side-filepath");
-            if (fpEl && data.path) {
-                fpEl.textContent = data.path;
-                fpEl.title = t("modelsCopyPath");
-            } else if (fpEl) {
-                fpEl.textContent = modelName;
-            }
-        })
-        .catch(() => {
-            const fpEl = document.getElementById("wfm-models-side-filepath");
-            if (fpEl) fpEl.textContent = modelName;
-        });
-
-    // Copy file path on click
-    el.querySelector("#wfm-models-side-filepath")?.addEventListener("click", () => {
-        const fpEl = document.getElementById("wfm-models-side-filepath");
-        if (fpEl) {
-            navigator.clipboard.writeText(fpEl.textContent).then(() => {
-                showToast(t("modelsCopiedPath"), "success");
-            });
-        }
     });
 
     // Save button
@@ -564,6 +532,15 @@ export function renderSideGroup(modelName) {
 
 // ── Side Panel: CivitAI Tab ───────────────────────────────
 
+// ハッシュ未計算を示す赤字の行（CivitAIタブ）。更新/取得ボタンでハッシュ計算して取得する
+function hashMissingRowHtml() {
+    return `
+        <div style="display:flex;align-items:center;justify-content:center;font-size:12px;margin-bottom:10px;">
+            <span style="color:var(--wfm-text-secondary);margin-right:8px;">${t("civitaiHashLabel")}</span>
+            <span id="wfm-civitai-hash-missing" style="color:#e53935;font-weight:600;">${t("civitaiHashNotCalculated")}</span>
+        </div>`;
+}
+
 export function renderSideCivitai(modelName) {
     const el = document.getElementById("wfm-models-side-civitai");
     if (!el) return;
@@ -593,6 +570,7 @@ export function renderSideCivitai(modelName) {
     } else {
         el.innerHTML = `
             <div style="padding:0 4px;text-align:center;">
+                ${hashMissingRowHtml()}
                 <p style="color:var(--wfm-text-secondary);font-size:13px;margin-bottom:12px;">
                     ${t("civitaiFetchDesc")}
                 </p>
@@ -629,6 +607,7 @@ export async function fetchCivitaiForModel(modelName, el) {
                 if (!state.modelMetadata[modelName]) state.modelMetadata[modelName] = {};
                 state.modelMetadata[modelName].sha256 = data.sha256;
             }
+            if (data.preview_saved) markHasPreview(modelName);
             renderCivitaiInfo(el, data.civitai, modelName);
             showToast(t("civitaiFound"), "success");
             // Always refresh preview: local file if saved, otherwise civitai image as fallback
@@ -700,7 +679,11 @@ export function renderCivitaiInfo(el, info, modelName) {
             <code class="wfm-hash-value" data-hash="${escapeHtml(hashFull)}"
                 style="background:var(--wfm-bg-secondary);padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:calc(100% - 84px);"
                 title="${t("civitaiCopyHash")}">${escapeHtml(hashType)}: ${escapeHtml(hashFull.substring(0, 16).toUpperCase())}…</code>
-        </div>` : "";
+        </div>` : `
+        <div style="${ROW}">
+            <span style="${LABEL}">${t("civitaiHashLabel")}</span>
+            <span style="color:#e53935;font-weight:600;">${t("civitaiHashNotCalculated")}</span>
+        </div>`;
 
     const detailSection = (typeRow || baseModelRow || hashRow)
         ? `<div style="margin-bottom:10px;">${typeRow}${baseModelRow}${hashRow}</div>` : "";
@@ -866,13 +849,13 @@ export async function batchFetchCivitai() {
                             : data.status === "previews" ? t("civitaiSavingPreviews")
                             : data.status === "cached" ? "✓"
                             : data.status === "found" ? "✓"
-                            : data.status === "not_found" ? "—"
+                            : data.status === "not_found" || data.status === "needs_hash" ? "—"
                             : "";
                         if (progressEl) progressEl.textContent = `${pct}% (${data.current}/${data.total}) ${statusText}`;
                     } else if (eventType === "done") {
                         if (progressEl) progressEl.textContent = "";
                         const previewNote = data.preview_saved > 0 ? ` (+${data.preview_saved} preview)` : "";
-                        showToast(t("civitaiBatchDone", data.found, data.not_found) + previewNote, "success");
+                        showToast(t("civitaiBatchDone", data.found, data.not_found, data.needs_hash || 0) + previewNote, "success");
                         // Reload caches
                         const [newMeta, newCache] = await Promise.all([fetchModelMetadata(), fetchCivitaiCache()]);
                         // Apply sha256 hashes from batch result directly in case fetchModelMetadata
@@ -883,6 +866,7 @@ export async function batchFetchCivitai() {
                                 if (!newMeta[modelName].sha256) newMeta[modelName].sha256 = sha256;
                             }
                         }
+                        if (data.preview_saved > 0) await fetchPreviewKeys(state.activeModelType);
                         state.modelMetadata = newMeta;
                         state.civitaiCache = newCache;
                         renderModelGrid();

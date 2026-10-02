@@ -144,8 +144,11 @@ class CivitaiService:
         """
         sha256_lower = sha256_hash.lower()
         cache = self._load_cache()
-        if sha256_lower in cache:
-            return cache[sha256_lower]
+        cached = cache.get(sha256_lower)
+        # Stability Matrix(.cm-info.json)由来の簡易情報は画像一覧を持たないため、
+        # 明示的な取得/更新ではAPIから完全な情報で上書きする
+        if cached is not None and cached.get("source") != "cm-info":
+            return cached
 
         url = f"{CIVITAI_API_BASE}/model-versions/by-hash/{sha256_hash.upper()}"
 
@@ -366,7 +369,96 @@ class CivitaiService:
         return str(sha).lower()
 
     def _read_sidecar(self, file_path, size):
-        """`<stem>.metadata.json` サイドカーからsha256とCivitAI情報を読む（ハッシュ計算・通信不要）。
+        """サイドカーからsha256とCivitAI情報を読む（ハッシュ計算・通信不要）。
+
+        Lora Manager の `<stem>.metadata.json` → Stability Matrix の `<stem>.cm-info.json` の順に試す。
+        Returns: (sha256_lower or None, extracted_info or None)
+        """
+        sha, info = self._read_lm_sidecar(file_path, size)
+        if sha:
+            return sha, info
+        return self._read_cm_info(file_path)
+
+    @staticmethod
+    def _parse_iso_ts(value):
+        """ISO8601文字列→epoch秒。.NETの7桁小数秒にも対応。失敗時はNone。"""
+        try:
+            import re
+            from datetime import datetime
+            s = str(value).replace("Z", "+00:00")
+            s = re.sub(r"(\.\d{6})\d+", r"\1", s)
+            return datetime.fromisoformat(s).timestamp()
+        except Exception:
+            return None
+
+    def _read_cm_info(self, file_path):
+        """Stability Matrix の `<stem>.cm-info.json` から sha256 とCivitAI簡易情報を読む。
+
+        ファイルサイズ情報が無いため、ImportedAt より後にモデルファイルが更新されていたら不採用。
+        画像一覧は持たないので info には "source": "cm-info" を付け、個別取得で完全情報に置き換えられる。
+        """
+        sc = file_path.with_name(file_path.stem + ".cm-info.json")
+        try:
+            with open(sc, "r", encoding="utf-8-sig") as f:
+                d = json.load(f)
+            sha = str((d.get("Hashes") or {}).get("SHA256", "")).lower()
+            if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+                return None, None
+            imported = self._parse_iso_ts(d.get("ImportedAt"))
+            if imported is None or file_path.stat().st_mtime > imported + 2:
+                return None, None
+        except Exception:
+            return None, None
+
+        info = None
+        try:
+            if d.get("Source", 0) == 0 and d.get("VersionId"):  # 0 = Civitai
+                info = self._info_from_cm_info(d)
+        except Exception:
+            info = None
+        return sha, info
+
+    @staticmethod
+    def _info_from_cm_info(d):
+        """cm-info.json を _extract_info と同じ形式のdictに変換する。"""
+        model_id, version_id = d.get("ModelId"), d.get("VersionId")
+        stats = d.get("Stats") or {}
+        return {
+            "versionId": version_id,
+            "modelId": model_id,
+            "modelName": d.get("ModelName", ""),
+            "versionName": d.get("VersionName", ""),
+            "type": d.get("ModelType", ""),
+            "description": d.get("VersionDescription") or d.get("ModelDescription", ""),
+            "tags": d.get("Tags") or [],
+            "nsfw": bool(d.get("Nsfw", False)),
+            "nsfwLevel": 0,
+            "air": "",
+            "creator": d.get("AuthorUsername") or "",
+            "images": [],
+            "imageDetails": [],
+            "trainedWords": d.get("TrainedWords") or [],
+            "baseModel": d.get("BaseModel") or "",
+            "fileSize": 0,
+            "fileMeta": d.get("FileMetadata") or {},
+            "fileHashes": d.get("Hashes") or {},
+            "downloadUrl": "",
+            "modelUrl": (
+                f"https://civitai.com/models/{model_id}?modelVersionId={version_id}"
+                if model_id else f"https://civitai.com/model-versions/{version_id}"
+            ),
+            "stats": {
+                "downloadCount": stats.get("downloadCount", 0),
+                "thumbsUpCount": stats.get("thumbsUpCount", 0),
+                "thumbsDownCount": stats.get("thumbsDownCount", 0),
+            },
+            "updatedAt": "",
+            "publishedAt": "",
+            "source": "cm-info",
+        }
+
+    def _read_lm_sidecar(self, file_path, size):
+        """`<stem>.metadata.json` (Lora Manager) サイドカーからsha256とCivitAI情報を読む。
 
         サイドカーのsizeがファイルサイズと一致する場合のみ採用する。
         Returns: (sha256_lower or None, extracted_info or None)
@@ -398,11 +490,12 @@ class CivitaiService:
                     info = None
         return sha, info
 
-    def batch_fetch(self, model_files, progress_callback=None, known=None, on_hash=None, workers=2, cancel=None):
+    def batch_fetch(self, model_files, progress_callback=None, known=None, on_hash=None, workers=2, cancel=None, hash_missing=False):
         """Batch fetch CivitAI info for multiple model files.
 
         Phase 0: 保存済みsha256 / サイドカーから解決（ハッシュ計算・通信なし）
-        Phase 1: 残りのSHA256を並列計算（"hashing"）
+        Phase 1: 残りのSHA256を並列計算（"hashing"）— hash_missing=True のときのみ。
+                 既定では計算せず needs_hash を返す
         Phase 2: POST で一括取得（"fetching"）— キャッシュ済みはスキップ
 
         Args:
@@ -468,6 +561,18 @@ class CivitaiService:
         if cache_dirty:
             self._save_cache()
 
+        logger.info("CivitAI batch: total=%d resolved_without_hash=%d need_hash=%d hash_missing=%s",
+                    total, len(results), len(to_hash), hash_missing)
+        # ハッシュ未確定のものは、hash_missing=False（既定）なら計算せず "needs_hash" として返す
+        # （個別取得でハッシュ計算する運用。全件ハッシュ計算は負荷が高いため行わない）
+        if to_hash and not hash_missing:
+            for model_name, _fp, _st in to_hash:
+                results[model_name] = {"sha256": None, "civitai": None, "needs_hash": True}
+                finished += 1
+                if progress_callback:
+                    progress_callback(finished, total, model_name, "needs_hash")
+            to_hash = []
+
         # Phase 1: 残りを並列でハッシュ計算（hashlibは大きなチャンクでGILを解放する）
         if to_hash:
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -510,7 +615,9 @@ class CivitaiService:
             for name, sha256_lower in hashes_needed:
                 sha256_to_names.setdefault(sha256_lower, []).append(name)
 
+            logger.info("CivitAI batch: POST %d hashes", len(sha256_to_names))
             batch_results = self._batch_fetch_post(list(sha256_to_names.keys()))
+            logger.info("CivitAI batch: POST done")
             failed = getattr(self, "last_failed_hashes", set())
 
             for sha256_lower, info in batch_results.items():
