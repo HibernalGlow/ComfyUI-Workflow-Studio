@@ -8,7 +8,7 @@
 
 import { showToast, openModal, closeModal } from "../app.js";
 import { t } from "../i18n.js";
-import { escapeHtml } from "../util.js";
+import { escapeHtml, sanitizeHtml, safeHttpUrl } from "../util.js";
 import { state, RESERVED_GROUPS, GENUI_TYPE_MAP } from "./state.js";
 import { getCurrentModels, renderTagFilter, renderDirFilter } from "./filters.js";
 import { getBadgePalette, modelBadgesHtml, openBadgeEditModal } from "./badges.js";
@@ -648,7 +648,7 @@ export function renderCivitaiInfo(el, info, modelName) {
         ? `https://${civitaiHost}/models/${info.modelId}?modelVersionId=${info.versionId}`
         : info.versionId
             ? `https://${civitaiHost}/model-versions/${info.versionId}`
-            : (info.modelUrl || "#");
+            : safeHttpUrl(info.modelUrl, "#");
 
     // Hash: BLAKE3 優先、なければ SHA256
     const fileHashes = info.fileHashes || {};
@@ -697,7 +697,7 @@ export function renderCivitaiInfo(el, info, modelName) {
     ).join(" ");
 
     // Sample images — all go to Sample pane
-    const images = info.images || [];
+    const images = (info.images || []).filter((u) => safeHttpUrl(u));
     const sampleImagesHtml = images.map((url) =>
         `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${t("civitaiOpenImage")}"><img src="${escapeHtml(url)}" style="width:100%;border-radius:4px;margin-bottom:6px;cursor:pointer;display:block;" loading="lazy" /></a>`
     ).join("");
@@ -727,7 +727,7 @@ export function renderCivitaiInfo(el, info, modelName) {
                 ${detailSection}
                 ${tagsHtml ? `<div style="margin-bottom:8px;">${tagsHtml}</div>` : ""}
                 ${trainedWordsHtml ? `<div style="margin-bottom:10px;"><div style="font-weight:600;font-size:12px;margin-bottom:4px;">${t("civitaiTriggerWords")}</div>${trainedWordsHtml}</div>` : ""}
-                ${info.description ? `<div style="font-size:12px;color:var(--wfm-text-secondary);line-height:1.5;max-height:120px;overflow-y:auto;">${info.description}</div>` : ""}
+                ${info.description ? `<div style="font-size:12px;color:var(--wfm-text-secondary);line-height:1.5;max-height:120px;overflow-y:auto;">${sanitizeHtml(info.description)}</div>` : ""}
                 <div style="margin-top:10px;">
                     <button class="wfm-btn wfm-btn-sm" id="wfm-civitai-refresh-btn">${t("civitaiRefresh")}</button>
                 </div>

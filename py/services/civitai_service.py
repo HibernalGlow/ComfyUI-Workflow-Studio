@@ -56,6 +56,21 @@ _MAX_RETRIES = 3
 _BATCH_CHUNK_SIZE = 100
 
 
+# サイドカーJSON（.metadata.json / .cm-info.json）の最大サイズ。巨大ファイルでメモリを使い切らないための上限
+_SIDECAR_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _as_int(v):
+    """数値IDだけを受け付ける（文字列に細工されたIDをURL等に埋め込まないため）。不正ならNone。"""
+    try:
+        if isinstance(v, bool):
+            return None
+        n = int(v)
+        return n if n > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 class CivitaiService:
     """Fetch and cache CivitAI model metadata."""
 
@@ -399,8 +414,12 @@ class CivitaiService:
         """
         sc = file_path.with_name(file_path.stem + ".cm-info.json")
         try:
+            if sc.stat().st_size > _SIDECAR_MAX_BYTES:  # 巨大ファイルによるメモリ消費を避ける
+                return None, None
             with open(sc, "r", encoding="utf-8-sig") as f:
                 d = json.load(f)
+            if not isinstance(d, dict):
+                return None, None
             sha = str((d.get("Hashes") or {}).get("SHA256", "")).lower()
             if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
                 return None, None
@@ -412,7 +431,7 @@ class CivitaiService:
 
         info = None
         try:
-            if d.get("Source", 0) == 0 and d.get("VersionId"):  # 0 = Civitai
+            if d.get("Source", 0) == 0 and _as_int(d.get("VersionId")):  # 0 = Civitai
                 info = self._info_from_cm_info(d)
         except Exception:
             info = None
@@ -421,7 +440,7 @@ class CivitaiService:
     @staticmethod
     def _info_from_cm_info(d):
         """cm-info.json を _extract_info と同じ形式のdictに変換する。"""
-        model_id, version_id = d.get("ModelId"), d.get("VersionId")
+        model_id, version_id = _as_int(d.get("ModelId")), _as_int(d.get("VersionId"))
         stats = d.get("Stats") or {}
         return {
             "versionId": version_id,
@@ -430,14 +449,14 @@ class CivitaiService:
             "versionName": d.get("VersionName", ""),
             "type": d.get("ModelType", ""),
             "description": d.get("VersionDescription") or d.get("ModelDescription", ""),
-            "tags": d.get("Tags") or [],
+            "tags": [str(x) for x in (d.get("Tags") or []) if isinstance(x, (str, int, float))][:100],
             "nsfw": bool(d.get("Nsfw", False)),
             "nsfwLevel": 0,
             "air": "",
             "creator": d.get("AuthorUsername") or "",
             "images": [],
             "imageDetails": [],
-            "trainedWords": d.get("TrainedWords") or [],
+            "trainedWords": [str(x) for x in (d.get("TrainedWords") or []) if isinstance(x, (str, int, float))][:200],
             "baseModel": d.get("BaseModel") or "",
             "fileSize": 0,
             "fileMeta": d.get("FileMetadata") or {},
@@ -465,8 +484,12 @@ class CivitaiService:
         """
         sc = file_path.with_name(file_path.stem + ".metadata.json")
         try:
+            if sc.stat().st_size > _SIDECAR_MAX_BYTES:
+                return None, None
             with open(sc, "r", encoding="utf-8") as f:
                 d = json.load(f)
+            if not isinstance(d, dict):
+                return None, None
             sha = str(d.get("sha256", "")).lower()
             if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
                 return None, None

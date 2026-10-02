@@ -2,6 +2,22 @@
 
 ---
 
+## v0.7.11（2026-10-02）
+
+### セキュリティ: CivitAI情報の説明文のHTML無害化（保存型XSS対策）
+
+- Models詳細パネルのCivitAIタブは、説明文（`description`）をエスケープせずHTMLとして挿入していた。CivitAI APIの応答は従来から同じ扱いだったが、v0.7.10で追加した `.cm-info.json`（Stability Matrix）取り込みにより、**ローカルのサイドカーファイルからも同じ経路で入る**ようになった。細工されたファイルがモデルと一緒に配布された場合、詳細パネルを開いただけでスクリプトが実行され得る（ComfyUIと同一オリジンのため、ComfyUIのAPIを操作できる）。
+- `static/js/util.js` に許可リスト方式の `sanitizeHtml()` と `safeHttpUrl()` を追加し、説明文・モデルURL・サンプル画像URLに適用。`script/style/iframe/svg/form` 等の要素、`on*` 属性、`style` 属性、`javascript:`/`data:` URL、**相対URL**（ComfyUI自身のURLへリクエストを送らせる経路）を除去する。許可するのは段落・見出し・リスト・強調・表・`code`・`a`/`img`（絶対http(s) URLのみ）など。
+- Playwright（実ブラウザ）で攻撃文字列16種を検証し、スクリプトが一度も実行されないことを確認。
+
+### `.cm-info.json` / `.metadata.json` 取り込みの堅牢化
+
+- `ModelId`/`VersionId` は正の整数のみ受け付ける（URLに文字列を埋め込まない）。不正なら情報は採用せず、sha256のみ利用。
+- タグ・トリガーワードは文字列/数値のみ・件数上限あり。JSONのトップレベルがオブジェクトでない場合は無視。
+- サイドカーJSONのサイズ上限を2MBに設定（巨大ファイルでメモリを使い切らない）。
+
+---
+
 ## v0.7.10（2026-10-02）
 
 ### Windows: ComfyUIが固まる問題の原因特定と対策（Selectorイベントループ）
