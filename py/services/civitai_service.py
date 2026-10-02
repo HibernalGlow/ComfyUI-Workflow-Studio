@@ -117,14 +117,16 @@ class CivitaiService:
     # ── ハッシュ計算 ──────────────────────────────────────────
 
     @staticmethod
-    def calculate_sha256(file_path, chunk_size=1024 * 1024):
-        """Calculate SHA256 hash of a file."""
+    def calculate_sha256(file_path, chunk_size=512 * 1024, cancel=None):
+        """Calculate SHA256 hash of a file. cancel(threading.Event)がセットされたらNoneを返して中断。"""
         h = hashlib.sha256()
         path = Path(file_path)
         if not path.is_file():
             return None
         with open(path, "rb") as f:
             while True:
+                if cancel is not None and cancel.is_set():
+                    return None
                 chunk = f.read(chunk_size)
                 if not chunk:
                     break
@@ -396,7 +398,7 @@ class CivitaiService:
                     info = None
         return sha, info
 
-    def batch_fetch(self, model_files, progress_callback=None, known=None, on_hash=None, workers=3):
+    def batch_fetch(self, model_files, progress_callback=None, known=None, on_hash=None, workers=2, cancel=None):
         """Batch fetch CivitAI info for multiple model files.
 
         Phase 0: 保存済みsha256 / サイドカーから解決（ハッシュ計算・通信なし）
@@ -409,6 +411,7 @@ class CivitaiService:
             known: { model_name: {"sha256", "size", "mtime"} } メタデータ保存済みハッシュ
             on_hash: fn(model_name, sha256, size, mtime) ハッシュが新たに確定するたびに呼ばれる
             workers: ハッシュ計算の並列数
+            cancel: threading.Event。セットされると未処理分を打ち切って戻る（クライアント切断時）
 
         Returns: dict of { model_name: { sha256, civitai_info_or_none } }
         """
@@ -470,11 +473,15 @@ class CivitaiService:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             def _hash(item):
-                return self.calculate_sha256(item[1])
+                return self.calculate_sha256(item[1], cancel=cancel)
 
             with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
                 futures = {pool.submit(_hash, item): item for item in to_hash}
                 for fut in as_completed(futures):
+                    if cancel is not None and cancel.is_set():
+                        for f in futures:
+                            f.cancel()
+                        break
                     model_name, _fp, st = futures[fut]
                     try:
                         sha = fut.result()
@@ -489,6 +496,9 @@ class CivitaiService:
                     if progress_callback:
                         progress_callback(finished, total, model_name, "hashing")
                     _resolved(model_name, sha.lower(), st, new_hash=True)
+
+        if cancel is not None and cancel.is_set():
+            return results
 
         # Phase 2: POST で一括取得（未キャッシュ分）
         if hashes_needed:

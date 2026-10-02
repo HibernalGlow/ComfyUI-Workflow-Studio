@@ -286,29 +286,44 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
             flush_hashes()
 
     # Start batch in background thread
+    import threading
+    cancel = threading.Event()
     loop = asyncio.get_event_loop()
     fetch_task = loop.run_in_executor(
-        None, lambda: _civitai.batch_fetch(model_files, on_progress, known, on_hash)
+        None, lambda: _civitai.batch_fetch(model_files, on_progress, known, on_hash, cancel=cancel)
     )
 
     # Stream progress events
-    while not fetch_task.done():
-        # Drain queue
+    try:
+        while not fetch_task.done():
+            # Drain queue
+            while not progress_q.empty():
+                try:
+                    p = progress_q.get_nowait()
+                    await response.write(send_sse("progress", p))
+                except queue.Empty:
+                    break
+            await asyncio.sleep(0.1)
+
+        # Drain remaining events
         while not progress_q.empty():
             try:
                 p = progress_q.get_nowait()
                 await response.write(send_sse("progress", p))
             except queue.Empty:
                 break
-        await asyncio.sleep(0.1)
-
-    # Drain remaining events
-    while not progress_q.empty():
+    except (ConnectionResetError, asyncio.CancelledError) as e:
+        # クライアント切断（再読み込み・タブ遷移）: 重いハッシュ計算を打ち切り、計算済み分だけ保存して終了
+        logger.info("civitai batch: client disconnected, cancelling (%s)", type(e).__name__)
+        cancel.set()
         try:
-            p = progress_q.get_nowait()
-            await response.write(send_sse("progress", p))
-        except queue.Empty:
-            break
+            await asyncio.shield(fetch_task)
+        except Exception:
+            pass
+        await asyncio.to_thread(flush_hashes)
+        if isinstance(e, asyncio.CancelledError):
+            raise
+        return response
 
     # Get results and update metadata
     try:
@@ -363,7 +378,7 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
         if not jobs:
             return 0
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=2) as pool:
             oks = list(pool.map(lambda j: CivitaiService.download_image(j[1], j[2]), jobs))
         for (mname, _u, _p), ok in zip(jobs, oks):
             if ok:
@@ -696,7 +711,8 @@ async def handle_list_model_files(request: web.Request) -> web.Response:
     if not model_type or model_type not in MODEL_TYPE_FOLDER_KEYS:
         return web.json_response({"error": "invalid type"}, status=400)
     try:
-        result = await asyncio.to_thread(_service.list_model_files, model_type)
+        extra_only = request.query.get("extra_only") == "1"
+        result = await asyncio.to_thread(_service.list_model_files, model_type, extra_only)
         return web.json_response(result)
     except Exception as e:
         logger.error("Error listing model files for %s: %s", model_type, e)

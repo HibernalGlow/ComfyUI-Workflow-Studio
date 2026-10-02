@@ -38,6 +38,8 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/wfm/settings", handle_post)
     app.router.add_get("/api/wfm/settings/workflows-dir", handle_get_workflows_dir)
     app.router.add_post("/api/wfm/settings/workflows-dir", handle_set_workflows_dir)
+    app.router.add_get("/api/wfm/settings/models-dir", handle_get_models_dir)
+    app.router.add_post("/api/wfm/settings/models-dir", handle_set_models_dir)
     app.router.add_get("/api/wfm/settings/output-dir", handle_get_output_dir)
     app.router.add_post("/api/wfm/settings/output-dir", handle_set_output_dir)
     app.router.add_get("/api/wfm/settings/export", handle_export)
@@ -119,6 +121,47 @@ async def handle_set_workflows_dir(request: web.Request) -> web.Response:
         })
     except Exception as e:
         logger.error("Error setting workflows dir: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_get_models_dir(request: web.Request) -> web.Response:
+    """GET /api/wfm/settings/models-dir - 追加モデルフォルダ設定と現在有効な探索先を返す。"""
+    try:
+        from ..services.models_service import (
+            MODEL_TYPE_FOLDER_KEYS, _get_model_dirs, parse_extra_model_roots,
+        )
+        saved = (await asyncio.to_thread(_service.load)).get("models_dir", "")
+        effective = await asyncio.to_thread(
+            lambda: {t: [str(d) for d in _get_model_dirs(t)] for t in MODEL_TYPE_FOLDER_KEYS}
+        )
+        return web.json_response({
+            "saved": saved,
+            "roots": parse_extra_model_roots(saved),
+            "effective": effective,
+        })
+    except Exception as e:
+        logger.error("Error getting models dir: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_set_models_dir(request: web.Request) -> web.Response:
+    """POST /api/wfm/settings/models-dir - 追加モデルフォルダを保存（`;`/改行区切りで複数可、空でリセット）。"""
+    try:
+        from ..services.models_service import parse_extra_model_roots
+        body = await request.json()
+        roots = parse_extra_model_roots(body.get("models_dir", ""))
+        missing = [r for r in roots if not Path(r).is_dir()]
+        if missing:
+            return web.json_response(
+                {"error": f"Folder not found: {', '.join(missing)}"}, status=400)
+        saved = ";".join(roots)
+        await asyncio.to_thread(_service.update, {"models_dir": saved})
+
+        from ..routes.models_routes import _service as models_service
+        models_service._scan_cache.clear()
+        return await handle_get_models_dir(request)
+    except Exception as e:
+        logger.error("Error setting models dir: %s", e)
         return web.json_response({"error": str(e)}, status=500)
 
 

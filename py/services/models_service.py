@@ -79,32 +79,89 @@ def _is_within(path, root):
         return False
 
 
+# 追加モデルルート配下で探すサブフォルダ名（大小無視）。ComfyUI標準名 + Stability Matrix名
+_EXTRA_ROOT_SUBDIRS = {
+    "checkpoint": ["checkpoints", "StableDiffusion"],
+    "lora": ["loras", "Lora"],
+    "vae": ["vae", "VAE"],
+    "controlnet": ["controlnet", "ControlNet"],
+    "unet": ["diffusion_models", "DiffusionModels", "unet"],
+    "textencoder": ["text_encoders", "TextEncoders", "clip"],
+    "hypernetwork": ["hypernetworks", "HyperNetworks"],
+    "embedding": ["embeddings", "Embeddings"],
+}
+
+
+def parse_extra_model_roots(value):
+    """設定値（`;` または改行区切りの文字列）を重複なしのパス文字列リストにする。"""
+    if isinstance(value, (list, tuple)):
+        value = ";".join(str(v) for v in value)
+    parts = str(value or "").replace("\n", ";").split(";")
+    seen, out = set(), []
+    for p in parts:
+        p = p.strip().strip('"')
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _get_extra_model_dirs(model_type):
+    """設定 `models_dir` で追加指定されたルート配下の、該当タイプのフォルダを返す。"""
+    names = _EXTRA_ROOT_SUBDIRS.get(model_type)
+    if not names:
+        return []
+    try:
+        from .settings_service import SettingsService
+        roots = parse_extra_model_roots(SettingsService().load().get("models_dir", ""))
+    except Exception:
+        return []
+    wanted = {n.lower() for n in names}
+    found = []
+    for root in roots:
+        try:
+            for e in os.scandir(root):
+                if e.is_dir() and e.name.lower() in wanted:
+                    found.append(Path(e.path))
+        except OSError:
+            logger.warning("Configured models_dir not accessible: %s", root)
+    return found
+
+
 def _get_model_dirs(model_type):
     """Get all model directories for a type using ComfyUI's folder_paths.
 
     Returns a list of Path objects for all configured model directories
-    (includes extra_model_paths.yaml settings).
+    (includes extra_model_paths.yaml settings and the `models_dir` setting).
     Falls back to plugin-relative path if folder_paths is unavailable.
     """
     folder_key = MODEL_TYPE_FOLDER_KEYS.get(model_type)
     if not folder_key:
         return []
 
+    result = []
     try:
         import folder_paths  # type: ignore  # ComfyUI module
         paths = folder_paths.get_folder_paths(folder_key)
         result = [Path(p) for p in paths if Path(p).is_dir()]
-        if result:
-            return result
     except Exception as e:
         logger.debug("folder_paths unavailable (%s), using fallback", e)
 
-    # Fallback: custom_nodes/../../models/{folder_key}
-    plugin_dir = Path(__file__).resolve().parent.parent.parent
-    models_dir = plugin_dir.parent.parent / "models" / folder_key
-    if models_dir.is_dir():
-        return [models_dir]
-    return []
+    if not result:
+        # Fallback: custom_nodes/../../models/{folder_key}
+        plugin_dir = Path(__file__).resolve().parent.parent.parent
+        models_dir = plugin_dir.parent.parent / "models" / folder_key
+        if models_dir.is_dir():
+            result = [models_dir]
+
+    # 設定で追加されたルート（既存と同一実体は除外）
+    known = {os.path.normcase(os.path.realpath(p)) for p in result}
+    for d in _get_extra_model_dirs(model_type):
+        key = os.path.normcase(os.path.realpath(d))
+        if key not in known:
+            known.add(key)
+            result.append(d)
+    return result
 
 
 class ModelsService:
@@ -187,10 +244,11 @@ class ModelsService:
         self._scan_cache[model_type] = (now, names)
         return names
 
-    def list_model_files(self, model_type: str) -> list:
+    def list_model_files(self, model_type: str, extra_only: bool = False) -> list:
         """モデルタイプのモデルファイル名をソートして返す（拡張子付き、/区切り）。
-        プレビュー画像やサイドカーファイルを除外し、モデル拡張子のみを返す。"""
-        dirs = _get_model_dirs(model_type)
+        プレビュー画像やサイドカーファイルを除外し、モデル拡張子のみを返す。
+        extra_only=True なら設定 models_dir で追加されたフォルダのみ対象。"""
+        dirs = _get_extra_model_dirs(model_type) if extra_only else _get_model_dirs(model_type)
         seen = set()
         for d in dirs:
             if not d.is_dir():

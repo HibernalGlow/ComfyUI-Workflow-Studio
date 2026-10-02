@@ -676,6 +676,24 @@ export async function initSettingsTab() {
             </div>
         </details>
 
+        <!-- Models Folder -->
+        <details class="wfm-settings-section">
+            <summary class="wfm-settings-summary">${t("modelsDir")}</summary>
+            <div class="wfm-form-group">
+                <label>${t("modelsDirLabel")}</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" class="wfm-input" id="wfm-settings-models-dir"
+                        value="${serverSettings.models_dir || ""}"
+                        placeholder="C:\\Users\\...\\StabilityMatrix\\Models">
+                    <button class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-settings-models-dir-apply">${t("workflowsDirApply")}</button>
+                    <button class="wfm-btn wfm-btn-sm" id="wfm-settings-models-dir-reset">${t("workflowsDirDefault")}</button>
+                </div>
+                <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-top:4px;">
+                    ${t("modelsDirHint")}
+                </small>
+            </div>
+        </details>
+
         <!-- Gallery Output Folder -->
         <details class="wfm-settings-section">
             <summary class="wfm-settings-summary">${t("galleryOutputDir")}</summary>
@@ -1169,6 +1187,35 @@ export async function initSettingsTab() {
         } catch (err) {
             showToast(`${t("workflowsDirError")}: ${err.message}`, "error");
         }
+    });
+
+    // --- Models dir handlers ---
+    const saveModelsDir = async (value) => {
+        try {
+            const res = await fetch("/api/wfm/settings/models-dir", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ models_dir: value }),
+            });
+            const data = await res.json();
+            if (data.error) {
+                showToast(`${t("workflowsDirError")}: ${data.error}`, "error");
+                return;
+            }
+            const input = document.getElementById("wfm-settings-models-dir");
+            if (input) input.value = data.saved || "";
+            showToast(t("modelsDirChanged"), "success");
+            window.dispatchEvent(new CustomEvent("wfm-models-dir-changed"));
+        } catch (err) {
+            showToast(`${t("workflowsDirError")}: ${err.message}`, "error");
+        }
+    };
+    document.getElementById("wfm-settings-models-dir-apply")?.addEventListener("click", () => {
+        saveModelsDir(document.getElementById("wfm-settings-models-dir").value.trim());
+    });
+    document.getElementById("wfm-settings-models-dir-reset")?.addEventListener("click", () => {
+        document.getElementById("wfm-settings-models-dir").value = "";
+        saveModelsDir("");
     });
 
     // --- Gallery output dir handlers ---
