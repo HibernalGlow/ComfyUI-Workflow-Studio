@@ -930,6 +930,39 @@ test("batch: a sampler run writes each value into the KSampler and keeps the las
     assert.equal(workflow["3"].inputs.sampler_name, "euler_ancestral", "sampler batches leave the last value applied, like upstream");
 });
 
+test("batch: a sampler run on a composite sampler writes into the KSamplerSelect node, not the sampler", async () => {
+    const state = batch.createBatchState();
+    batch.setActiveBatchType(state, "sampler");
+    batch.setSimpleItems(state, "samplers", ["dpmpp_2m"]);
+    state.samplers.selected.add("dpmpp_2m");
+    const workflow = {
+        "10": { class_type: "SamplerCustomAdvanced", inputs: {} },
+        "11": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
+        "12": { class_type: "BasicScheduler", inputs: { scheduler: "simple" } },
+    };
+    const nodes = [{ id: "10", advanced: true, samplerNodeId: "11", schedulerNodeId: "12" }];
+    await withAnalysis({ ...LORA_ANALYSIS, sampler_nodes: nodes }, () => batch.runBatchGenerate(state, {
+        workflow,
+        generate: async () => ({ images: [], seed: 1 }),
+    }));
+    assert.equal(workflow["11"].inputs.sampler_name, "dpmpp_2m", "the node that owns the widget is the one written");
+    assert.equal(workflow["10"].inputs.sampler_name, undefined, "the composite node has no sampler_name input to clobber");
+
+    // Ming Image's SamplerLCM has no sampler_name combo: analyzeWorkflow marks that with a null id,
+    // and a null id must skip the node instead of falling back to the sampler node's own id.
+    const samplerless = [{ id: "20", advanced: true, samplerNodeId: null, schedulerNodeId: null }];
+    const mingWorkflow = { "20": { class_type: "SamplerLCM", inputs: { s_noise: 1.0 } } };
+    const schedulerState = batch.createBatchState();
+    batch.setActiveBatchType(schedulerState, "scheduler");
+    batch.setSimpleItems(schedulerState, "schedulers", ["karras"]);
+    schedulerState.schedulers.selected.add("karras");
+    await withAnalysis({ ...LORA_ANALYSIS, sampler_nodes: samplerless }, () => batch.runBatchGenerate(schedulerState, {
+        workflow: mingWorkflow,
+        generate: async () => ({ images: [], seed: 1 }),
+    }));
+    assert.deepEqual(mingWorkflow["20"].inputs, { s_noise: 1.0 }, "a sampler with neither field is left untouched");
+});
+
 // ===========================================================================
 // gen presets (parity item 7)
 // ===========================================================================

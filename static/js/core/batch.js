@@ -693,6 +693,16 @@ async function loadBatchWorkflow(filename) {
 const loraStem = (loraName) => String(loraName).replace(/\\/g, "/").split("/").pop().replace(/\.[^.]+$/, "");
 
 /**
+ * Which node a sampler / scheduler batch item must be written into. analyzeWorkflow reports the
+ * composite sampler node as `id`, but a guider-style sampler (SamplerCustomAdvanced, SamplerCustom,
+ * Ming Image's SamplerLCM) keeps those widgets on a separate KSamplerSelect / *Scheduler node, named
+ * by `samplerNodeId` / `schedulerNodeId` — and says the field does not exist at all by setting that
+ * id to null, which must skip the node rather than fall back to the composite one.
+ */
+const samplerFieldTarget = (node, field) =>
+    (node[field] === undefined ? node.id : node[field]) ?? null;
+
+/**
  * Build the per-item `apply` / `restore` pair for one batch type. `apply` mutates the caller's
  * workflow in place, exactly like upstream's `applyFn`s did (the last item therefore stays applied
  * for checkpoint / prompt / sampler / scheduler, while lora and workflow restore in `restore`).
@@ -724,7 +734,7 @@ async function createBatchApplier(batchType, ctx) {
                 getWorkflow: () => workflow,
                 apply: (samplerName) => {
                     for (const node of samplerNodes) {
-                        const wfNode = workflow?.[node.id];
+                        const wfNode = workflow?.[samplerFieldTarget(node, "samplerNodeId")];
                         if (wfNode) wfNode.inputs.sampler_name = samplerName;
                     }
                 },
@@ -735,7 +745,7 @@ async function createBatchApplier(batchType, ctx) {
                 getWorkflow: () => workflow,
                 apply: (schedulerName) => {
                     for (const node of samplerNodes) {
-                        const wfNode = workflow?.[node.id];
+                        const wfNode = workflow?.[samplerFieldTarget(node, "schedulerNodeId")];
                         if (wfNode) wfNode.inputs.scheduler = schedulerName;
                     }
                 },
