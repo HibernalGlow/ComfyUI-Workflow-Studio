@@ -27,6 +27,7 @@ export const state = {
     allModelGroups: {},  // { type: { groupName: [models] } } — all types
     civitaiCache: {},
     disabledModels: {},   // { type: Set<modelName> }
+    previewKeys: {},      // { type: Set<"subdir/stem"(小文字)> } プレビュー画像を持つモデル。未取得の型は従来どおり都度リクエスト
     subdirs: [],
     selectMode: false,
     selectedModels: new Set(),
@@ -48,14 +49,31 @@ export const state = {
 };
 
 
+// 設定「モデルフォルダ」で追加されたフォルダのモデル（ComfyUIのobject_infoには出ない）
+async function fetchExtraModels(type) {
+    try {
+        const res = await fetch(`/api/wfm/models/files?type=${encodeURIComponent(type)}&extra_only=1`);
+        if (res.ok) {
+            const list = await res.json();
+            return Array.isArray(list) ? list : [];
+        }
+    } catch {}
+    return [];
+}
+
+const withExtra = (type, fn) => async () => {
+    const [base, extra] = await Promise.all([fn(), fetchExtraModels(type)]);
+    return extra.length ? [...new Set([...base, ...extra])] : base;
+};
+
 export const FETCH_MAP = {
-    checkpoint: () => comfyUI.fetchCheckpoints(),
-    lora: () => comfyUI.fetchLoras(),
-    vae: () => comfyUI.fetchVaes(),
-    controlnet: () => comfyUI.fetchControlNets(),
-    unet: () => comfyUI.fetchDiffusionModels(),
-    textencoder: () => comfyUI.fetchTextEncoders(),
-    hypernetwork: () => comfyUI.fetchHypernetworks(),
+    checkpoint: withExtra("checkpoint", () => comfyUI.fetchCheckpoints()),
+    lora: withExtra("lora", () => comfyUI.fetchLoras()),
+    vae: withExtra("vae", () => comfyUI.fetchVaes()),
+    controlnet: withExtra("controlnet", () => comfyUI.fetchControlNets()),
+    unet: withExtra("unet", () => comfyUI.fetchDiffusionModels()),
+    textencoder: withExtra("textencoder", () => comfyUI.fetchTextEncoders()),
+    hypernetwork: withExtra("hypernetwork", () => comfyUI.fetchHypernetworks()),
     embedding: () => comfyUI.fetchEmbeddings(),
 };
 

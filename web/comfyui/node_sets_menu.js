@@ -3253,17 +3253,16 @@ function _extractPromptsFromNodeSet(nodes, links) {
             continue;
         }
         if (!_isTextEncoderNode(type)) continue;
-        const text = n.widgets_values?.[0];
-        if (text && typeof text === "string") { textMap.set(n.id, text); }
-        else if (Array.isArray(n.inputs)) {
-            const textInput = n.inputs.find(inp => inp.name === "text" || inp.name === "text_g" || inp.name === "prompt");
-            if (textInput?.link != null) {
-                const originId = linkOrigin.get(textInput.link);
-                const originSlot = linkSlot.get(textInput.link) ?? 0;
-                const text2 = _resolveLinkedTextInNodeSet(nodeMap, linkOrigin, linkSlot, originId, originSlot);
-                if (text2) textMap.set(n.id, text2);
-            }
-        }
+        // リンク化されたtextウィジェットはwidgets_values[0]に古い入力値が残る(実行時には使われない)ため、
+        // リンク先の解決結果を優先する
+        const textInput = Array.isArray(n.inputs)
+            ? n.inputs.find(inp => inp.name === "text" || inp.name === "text_g" || inp.name === "prompt")
+            : null;
+        const linkedText = textInput?.link != null && linkOrigin.has(textInput.link)
+            ? _resolveLinkedTextInNodeSet(nodeMap, linkOrigin, linkSlot, linkOrigin.get(textInput.link), linkSlot.get(textInput.link) ?? 0)
+            : null;
+        const text = linkedText || n.widgets_values?.[0];
+        if (text && typeof text === "string") textMap.set(n.id, text);
     }
     const pos = new Set(), neg = new Set();
     let foundSampler = false;
@@ -3273,11 +3272,13 @@ function _extractPromptsFromNodeSet(nodes, links) {
         // SamplerCustomAdvanced doesn't hold positive/negative directly — resolve through its
         // "guider" input (CFGGuider/DualCFGGuider/BasicGuider) instead.
         let inputsToScan = n.inputs;
+        let viaBasicGuider = false;
         const guiderInput = n.inputs.find(inp => inp.name === "guider");
         if (guiderInput?.link != null) {
             const guiderId = linkOrigin.get(guiderInput.link);
             const guiderNode = guiderId != null ? nodeMap.get(guiderId) : null;
             if (Array.isArray(guiderNode?.inputs)) inputsToScan = guiderNode.inputs;
+            viaBasicGuider = guiderNode?.type === "BasicGuider";
         }
         for (const inp of inputsToScan) {
             if (!inp || inp.link == null) continue;
@@ -3285,7 +3286,9 @@ function _extractPromptsFromNodeSet(nodes, links) {
             if (originId == null) continue;
             const name = inp.name ?? "";
             // DualCFGGuider (HiDream E1): cond1 carries the positive-derived conditioning.
-            const isPos = name === "positive" || name === "cond1" || name.startsWith("positive");
+            // BasicGuider (Flux/Ming Image etc., no negative): its single "conditioning" input is positive.
+            const isPos = name === "positive" || name === "cond1" || name.startsWith("positive")
+                || (viaBasicGuider && name === "conditioning");
             const isNeg = name === "negative" || name.startsWith("negative");
             if (!isPos && !isNeg) continue;
             // TextEncodeMageFlowEdit / TextEncodeBooguEdit — 1ノードでprompt/negative_prompt両方を
@@ -3428,14 +3431,18 @@ function _extractPromptsAPI(wf) {
         // Guider node (CFGGuider/DualCFGGuider/BasicGuider) via its "guider" input. Scan that
         // node's inputs instead so the loop below can find the positive/negative-role keys.
         let inputsToScan = n.inputs ?? {};
+        let viaBasicGuider = false;
         if (Array.isArray(n.inputs?.guider)) {
             const guiderNode = wf[String(n.inputs.guider[0])];
             if (guiderNode?.inputs) inputsToScan = guiderNode.inputs;
+            viaBasicGuider = guiderNode?.class_type === "BasicGuider";
         }
         for (const [key, val] of Object.entries(inputsToScan)) {
             if (!Array.isArray(val)) continue;
             // DualCFGGuider (HiDream E1): cond1 carries the positive-derived conditioning.
-            const isPos = key === "positive" || key === "cond1" || key.startsWith("positive");
+            // BasicGuider (Flux/Ming Image etc., no negative): its single "conditioning" input is positive.
+            const isPos = key === "positive" || key === "cond1" || key.startsWith("positive")
+                || (viaBasicGuider && key === "conditioning");
             const isNeg = key === "negative" || key.startsWith("negative");
             if (!isPos && !isNeg) continue;
             // TextEncodeMageFlowEdit / TextEncodeBooguEdit — 1ノードでprompt/negative_prompt両方を

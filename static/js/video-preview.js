@@ -18,8 +18,8 @@
  */
 
 const _PANES = {
-    source: { video: "wfm-video-source-preview-video", img: "wfm-video-source-preview-img", placeholder: "wfm-video-source-preview-placeholder" },
-    result: { video: "wfm-video-preview-video", img: "wfm-video-preview-img", placeholder: "wfm-video-preview-placeholder" },
+    source: { frame: "wfm-video-source-preview-frame", video: "wfm-video-source-preview-video", img: "wfm-video-source-preview-img", placeholder: "wfm-video-source-preview-placeholder" },
+    result: { frame: "wfm-video-preview-frame", video: "wfm-video-preview-video", img: "wfm-video-preview-img", placeholder: "wfm-video-preview-placeholder" },
 };
 
 const _objectUrls = { source: null, result: null };
@@ -110,4 +110,17 @@ export function getAllPreviewVideoElements() {
 // next clip) rather than just set a src via setResultPreview().
 export function getResultPreviewVideoElement() {
     return document.getElementById(_PANES.result.video);
+}
+
+// The frame/<video>/<img> elements of one pane ("source" | "result") — used by
+// video-edit-tab.js to position its text-overlay preview layer over whichever
+// media element is currently showing in that pane.
+export function getPreviewPaneElements(pane) {
+    const ids = _PANES[pane];
+    if (!ids) return null;
+    return {
+        frame: document.getElementById(ids.frame),
+        video: document.getElementById(ids.video),
+        img: document.getElementById(ids.img),
+    };
 }

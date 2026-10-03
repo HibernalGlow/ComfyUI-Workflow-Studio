@@ -26,7 +26,7 @@ A comprehensive workflow, asset management, and generation UI plugin for [ComfyU
 - Built-in AI tools (translation and more)
 
 ![Workflow Studio](https://img.shields.io/badge/ComfyUI-Custom_Node-blue)
-![Version](https://img.shields.io/badge/version-0.7.2-green)
+![Version](https://img.shields.io/badge/version-0.7.11-green)
 
 ## Features (tab -> feature names)
 
@@ -37,7 +37,7 @@ Thumbnail / Table views, Thumbnail side panel, Badge filtering, Search, Side pan
 One-click capture, Auto-save as thumbnail, Embedded workflow metadata, Auto-import
 
 ### GenerateUI Tab (v0.3.5)
-6-tab layout, Save button, Input tab, Model tab, Settings tab, Always-visible Raw JSON, Bypass/Mute node handling, One-click generation, Seed control, Style selector, Create Catalog / Catalog buttons, Batch type selector, Batch tab, UI-to-API conversion, Video workflow support, Eagle integration, Qwen Image 2.1 support
+6-tab layout, Save button, Input tab, Model tab, Settings tab, Always-visible Raw JSON, Bypass/Mute node handling, One-click generation, Seed control, Style selector, Create Catalog / Catalog buttons, Batch type selector, Batch tab, UI-to-API conversion, Video workflow support, Eagle integration, Qwen Image 2.1 support, Ming Image support
 
 ### Feeder subtab (v0.3.5 / v0.3.42)
 ImageFeeder node control, Image library, Selection management, Presets, Continuous Run loop, Index sync, Seed, WFS_GalleryFeeder node, Node & group selector, Image grid, After Gen modes, Run / Stop controls
@@ -75,11 +75,11 @@ Model Browser, Thumbnail / Table views, Table column sort, Search & Filter, User
 ### Image Edit Tab (v0.3.65)
 Layer-based image editor, Loading images, Open PSD button, Close button, New button, Tools, Layer panel, Duplicate layer (⧉), Layer lock, Text quality, Export, Canvas navigation, Undo / Redo
 
-### Video Tab (v0.5.0 – v0.7.2)
-Dedicated video generation UI, independent of GenerateUI, Plan subtab, Base settings row, Edit subtab, Edit project persistence, Asset subtab, Project subtab, Two center previews, First Frame / Last Frame are both optional, Semantic node lookup, not hardcoded IDs, Field highlight color, Load in Video, Frame tab, GIF tab, Playback volume
+### Video Tab (v0.5.0 – v0.7.4)
+Dedicated video generation UI, independent of GenerateUI, Plan subtab, Base settings row, Edit subtab, Edit: Multi-track, Edit: Audio / BGM, Edit: Text overlays, Edit: Crop, Edit: Undo / Redo, Edit project persistence, Asset subtab, Project subtab, Two center previews, First Frame / Last Frame are both optional, Semantic node lookup, not hardcoded IDs, Field highlight color, Load in Video, Frame tab, GIF tab, Playback volume
 
 ### AI TOOL Tab (v0.3.14)
-4-pane layout, Translation pane, Chat pane, Chat pane — image generation via Tool Calling, Chat pane — generate_image extra parameters, TOOLS pane (VLM), TOOLS pane — shared Chat attachment, TOOLS pane (Wildcards), Chat pane — image-to-image (I2I), Chat pane — SVG generation, no ComfyUI workflow involved, Chat pane — Skills, Settings pane, Unsloth backend, Settings pane — Chat Image Generation, Settings pane — Chat I2I Generation, Settings pane — Generation, Model unload, Settings shared, Backend support, URL security, Lemonade's other endpoints (not integrated)
+4-pane layout, Translation pane, Chat pane, Chat pane — image generation via Tool Calling, Chat pane — generate_image extra parameters, TOOLS pane (VLM), TOOLS pane — shared Chat attachment, TOOLS pane (Wildcards), Chat pane — image-to-image (I2I), Chat pane — SVG generation, no ComfyUI workflow involved, Chat pane — Skills, Settings pane, Unsloth backend, Decision API client, Settings pane — Chat Image Generation, Settings pane — Chat I2I Generation, Settings pane — Generation, Model unload, Settings shared, Backend support, URL security, Lemonade's other endpoints (not integrated)
 
 ### Workflow Studio Library (ComfyUI Side Panel) (v0.3.9)
 Tab layout (W / N / P / M / I / A), W — Workflows tab, N — Nodes tab, M — Models tab, P — Prompts tab, I — Information tab, A — AI TOOL tab, Drag & drop workflows, Drag & drop nodes, Drag & drop prompts, Send to Canvas, Copy prompts, Double-click, Search, ⚙ Theme settings
@@ -157,7 +157,7 @@ Click the **camera icon** (next to the W button) in ComfyUI's top bar to capture
 - **[Ollama](https://ollama.com/)** — for AI chat assistant, translation, and VLM features
 - **[LM Studio](https://lmstudio.ai/)** — alternative backend for translation and VLM (OpenAI-compatible API)
 - **[Lemonade Server](https://lemonade-server.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API)
-- **[Unsloth](https://unsloth.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API); always requires an API key, set via `UNSLOTH_API_KEY` in a `.env` file — `pip install -r requirements.txt` for `python-dotenv`
+- **[Unsloth](https://unsloth.ai/)** — alternative backend for translation, chat, and VLM (OpenAI-compatible API); needs an API key set via `UNSLOTH_API_KEY` in a `.env` file, or Unsloth's Keyless API access → "Chat and inference" turned on — `pip install -r requirements.txt` for `python-dotenv`
 - **[Eagle](https://eagle.cool/)** — for auto-saving generated images with metadata
 - **[comfyui-mask-editor-one](https://github.com/ketle-man/comfyui-mask-editor-one) (v0.1.9+)** — enables BiRefNet background removal, SAM3 text-prompt segmentation, and ABR stamp-brush library in the Image Edit Mask tool; `birefnet.safetensors` must be placed in `ComfyUI/models/background_removal/` for BiRefNet
 - **[psd-tools](https://pypi.org/project/psd-tools/)** (v0.6.0) — enables all PSD (Photoshop) features: Gallery bulk "Create PSD" export, Gallery browsing/thumbnails for `.psd` files, and Image Edit's Save PSD / Open PSD buttons; `pip install -r requirements.txt` (ships prebuilt wheels, no C compiler required); without it, PSD-related actions show an error toast with the install command instead of failing silently

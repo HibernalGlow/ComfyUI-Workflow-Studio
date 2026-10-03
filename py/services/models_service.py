@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 import shutil
 import time
@@ -50,32 +51,126 @@ MODEL_TYPE_FOLDER_KEYS = {
 }
 
 
+def _iter_files(root):
+    """root 配下の全ファイルを返す。フォルダのシンボリックリンク／ジャンクションも辿る。
+
+    リンクが祖先フォルダを指していて循環する場合のみ、その枝には入らない
+    （rglob だとパス長上限まで再帰し続ける恐れがある）。
+    """
+    def walk(d, ancestors):
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            return
+        for e in entries:
+            try:
+                if e.is_dir():  # リンクは辿る
+                    real = os.path.realpath(e.path)
+                    if real in ancestors:
+                        logger.warning("Skipping looping folder link: %s -> %s", e.path, real)
+                        continue
+                    yield from walk(e.path, ancestors | {real})
+                elif e.is_file():
+                    yield Path(e.path)
+            except OSError:
+                continue
+
+    root = Path(root)
+    yield from walk(root, frozenset([os.path.realpath(root)]))
+
+
+def _is_within(path, root):
+    """path が root 配下か。`..` は正規化するが、リンクは解決しない（リンク先フォルダへの移動を許可）。"""
+    try:
+        a, r = os.path.abspath(path), os.path.abspath(root)
+        return os.path.commonpath([os.path.normcase(a), os.path.normcase(r)]) == os.path.normcase(r)
+    except ValueError:  # 別ドライブなど
+        return False
+
+
+# 追加モデルルート配下で探すサブフォルダ名（大小無視）。ComfyUI標準名 + Stability Matrix名
+_EXTRA_ROOT_SUBDIRS = {
+    "checkpoint": ["checkpoints", "StableDiffusion"],
+    "lora": ["loras", "Lora"],
+    "vae": ["vae", "VAE"],
+    "controlnet": ["controlnet", "ControlNet"],
+    "unet": ["diffusion_models", "DiffusionModels", "unet"],
+    "textencoder": ["text_encoders", "TextEncoders", "clip"],
+    "hypernetwork": ["hypernetworks", "HyperNetworks"],
+    "embedding": ["embeddings", "Embeddings"],
+}
+
+
+def parse_extra_model_roots(value):
+    """設定値（`;` または改行区切りの文字列）を重複なしのパス文字列リストにする。"""
+    if isinstance(value, (list, tuple)):
+        value = ";".join(str(v) for v in value)
+    parts = str(value or "").replace("\n", ";").split(";")
+    seen, out = set(), []
+    for p in parts:
+        p = p.strip().strip('"')
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _get_extra_model_dirs(model_type):
+    """設定 `models_dir` で追加指定されたルート配下の、該当タイプのフォルダを返す。"""
+    names = _EXTRA_ROOT_SUBDIRS.get(model_type)
+    if not names:
+        return []
+    try:
+        from .settings_service import SettingsService
+        roots = parse_extra_model_roots(SettingsService().load().get("models_dir", ""))
+    except Exception:
+        return []
+    wanted = {n.lower() for n in names}
+    found = []
+    for root in roots:
+        try:
+            for e in os.scandir(root):
+                if e.is_dir() and e.name.lower() in wanted:
+                    found.append(Path(e.path))
+        except OSError:
+            logger.warning("Configured models_dir not accessible: %s", root)
+    return found
+
+
 def _get_model_dirs(model_type):
     """Get all model directories for a type using ComfyUI's folder_paths.
 
     Returns a list of Path objects for all configured model directories
-    (includes extra_model_paths.yaml settings).
+    (includes extra_model_paths.yaml settings and the `models_dir` setting).
     Falls back to plugin-relative path if folder_paths is unavailable.
     """
     folder_key = MODEL_TYPE_FOLDER_KEYS.get(model_type)
     if not folder_key:
         return []
 
+    result = []
     try:
         import folder_paths  # type: ignore  # ComfyUI module
         paths = folder_paths.get_folder_paths(folder_key)
         result = [Path(p) for p in paths if Path(p).is_dir()]
-        if result:
-            return result
     except Exception as e:
         logger.debug("folder_paths unavailable (%s), using fallback", e)
 
-    # Fallback: custom_nodes/../../models/{folder_key}
-    plugin_dir = Path(__file__).resolve().parent.parent.parent
-    models_dir = plugin_dir.parent.parent / "models" / folder_key
-    if models_dir.is_dir():
-        return [models_dir]
-    return []
+    if not result:
+        # Fallback: custom_nodes/../../models/{folder_key}
+        plugin_dir = Path(__file__).resolve().parent.parent.parent
+        models_dir = plugin_dir.parent.parent / "models" / folder_key
+        if models_dir.is_dir():
+            result = [models_dir]
+
+    # 設定で追加されたルート（既存と同一実体は除外）
+    known = {os.path.normcase(os.path.realpath(p)) for p in result}
+    for d in _get_extra_model_dirs(model_type):
+        key = os.path.normcase(os.path.realpath(d))
+        if key not in known:
+            known.add(key)
+            result.append(d)
+    return result
 
 
 class ModelsService:
@@ -120,6 +215,12 @@ class ModelsService:
             entry["sha256"] = updates["sha256"]
         if "badges" in updates:
             entry["badges"] = updates["badges"]
+        if "civitaiNotFound" in updates:
+            # CivitAIに存在しなかった記録（一括取得のスキップ用）。None/False で解除
+            if updates["civitaiNotFound"]:
+                entry["civitaiNotFound"] = self._now_iso()
+            else:
+                entry.pop("civitaiNotFound", None)
         entry["updatedAt"] = self._now_iso()
         data[model_name] = entry
         self._save_metadata(data)
@@ -140,9 +241,7 @@ class ModelsService:
         for d in dirs:
             if not d.is_dir():
                 continue
-            for f in d.rglob("*"):
-                if not f.is_file():
-                    continue
+            for f in _iter_files(d):
                 try:
                     rel = str(f.relative_to(d)).replace("\\", "/")
                     if rel.endswith(_DISABLED_SUFFIX):
@@ -154,17 +253,16 @@ class ModelsService:
         self._scan_cache[model_type] = (now, names)
         return names
 
-    def list_model_files(self, model_type: str) -> list:
+    def list_model_files(self, model_type: str, extra_only: bool = False) -> list:
         """モデルタイプのモデルファイル名をソートして返す（拡張子付き、/区切り）。
-        プレビュー画像やサイドカーファイルを除外し、モデル拡張子のみを返す。"""
-        dirs = _get_model_dirs(model_type)
+        プレビュー画像やサイドカーファイルを除外し、モデル拡張子のみを返す。
+        extra_only=True なら設定 models_dir で追加されたフォルダのみ対象。"""
+        dirs = _get_extra_model_dirs(model_type) if extra_only else _get_model_dirs(model_type)
         seen = set()
         for d in dirs:
             if not d.is_dir():
                 continue
-            for f in d.rglob("*"):
-                if not f.is_file():
-                    continue
+            for f in _iter_files(d):
                 name = f.name
                 if name.endswith(_DISABLED_SUFFIX):
                     name = name[: -len(_DISABLED_SUFFIX)]
@@ -289,8 +387,8 @@ class ModelsService:
         for d in dirs:
             if not d.is_dir():
                 continue
-            for f in d.rglob("*"):
-                if f.is_file() and f.name.endswith(_DISABLED_SUFFIX):
+            for f in _iter_files(d):
+                if f.name.endswith(_DISABLED_SUFFIX):
                     try:
                         rel = str(f.relative_to(d))
                         if rel.endswith(_DISABLED_SUFFIX):
@@ -299,6 +397,32 @@ class ModelsService:
                     except ValueError:
                         pass
         return disabled
+
+    def list_preview_keys(self, model_type):
+        """プレビュー画像を持つモデルのキー（`サブフォルダ/ファイル名(拡張子なし)`、小文字・/区切り）を返す。
+
+        一覧表示で「プレビューが無いモデルには画像リクエストを出さない」ために、フォルダを1回走査して求める
+        （画像ごとの404リクエストと接続の開閉を避ける）。判定は find_preview_image と同じ拡張子・サイズ条件。
+        """
+        keys = set()
+        for d in _get_model_dirs(model_type):
+            if not d.is_dir():
+                continue
+            for f in _iter_files(d):
+                lname = f.name.lower()
+                exts = [e for e in _PREVIEW_EXTENSIONS if lname.endswith(e)]
+                if not exts:
+                    continue
+                try:
+                    if f.stat().st_size < 100:
+                        continue
+                    parent = str(f.parent.relative_to(d)).replace("\\", "/")
+                except (OSError, ValueError):
+                    continue
+                prefix = "" if parent == "." else parent.lower() + "/"
+                for e in exts:
+                    keys.add(prefix + lname[: -len(e)])
+        return sorted(keys)
 
     def find_preview_image(self, model_type, model_name):
         """Find preview image for a model file.
@@ -322,7 +446,9 @@ class ModelsService:
 
         for type_dir in dirs:
             model_path = type_dir.joinpath(*norm_parts)
-            if not model_path.is_file():
+            # 無効化されたモデル（<name>.disabled）でも、隣のプレビュー画像は探す
+            disabled_path = model_path.with_name(model_path.name + _DISABLED_SUFFIX)
+            if not model_path.is_file() and not disabled_path.is_file():
                 continue
 
             stem = model_path.stem
@@ -459,11 +585,10 @@ class ModelsService:
                     errors.append({"model": model_name, "error": "Cannot determine root directory"})
                     continue
 
-                # Destination directory — verify it stays within root_dir after resolution
+                # Destination directory — verify it stays within root_dir (`..`/絶対パスは拒否。
+                # フォルダのシンボリックリンク／ジャンクション配下への移動は許可する)
                 dest_dir = root_dir / dest_subdir if dest_subdir else root_dir
-                try:
-                    dest_dir.resolve().relative_to(root_dir.resolve())
-                except ValueError:
+                if not _is_within(dest_dir, root_dir):
                     errors.append({"model": model_name, "error": "Destination is outside model root"})
                     continue
                 dest_dir.mkdir(parents=True, exist_ok=True)

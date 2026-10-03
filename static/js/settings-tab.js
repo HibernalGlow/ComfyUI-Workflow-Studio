@@ -6,7 +6,8 @@ import { showToast } from "./app.js";
 import { comfyUI } from "./comfyui-client.js";
 import { t, getLang, getSummaryLang, setLang, setSummaryLang, getLanguageOptions, getSummaryLanguageOptions } from "./i18n.js";
 
-import { getSettings, readJsonStorage } from "./util.js";
+import { getSettings, readJsonStorage, escapeHtml } from "./util.js";
+import { DECISION_BACKENDS, getDecisionSettings, saveDecisionSettings, testDecisionConnection, listDecisionModels } from "./decision-client.js";
 
 const SETTINGS_KEY = "wfm_settings";
 
@@ -455,6 +456,7 @@ export async function initSettingsTab() {
 
     const uiLang = getLang();
     const summaryLang = getSummaryLang();
+    const decisionSettings = getDecisionSettings();
 
     container.innerHTML = `
         <h2 style="font-size:18px;margin-bottom:20px;">${t("settingsTitle")}</h2>
@@ -674,6 +676,38 @@ export async function initSettingsTab() {
             </div>
         </details>
 
+        <!-- Models Folder -->
+        <details class="wfm-settings-section">
+            <summary class="wfm-settings-summary">${t("modelsDir")}</summary>
+            <div class="wfm-form-group">
+                <label>${t("modelsDirLabel")}</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" class="wfm-input" id="wfm-settings-models-dir"
+                        value="${serverSettings.models_dir || ""}"
+                        placeholder="C:\\Users\\...\\StabilityMatrix\\Models">
+                    <button class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-settings-models-dir-apply">${t("workflowsDirApply")}</button>
+                    <button class="wfm-btn wfm-btn-sm" id="wfm-settings-models-dir-reset">${t("workflowsDirDefault")}</button>
+                </div>
+                <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-top:4px;">
+                    ${t("modelsDirHint")}
+                </small>
+            </div>
+        </details>
+
+        <!-- Windows Event Loop (stability) -->
+        <details class="wfm-settings-section">
+            <summary class="wfm-settings-summary">${t("selectorLoop")}</summary>
+            <div class="wfm-form-group">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" id="wfm-settings-selector-loop" ${serverSettings.windows_selector_event_loop ? "checked" : ""}>
+                    <span>${t("selectorLoopLabel")}</span>
+                </label>
+                <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-top:4px;">
+                    ${t("selectorLoopHint")}
+                </small>
+            </div>
+        </details>
+
         <!-- Gallery Output Folder -->
         <details class="wfm-settings-section">
             <summary class="wfm-settings-summary">${t("galleryOutputDir")}</summary>
@@ -803,6 +837,49 @@ export async function initSettingsTab() {
             </div>
         </details>
 
+        <!-- Decision Model (Laya) — independent of the AI TOOL / Tagger LLM/VLM backends -->
+        <details class="wfm-settings-section">
+            <summary class="wfm-settings-summary">${t("decisionSection")}</summary>
+            <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-bottom:8px;">
+                ${t("decisionHint")}
+            </small>
+            <div class="wfm-form-group">
+                <label>${t("decisionBackend")}</label>
+                <select class="wfm-select" id="wfm-settings-decision-backend">
+                    ${Object.entries(DECISION_BACKENDS).map(([b, def]) => `<option value="${b}" ${decisionSettings.backend === b ? "selected" : ""}>${def.label}</option>`).join("")}
+                </select>
+            </div>
+            <div class="wfm-form-group">
+                <label>${t("decisionUrl")}</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" class="wfm-input" id="wfm-settings-decision-url"
+                        value="${decisionSettings.baseUrl}"
+                        placeholder="${DECISION_BACKENDS[decisionSettings.backend].defaultUrl}">
+                    <button class="wfm-btn" id="wfm-settings-decision-test">${t("test")}</button>
+                </div>
+                <div id="wfm-settings-decision-status" style="font-size:12px;margin-top:4px;"></div>
+            </div>
+            <div class="wfm-form-group">
+                <label>${t("decisionModel")}</label>
+                <div style="display:flex;gap:8px;">
+                    <select class="wfm-select" id="wfm-settings-decision-model" style="flex:1;">
+                        <option value="${escapeHtml(decisionSettings.model)}" selected>${escapeHtml(decisionSettings.model)}</option>
+                    </select>
+                    <button class="wfm-btn" id="wfm-settings-decision-refresh" title="${t("decisionRefreshModels")}">&#8635;</button>
+                </div>
+                <div id="wfm-settings-decision-model-hint" style="font-size:11px;color:var(--wfm-text-secondary);margin-top:4px;"></div>
+            </div>
+            <div class="wfm-form-group">
+                <label>${t("decisionThreshold")}</label>
+                <input type="number" class="wfm-input" id="wfm-settings-decision-threshold"
+                    value="${decisionSettings.threshold}" min="0.5" max="0.99" step="0.05" style="width:100px;">
+                <small style="color:var(--wfm-text-secondary);font-size:11px;display:block;margin-top:4px;">
+                    ${t("decisionThresholdHint")}
+                </small>
+            </div>
+            <button class="wfm-btn wfm-btn-primary wfm-btn-sm" id="wfm-settings-decision-save">${t("save")}</button>
+        </details>
+
         <!-- G'MIC Integration -->
         <details class="wfm-settings-section">
             <summary class="wfm-settings-summary">G'MIC-Qt Integration</summary>
@@ -841,6 +918,10 @@ export async function initSettingsTab() {
                 <label class="wfm-lab-checkbox-label" style="font-size:12px;">
                     <input type="checkbox" id="wfm-settings-backup-include-wildcard">
                     ${t("fullBackupIncludeWildcard")}
+                </label>
+                <label class="wfm-lab-checkbox-label" style="font-size:12px;">
+                    <input type="checkbox" id="wfm-settings-backup-include-video-media">
+                    ${t("fullBackupIncludeVideoMedia")}
                 </label>
                 <span style="font-size:11px;color:var(--wfm-text-secondary);">${t("fullBackupExternalHint")}</span>
             </div>
@@ -1122,6 +1203,48 @@ export async function initSettingsTab() {
         }
     });
 
+    // --- Windows selector event loop (needs ComfyUI restart) ---
+    document.getElementById("wfm-settings-selector-loop")?.addEventListener("change", async (e) => {
+        const enabled = !!e.target.checked;
+        try {
+            await saveServerSettings({ windows_selector_event_loop: enabled });
+            serverSettings.windows_selector_event_loop = enabled;
+            showToast(t("selectorLoopSaved"), "success");
+        } catch (err) {
+            e.target.checked = !enabled;
+            showToast(`${t("saveError")}: ${err.message}`, "error");
+        }
+    });
+
+    // --- Models dir handlers ---
+    const saveModelsDir = async (value) => {
+        try {
+            const res = await fetch("/api/wfm/settings/models-dir", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ models_dir: value }),
+            });
+            const data = await res.json();
+            if (data.error) {
+                showToast(`${t("workflowsDirError")}: ${data.error}`, "error");
+                return;
+            }
+            const input = document.getElementById("wfm-settings-models-dir");
+            if (input) input.value = data.saved || "";
+            showToast(t("modelsDirChanged"), "success");
+            window.dispatchEvent(new CustomEvent("wfm-models-dir-changed"));
+        } catch (err) {
+            showToast(`${t("workflowsDirError")}: ${err.message}`, "error");
+        }
+    };
+    document.getElementById("wfm-settings-models-dir-apply")?.addEventListener("click", () => {
+        saveModelsDir(document.getElementById("wfm-settings-models-dir").value.trim());
+    });
+    document.getElementById("wfm-settings-models-dir-reset")?.addEventListener("click", () => {
+        document.getElementById("wfm-settings-models-dir").value = "";
+        saveModelsDir("");
+    });
+
     // --- Gallery output dir handlers ---
     document.getElementById("wfm-settings-output-dir-apply")?.addEventListener("click", async () => {
         const dirInput = document.getElementById("wfm-settings-output-dir");
@@ -1234,6 +1357,82 @@ export async function initSettingsTab() {
             showToast(t("aiToastSettingsSaved"), "success");
         } catch (err) {
             showToast(`${t("saveError")}: ${err.message}`, "error");
+        }
+    });
+
+    // --- Decision Model (Laya) ---
+    const readDecisionForm = () => {
+        const baseUrl = document.getElementById("wfm-settings-decision-url")?.value.trim() || "";
+        const threshold = parseFloat(document.getElementById("wfm-settings-decision-threshold")?.value);
+        let urlOk = false;
+        try { urlOk = ["http:", "https:"].includes(new URL(baseUrl).protocol); } catch {}
+        if (!urlOk) throw new Error(t("decisionInvalidUrl"));
+        if (!(threshold >= 0.5 && threshold <= 0.99)) throw new Error(t("decisionInvalidThreshold"));
+        return {
+            backend: document.getElementById("wfm-settings-decision-backend")?.value || "unsloth",
+            baseUrl,
+            model: document.getElementById("wfm-settings-decision-model")?.value || "",
+            threshold,
+        };
+    };
+    // Unsloth: fixed Laya names. Ollama: installed models whose capabilities include "decision";
+    // none installed (or Ollama unreachable) → keep the preferred name selectable and show why.
+    const refreshDecisionModels = async (preferred) => {
+        const backend = document.getElementById("wfm-settings-decision-backend")?.value || "unsloth";
+        const baseUrl = document.getElementById("wfm-settings-decision-url")?.value.trim() || "";
+        const select = document.getElementById("wfm-settings-decision-model");
+        const hint = document.getElementById("wfm-settings-decision-model-hint");
+        if (!select) return;
+        const def = DECISION_BACKENDS[backend];
+        const current = preferred ?? select.value;
+        let models = [];
+        let hintText = "";
+        try {
+            ({ models } = await listDecisionModels(backend, baseUrl));
+            if (backend === "ollama" && models.length === 0) hintText = t("decisionNoOllamaModels");
+        } catch (err) {
+            hintText = `${t("failedConnect")}: ${err.message}`;
+        }
+        const list = models.length ? [...models] : [...def.models];
+        if (current && !list.includes(current) && (backend === "ollama") === !/^laya/.test(current)) list.unshift(current);
+        const selected = list.includes(current) ? current : (list.includes(def.defaultModel) ? def.defaultModel : list[0]);
+        select.innerHTML = list.map((m) => `<option value="${escapeHtml(m)}" ${m === selected ? "selected" : ""}>${m === "laya" ? t("decisionModelLaya") : escapeHtml(m)}</option>`).join("");
+        if (hint) hint.textContent = hintText;
+    };
+    refreshDecisionModels(decisionSettings.model);
+    document.getElementById("wfm-settings-decision-refresh")?.addEventListener("click", () => refreshDecisionModels());
+    document.getElementById("wfm-settings-decision-backend")?.addEventListener("change", (e) => {
+        const urlInput = document.getElementById("wfm-settings-decision-url");
+        const def = DECISION_BACKENDS[e.target.value]?.defaultUrl;
+        if (urlInput && def) { urlInput.value = def; urlInput.placeholder = def; }
+        refreshDecisionModels(DECISION_BACKENDS[e.target.value]?.defaultModel);
+    });
+    document.getElementById("wfm-settings-decision-save")?.addEventListener("click", () => {
+        try {
+            saveDecisionSettings(readDecisionForm());
+            showToast(t("settingsSaved"), "success");
+        } catch (err) {
+            showToast(err.message, "error");
+        }
+    });
+    // Tests the values currently in the form (saved or not), same as the Eagle test button.
+    document.getElementById("wfm-settings-decision-test")?.addEventListener("click", async () => {
+        const statusEl = document.getElementById("wfm-settings-decision-status");
+        let form;
+        try { form = readDecisionForm(); } catch (err) {
+            statusEl.textContent = err.message;
+            statusEl.style.color = "var(--wfm-danger)";
+            return;
+        }
+        statusEl.textContent = t("decisionTesting");
+        statusEl.style.color = "var(--wfm-text-secondary)";
+        try {
+            const { ms, yes } = await testDecisionConnection({ backend: form.backend, baseUrl: form.baseUrl, model: form.model });
+            statusEl.textContent = `${t("connectedCheck")} ${t("decisionTestOk").replace("{ms}", ms).replace("{yes}", typeof yes === "number" ? yes.toFixed(3) : "?")}`;
+            statusEl.style.color = "var(--wfm-success)";
+        } catch (err) {
+            statusEl.textContent = `${t("failedConnect")}: ${err.message}`;
+            statusEl.style.color = "var(--wfm-danger)";
         }
     });
 
@@ -1491,7 +1690,8 @@ export async function initSettingsTab() {
         try {
             const includeWorkflows = document.getElementById("wfm-settings-backup-include-workflows")?.checked ? "1" : "0";
             const includeWildcard = document.getElementById("wfm-settings-backup-include-wildcard")?.checked ? "1" : "0";
-            const res = await fetch(`/api/wfm/settings/export-full?include_workflows=${includeWorkflows}&include_wildcard=${includeWildcard}`);
+            const includeVideoMedia = document.getElementById("wfm-settings-backup-include-video-media")?.checked ? "1" : "0";
+            const res = await fetch(`/api/wfm/settings/export-full?include_workflows=${includeWorkflows}&include_wildcard=${includeWildcard}&include_video_media=${includeVideoMedia}`);
             if (!res.ok) throw new Error(await res.text());
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
@@ -1522,7 +1722,13 @@ export async function initSettingsTab() {
             });
             const result = await res.json();
             if (!res.ok) throw new Error(result.error || res.statusText);
-            statusEl.textContent = `${t("importSuccess")}: ${result.extracted?.length ?? 0} ${t("fullBackupFilesUnit")}`;
+            let msg = `${t("importSuccess")}: ${result.extracted?.length ?? 0} ${t("fullBackupFilesUnit")}`;
+            const restoredMedia = result.media_restored?.length ?? 0;
+            const existingMedia = result.media_existing?.length ?? 0;
+            if (restoredMedia || existingMedia) {
+                msg += ` / ${t("fullBackupMediaResult").replace("{restored}", restoredMedia).replace("{existing}", existingMedia)}`;
+            }
+            statusEl.textContent = msg;
             statusEl.style.color = "var(--wfm-success, #4caf50)";
         } catch (e) {
             statusEl.textContent = t("importError") + ": " + e.message;

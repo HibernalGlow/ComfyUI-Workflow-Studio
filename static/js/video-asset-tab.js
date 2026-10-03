@@ -12,7 +12,7 @@ import { VIDEO_GROUP, VTEMP_GROUP, ensureVideoGroup, isVideoFile } from "./galle
 import { setSourcePreview } from "./video-preview.js";
 import { showToast } from "./app.js";
 import { t } from "./i18n.js";
-import { addClipFromFile } from "./video-edit-tab.js";
+import { addClipFromFile, setBgmFromFile, addPipFromFile } from "./video-edit-tab.js";
 import { setBlockImageFromFile } from "./video-plan-tab.js";
 
 // Sentinel for the "All Video Assets" option — not a real backend group, since
@@ -242,6 +242,8 @@ function _renderDetail(img) {
         <textarea id="wfm-video-asset-memo" class="wfm-textarea" rows="3"></textarea>
         <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-memo-save" style="margin-top:6px;">Save Memo</button>
         <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-send-to-edit" style="width:100%;margin-top:12px;">${t("videoEditSendToEdit")}</button>
+        <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-add-overlay" style="width:100%;margin-top:6px;">${t("videoAssetAddAsOverlay")}</button>
+        <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-set-bgm" style="width:100%;margin-top:6px;display:${isVideoFile(img) ? "block" : "none"};">${t("videoAssetSetAsBgm")}</button>
         <div id="wfm-video-asset-set-plan-image-row" style="display:${isVideoFile(img) ? "none" : "flex"};gap:6px;margin-top:6px;">
             <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-set-first" style="flex:1;">${t("videoAssetSetAsFirst")}</button>
             <button type="button" class="wfm-btn wfm-btn-sm" id="wfm-video-asset-set-last" style="flex:1;">${t("videoAssetSetAsLast")}</button>
@@ -282,6 +284,41 @@ function _renderDetail(img) {
             addClipFromFile(file, img.filename);
             document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
             showToast(t("videoEditClipSent", img.filename), "success");
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
+    });
+
+    // Overlay clip (picture-in-picture): works for both videos and images, and
+    // jumps to the Edit subtab's Overlay track so the new clip is visible.
+    panel.querySelector("#wfm-video-asset-add-overlay")?.addEventListener("click", async () => {
+        try {
+            const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
+            if (!res.ok) throw new Error(String(res.status));
+            const blob = await res.blob();
+            const file = new File([blob], img.filename, { type: blob.type || (isVideoFile(img) ? "video/mp4" : "image/png") });
+            if (await addPipFromFile(file, img.filename)) {
+                document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+                document.getElementById("wfm-video-edit-track-pip")?.click();
+                showToast(t("videoAssetAddAsOverlayDone", img.filename), "success");
+            }
+        } catch (err) {
+            showToast(t("errorWithMsg", err.message), "error");
+        }
+    });
+
+    // Gallery lists no audio files, so a video asset's own audio track is the
+    // Asset-side way to pick a BGM (LoadAudio decodes audio from video files).
+    panel.querySelector("#wfm-video-asset-set-bgm")?.addEventListener("click", async () => {
+        try {
+            const res = await fetch(`/wfm/gallery/image/serve?path=${encodeURIComponent(img.path)}`);
+            if (!res.ok) throw new Error(String(res.status));
+            const blob = await res.blob();
+            const file = new File([blob], img.filename, { type: blob.type || "video/mp4" });
+            if (await setBgmFromFile(file, img.filename)) {
+                document.querySelector('.wfm-video-center-panel .wfm-video-subtab-btn[data-video-subtab="edit"]')?.click();
+                showToast(t("videoAssetSetAsBgmDone", img.filename), "success");
+            }
         } catch (err) {
             showToast(t("errorWithMsg", err.message), "error");
         }

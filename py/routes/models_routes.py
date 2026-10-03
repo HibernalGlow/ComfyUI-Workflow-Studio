@@ -20,6 +20,7 @@ def setup_routes(app: web.Application):
     app.router.add_get("/api/wfm/models/metadata", handle_get_metadata)
     app.router.add_post("/api/wfm/models/metadata", handle_save_metadata)
     app.router.add_get("/api/wfm/models/preview", handle_get_preview)
+    app.router.add_get("/api/wfm/models/preview-keys", handle_get_preview_keys)
     app.router.add_get("/api/wfm/models/groups", handle_get_groups)
     app.router.add_post("/api/wfm/models/groups", handle_save_groups)
     app.router.add_post("/api/wfm/models/civitai/fetch", handle_civitai_fetch)
@@ -140,14 +141,20 @@ async def handle_civitai_fetch(request: web.Request) -> web.Response:
             )
             if not sha256:
                 return web.json_response({"error": "Failed to calculate hash"}, status=500)
-            # Cache the hash in model metadata
-            await asyncio.to_thread(
-                _service.update_metadata, model_name, {"sha256": sha256}
-            )
+            # Cache the hash (+ size/mtime so a replaced file invalidates it) in model metadata
+            try:
+                st = file_path.stat()
+                hash_meta = {"sha256": sha256, "sha256Size": st.st_size, "sha256Mtime": st.st_mtime}
+            except OSError:
+                hash_meta = {"sha256": sha256}
+            await asyncio.to_thread(_service.update_metadata, model_name, hash_meta)
 
         # Fetch from CivitAI
         info = await asyncio.to_thread(_civitai.fetch_by_hash, sha256)
         if not info:
+            await asyncio.to_thread(
+                _service.update_metadata, model_name, {"civitaiNotFound": True}
+            )
             return web.json_response({
                 "status": "not_found",
                 "sha256": sha256,
@@ -167,6 +174,10 @@ async def handle_civitai_fetch(request: web.Request) -> web.Response:
                 if preview_saved:
                     logger.info("Auto-saved preview for %s from CivitAI", model_name)
 
+        if model_meta.get("civitaiNotFound"):
+            await asyncio.to_thread(
+                _service.update_metadata, model_name, {"civitaiNotFound": False}
+            )
         return web.json_response({
             "status": "ok",
             "sha256": sha256,
@@ -245,69 +256,159 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
     def on_progress(current, total, model_name, status):
         progress_q.put({"current": current, "total": total, "model": model_name, "status": status})
 
+    # 保存済みsha256（size/mtime付き）を渡して再ハッシュを避ける
+    import time as _time
+    all_meta0 = _service.get_all_metadata()
+    known = {}
+    for n, _p in model_files:
+        m = all_meta0.get(n) or {}
+        if m.get("sha256"):
+            known[n] = {"sha256": m["sha256"], "size": m.get("sha256Size"), "mtime": m.get("sha256Mtime")}
+
+    # 未計算のものは Lora Manager が保持済みのsha256を借りる（サイズ一致時のみ。ハッシュ計算を省く）
+    if len(known) < len(model_files):
+        from ..services.lora_manager_bridge import fetch_lm_hashes, _norm
+        # Hostヘッダは信用せず、自分自身のループバック＋実際のポートへ接続する（Host偽装/DNSリバインディング対策）
+        sockname = request.transport.get_extra_info("sockname") if request.transport else None
+        port = sockname[1] if sockname else (request.url.port or 8188)
+        origin = f"http://127.0.0.1:{port}"
+        lm = await asyncio.to_thread(fetch_lm_hashes, origin, model_type)
+        for n, p in model_files:
+            if n in known:
+                continue
+            e = lm.get(_norm(p))
+            try:
+                if e and e.get("size") is not None and int(e["size"]) == p.stat().st_size:
+                    known[n] = {"sha256": e["sha256"], "size": int(e["size"]), "mtime": None}
+            except OSError:
+                pass
+
+    # ハッシュ確定ごとに溜め、5秒おきにメタデータへ書き出す（途中で止めても計算済み分が残る）
+    pending_hashes = {}
+    last_flush = [_time.monotonic()]
+
+    def flush_hashes():
+        if not pending_hashes:
+            return
+        try:
+            all_meta = _service.get_all_metadata()
+            for mname, (sha, size, mtime) in list(pending_hashes.items()):
+                entry = all_meta.setdefault(mname, {"tags": [], "favorite": False, "memo": ""})
+                entry["sha256"] = sha
+                entry["sha256Size"] = size
+                entry["sha256Mtime"] = mtime
+            _service._save_metadata(all_meta)
+            pending_hashes.clear()
+        except Exception as e:
+            logger.warning("Failed to flush hashes: %s", e)
+        last_flush[0] = _time.monotonic()
+
+    def on_hash(name, sha, size, mtime):
+        pending_hashes[name] = (sha, size, mtime)
+        if _time.monotonic() - last_flush[0] > 5:
+            flush_hashes()
+
     # Start batch in background thread
+    import threading
+    cancel = threading.Event()
     loop = asyncio.get_event_loop()
-    fetch_task = loop.run_in_executor(None, _civitai.batch_fetch, model_files, on_progress)
+    fetch_task = loop.run_in_executor(
+        None, lambda: _civitai.batch_fetch(model_files, on_progress, known, on_hash, cancel=cancel)
+    )
 
     # Stream progress events
-    import time as _time
+    try:
+        while not fetch_task.done():
+            # Drain queue
+            while not progress_q.empty():
+                try:
+                    p = progress_q.get_nowait()
+                    await response.write(send_sse("progress", p))
+                except queue.Empty:
+                    break
+            await asyncio.sleep(0.1)
 
-    while not fetch_task.done():
-        # Drain queue
+        # Drain remaining events
         while not progress_q.empty():
             try:
                 p = progress_q.get_nowait()
                 await response.write(send_sse("progress", p))
             except queue.Empty:
                 break
-        await asyncio.sleep(0.1)
-
-    # Drain remaining events
-    while not progress_q.empty():
+    except (ConnectionResetError, asyncio.CancelledError) as e:
+        # クライアント切断（再読み込み・タブ遷移）: 重いハッシュ計算を打ち切り、計算済み分だけ保存して終了
+        logger.info("civitai batch: client disconnected, cancelling (%s)", type(e).__name__)
+        cancel.set()
         try:
-            p = progress_q.get_nowait()
-            await response.write(send_sse("progress", p))
-        except queue.Empty:
-            break
+            await asyncio.shield(fetch_task)
+        except Exception:
+            pass
+        await asyncio.to_thread(flush_hashes)
+        if isinstance(e, asyncio.CancelledError):
+            raise
+        return response
 
     # Get results and update metadata
-    results = fetch_task.result()
+    try:
+        results = fetch_task.result()
+    finally:
+        await asyncio.to_thread(flush_hashes)
     meta_updates = {}
     for model_name, result in results.items():
         sha256 = result.get("sha256")
         if sha256:
             meta_updates[model_name] = sha256
 
-    # Bulk update sha256 in metadata
+    # Bulk update sha256 (+ CivitAI not-found marker) in metadata
     if meta_updates:
         all_meta = _service.get_all_metadata()
         for mname, sha in meta_updates.items():
             if mname not in all_meta:
                 all_meta[mname] = {"tags": [], "favorite": False, "memo": ""}
             all_meta[mname]["sha256"] = sha
+            r = results[mname]
+            if r.get("civitai"):
+                all_meta[mname].pop("civitaiNotFound", None)
+            elif not r.get("fetch_failed") and not r.get("error"):
+                all_meta[mname]["civitaiNotFound"] = _service._now_iso()
         _service._save_metadata(all_meta)
 
     # Auto-set previews for models without preview image
+    # (ネットワークI/Oなのでイベントループを塞がないようスレッドで並列実行)
+    await response.write(send_sse("progress", {
+        "current": len(model_files), "total": len(model_files), "model": "", "status": "previews",
+    }))
     dirs = _get_model_dirs(model_type)
-    preview_saved_count = 0
-    for model_name, result in results.items():
-        civitai = result.get("civitai")
-        if not civitai or not civitai.get("images"):
-            continue
-        if _service.find_preview_image(model_type, model_name):
-            continue
-        model_file = None
-        for d in dirs:
-            p = d / model_name
-            if p.is_file():
-                model_file = p
-                break
-        if not model_file:
-            continue
-        preview_path = model_file.parent / (model_file.stem + ".preview.png")
-        if CivitaiService.download_image(civitai["images"][0], preview_path):
-            preview_saved_count += 1
-            logger.info("Auto-saved preview for %s from CivitAI", model_name)
+
+    def _save_previews():
+        jobs = []
+        for model_name, result in results.items():
+            civitai = result.get("civitai")
+            if not civitai or not civitai.get("images"):
+                continue
+            if _service.find_preview_image(model_type, model_name):
+                continue
+            model_file = None
+            for d in dirs:
+                p = d / model_name
+                if p.is_file():
+                    model_file = p
+                    break
+            if not model_file:
+                continue
+            jobs.append((model_name, civitai["images"][0],
+                         model_file.parent / (model_file.stem + ".preview.png")))
+        if not jobs:
+            return 0
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            oks = list(pool.map(lambda j: CivitaiService.download_image(j[1], j[2]), jobs))
+        for (mname, _u, _p), ok in zip(jobs, oks):
+            if ok:
+                logger.info("Auto-saved preview for %s from CivitAI", mname)
+        return sum(1 for ok in oks if ok)
+
+    preview_saved_count = await asyncio.to_thread(_save_previews)
 
     # Send final result
     summary = {
@@ -315,6 +416,7 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
         "found": sum(1 for r in results.values() if r.get("civitai")),
         "not_found": sum(1 for r in results.values() if r.get("sha256") and not r.get("civitai")),
         "errors": sum(1 for r in results.values() if r.get("error")),
+        "needs_hash": sum(1 for r in results.values() if r.get("needs_hash")),
         "hashes": {name: r.get("sha256") for name, r in results.items() if r.get("sha256")},
         "preview_saved": preview_saved_count,
     }
@@ -324,6 +426,22 @@ async def handle_civitai_batch(request: web.Request) -> web.Response:
 
 
 # ── Model Preview Image ───────────────────────────────────
+
+
+async def handle_get_preview_keys(request: web.Request) -> web.Response:
+    """GET /api/wfm/models/preview-keys?type=checkpoint
+
+    プレビュー画像を持つモデルのキー一覧を返す（無いモデルへの画像リクエスト＝404を避けるため）。
+    """
+    model_type = request.query.get("type", "")
+    if not model_type:
+        return web.json_response({"error": "type required"}, status=400)
+    try:
+        keys = await asyncio.to_thread(_service.list_preview_keys, model_type)
+        return web.json_response({"keys": keys})
+    except Exception as e:
+        logger.error("Error listing preview keys: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def handle_get_preview(request: web.Request) -> web.Response:
@@ -658,7 +776,8 @@ async def handle_list_model_files(request: web.Request) -> web.Response:
     if not model_type or model_type not in MODEL_TYPE_FOLDER_KEYS:
         return web.json_response({"error": "invalid type"}, status=400)
     try:
-        result = await asyncio.to_thread(_service.list_model_files, model_type)
+        extra_only = request.query.get("extra_only") == "1"
+        result = await asyncio.to_thread(_service.list_model_files, model_type, extra_only)
         return web.json_response(result)
     except Exception as e:
         logger.error("Error listing model files for %s: %s", model_type, e)

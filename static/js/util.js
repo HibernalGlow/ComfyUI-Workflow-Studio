@@ -82,6 +82,57 @@ export function escapeHtml(s) {
         .replace(/'/g, "&#x27;");
 }
 
+// http(s) 以外（javascript: / data: など）を拒否して安全なURLだけ返す。不正なら fallback
+export function safeHttpUrl(url, fallback = "") {
+    // 絶対URLのhttp(s)のみ許可（相対URLだとComfyUI自身のURLへリクエストを送らせられるため不可）
+    const s = String(url ?? "").trim();
+    if (!/^https?:\/\/[^\s]+$/i.test(s)) return fallback;
+    try {
+        new URL(s);
+        return s;
+    } catch {
+        return fallback;
+    }
+}
+
+// 外部由来のHTML（CivitAIの説明文など）を許可リスト方式で無害化して返す。
+// スクリプト・イベント属性・style・javascript:/data: URL・iframe等は除去する。
+const _SAN_DROP = new Set(["script", "style", "iframe", "frame", "frameset", "object", "embed", "applet",
+    "link", "meta", "base", "form", "input", "button", "textarea", "select", "svg", "math", "template",
+    "noscript", "audio", "video", "source", "track", "canvas", "title", "head"]);
+const _SAN_KEEP = new Set(["p", "br", "hr", "strong", "b", "em", "i", "u", "s", "del", "ins", "mark", "small",
+    "sub", "sup", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "code", "pre", "kbd",
+    "span", "div", "a", "img", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "details", "summary"]);
+
+export function sanitizeHtml(html) {
+    if (html == null || html === "") return "";
+    const doc = new DOMParser().parseFromString(String(html), "text/html");  // 不活性ドキュメント（スクリプト非実行）
+    const walk = (node) => {
+        let out = "";
+        for (const child of node.childNodes) {
+            if (child.nodeType === 3) {            // text
+                out += escapeHtml(child.nodeValue);
+            } else if (child.nodeType === 1) {     // element
+                const tag = child.tagName.toLowerCase();
+                if (_SAN_DROP.has(tag)) continue;
+                if (!_SAN_KEEP.has(tag)) { out += walk(child); continue; }   // 未知タグは中身だけ残す
+                if (tag === "br" || tag === "hr") { out += `<${tag}>`; continue; }
+                if (tag === "a") {
+                    const href = safeHttpUrl(child.getAttribute("href") || "", "");
+                    out += `<a${href ? ` href="${escapeHtml(href)}"` : ""} target="_blank" rel="noopener noreferrer">${walk(child)}</a>`;
+                } else if (tag === "img") {
+                    const src = safeHttpUrl(child.getAttribute("src") || "", "");
+                    if (src) out += `<img src="${escapeHtml(src)}" alt="${escapeHtml(child.getAttribute("alt") || "")}" loading="lazy" style="max-width:100%;">`;
+                } else {
+                    out += `<${tag}>${walk(child)}</${tag}>`;
+                }
+            }
+        }
+        return out;
+    };
+    return walk(doc.body);
+}
+
 // localStorage からJSONを安全に読む（不正JSON・未設定時はfallback）
 export function readJsonStorage(key, fallback = {}) {
     try {

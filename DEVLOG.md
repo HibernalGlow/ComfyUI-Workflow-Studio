@@ -2,6 +2,251 @@
 
 ---
 
+## v0.7.11（2026-10-02）
+
+### セキュリティ: CivitAI情報の説明文のHTML無害化（保存型XSS対策）
+
+- Models詳細パネルのCivitAIタブは、説明文（`description`）をエスケープせずHTMLとして挿入していた。CivitAI APIの応答は従来から同じ扱いだったが、v0.7.10で追加した `.cm-info.json`（Stability Matrix）取り込みにより、**ローカルのサイドカーファイルからも同じ経路で入る**ようになった。細工されたファイルがモデルと一緒に配布された場合、詳細パネルを開いただけでスクリプトが実行され得る（ComfyUIと同一オリジンのため、ComfyUIのAPIを操作できる）。
+- `static/js/util.js` に許可リスト方式の `sanitizeHtml()` と `safeHttpUrl()` を追加し、説明文・モデルURL・サンプル画像URLに適用。`script/style/iframe/svg/form` 等の要素、`on*` 属性、`style` 属性、`javascript:`/`data:` URL、**相対URL**（ComfyUI自身のURLへリクエストを送らせる経路）を除去する。許可するのは段落・見出し・リスト・強調・表・`code`・`a`/`img`（絶対http(s) URLのみ）など。
+- Playwright（実ブラウザ）で攻撃文字列16種を検証し、スクリプトが一度も実行されないことを確認。
+
+### セキュリティ: サイドカー経由のSSRF/ローカルファイル読み取りと、Hostヘッダ依存の接続先
+
+取り込み経路の再点検で見つかった2件を修正。
+
+- **プレビュー画像のダウンロード（`download_image`）のURLが無検証だった**。URLは `.metadata.json`（Lora Manager形式のローカルサイドカー）の `civitai.images` から来るため、細工されたサイドカーがあると、サーバーが任意のURLへ接続する（SSRF）。`file://` を指定すればローカルファイルを読んでプレビュー画像として保存でき、プレビューAPI経由で取り出せた。**https かつ CivitAI系ホスト（`civitai.com`/`civitai.red`/`civitai.green` とそのサブドメイン）のみ許可**し、リダイレクト先も同じ条件で検証、サイズ上限50MBを設定。正規のCivitAI画像の取得は実環境で確認済み。
+- **Lora Manager連携（`lora_manager_bridge`）の接続先を、リクエストのHostヘッダから組み立てていた**。Hostの偽装（DNSリバインディング等）で任意のホストへ接続させられるため、**ループバック（`127.0.0.1`）＋実際に待ち受けているポート**に固定。
+- サンプル画像・フォールバック画像のURLにも `safeHttpUrl()`（絶対http(s)のみ）を適用。
+
+### `.cm-info.json` / `.metadata.json` 取り込みの堅牢化
+
+- `ModelId`/`VersionId` は正の整数のみ受け付ける（URLに文字列を埋め込まない）。不正なら情報は採用せず、sha256のみ利用。
+- タグ・トリガーワードは文字列/数値のみ・件数上限あり。JSONのトップレベルがオブジェクトでない場合は無視。
+- サイドカーJSONのサイズ上限を2MBに設定（巨大ファイルでメモリを使い切らない）。
+
+---
+
+## v0.7.10（2026-10-02）
+
+### Windows: ComfyUIが固まる問題の原因特定と対策（Selectorイベントループ）
+
+v0.7.9で「原因未特定」としていたComfyUIの無応答は、ほぼ素の環境（ComfyUI 0.34 / Workflow Studio 0.7.2〜0.7.9、ComfyUI Desktop・Stability Matrix両方）でも再現し、`/system_stats` すら応答しなかった。py-spy（`dump --native`）でメインスレッド（イベントループ）が `asyncio proactor _call_connection_lost → socket.close → closesocket → NtClose` で停止していることを確認。ハッシュ計算・モデルファイル・CivitAI取得・Windows更新（26H2を戻しても再現）・ComfyUI/WSL/Windows Firewall Controlのいずれも原因ではなかった。
+
+- きっかけは「プレビュー画像の多い一覧を開き、続けて他の一覧へ切り替える」操作。ブラウザが読み込み中の画像リクエストを一斉に中止し、短時間に多数の接続が開閉する。
+- **対策**: `prestartup_script.py` でWindowsのasyncioループをProactorからSelectorへ切り替えるスイッチを追加（既定オフ）。設定画面の「Windowsの安定性（イベントループ）」のチェック、または環境変数 `WFS_SELECTOR_LOOP=1` で有効化（ComfyUI再起動後に反映）。有効化すると同じ操作で再現しなくなった。
+- トレードオフ: asyncioのサブプロセス機能が使えない／同時接続数の上限が約512。ComfyUI-Managerの閲覧・CivitAI取得は問題なし。
+- 固まったプロセスは `taskkill` しても終了せずポートを握り続けるため、再起動が必要になる。固まったときは `py-spy dump --native --pid <PID>` でメインスレッドの位置を確認する。
+
+### Models: プレビュー画像の404削減
+
+- プレビューが無いモデルにも画像リクエストを出しており、一覧の切り替えごとに大量の404と接続の開閉が発生していた。
+- 新API `GET /api/wfm/models/preview-keys?type=` がフォルダを1回走査して「プレビューを持つモデル」の一覧を返し、画面側は無いモデルへ画像リクエストを出さない（取得失敗時は従来動作）。サムネ変更・CivitAI取得でのプレビュー保存・一括取得後は一覧を更新。
+- **無効化（`.disabled`）されたモデルのプレビューが表示されなかった問題を修正**（`find_preview_image` が `<名前>.disabled` を見ていなかった）。
+
+### Models: モデルフォルダ設定（Stability Matrix対応）
+
+- 設定に「モデルフォルダ」を追加。追加のモデルルート（例: Stability Matrixの `Models`、`;` 区切りで複数可）直下の `StableDiffusion/Lora/VAE/ControlNet/TextEncoders/DiffusionModels/Embeddings/HyperNetworks`（またはComfyUI名 `checkpoints/loras` …）をModelsタブの一覧とフォルダ解決に追加する。
+- Modelsタブの一覧はComfyUIの `/object_info` 由来で追加フォルダを含まないため、`/api/wfm/models/files?extra_only=1` の結果を合流させている。
+
+### CivitAI取得: ハッシュ計算を行わない運用へ
+
+- 一括取得は**ハッシュ計算をしない**。保存済みsha256、`.metadata.json`（Lora Manager）、`.cm-info.json`（Stability Matrix）、Lora Managerの `/api/lm/{loras,checkpoints,embeddings}/list` のsha256から解決できる分だけを取得し、未確定のモデルは「ハッシュ未計算」として件数を表示する（大きなモデルを多数ハッシュするとディスクが飽和するため）。
+- **`.cm-info.json` 取り込み**: `Hashes.SHA256` とCivitAI情報を読む。ファイルサイズが無いため `ImportedAt` より後にモデルが更新されていたら不採用。画像一覧を持たないので `source: "cm-info"` を付け、個別の取得/更新でAPIの完全な情報に置き換える。
+- 詳細パネルのCivitAIタブで、ハッシュ未計算のモデルは赤字「未計算」を表示。取得/更新ボタンでハッシュ計算して取得する（ファイルサイズ/更新日時も保存）。
+- クライアント切断（再読み込み・タブ遷移）で一括取得を中断し、計算済みのハッシュだけ保存して終了。ハッシュ計算を3→2並列、読み込み1MB→512KB、プレビュー保存4→2並列に抑制。
+- 詳細パネルの「ファイルパス」表示を削除。
+
+### ヘルプ・i18n
+
+- 設定のヘルプに「モデルフォルダ」「Windowsの安定性」を追加（英日中）。
+
+---
+
+## v0.7.9（2026-10-02）
+
+### Models: CivitAIベースモデルからの自動バッジ作成
+
+バッジ管理モーダルに「CivitAIから自動バッジ作成」を追加（`static/js/models/auto-badge.js`）。現在のタブのモデルのCivitAI `baseModel` からバッジを作る。意思決定モデルは使わず、ルール表で決定的に決める（"SDXL 1.0"/"SDXL Turbo"等はSDXLにまとめ、Pony/Illustrious/NoobAI/Flux.1/Flux.2/Qwen/Wan/Z-Image/HiDream等は別バッジ。表に無い値は文字列そのまま、"Other"と空は対象外）。
+
+- モデル側は既存バッジを残したまま追加（同名が既にあれば何もしない）。パレットは同名バッジの色を上書き可（チェックで切替）。「すでにバッジが付いているモデルはスキップ」オプションあり（スキップ分のバッジ名はパレットにも作らない）。
+- プレビューで件数・新規/既存を確認してから適用。
+
+### CivitAI一括取得の高速化と安定化
+
+参考にしたcivitai-updater/tiny-model-managerはどちらも単発GETの逐次実行で、当プラグインの一括POST（100件/回）のほうが進んでいた。遅さの原因は取得ではなくハッシュ計算側だった。
+
+- **保存済みsha256の再利用**: 一括取得が保存済みハッシュを無視して毎回全件再計算していた。`sha256Size`/`sha256Mtime`を記録してファイル差し替えを検知（記録の無い旧データは信頼）。
+- **サイドカー取り込み**: `<名前>.metadata.json` のsha256とCivitAI情報を、サイズ一致かつ`files[].hashes.SHA256`一致の場合だけ採用（ハッシュ計算・通信不要）。実データでサイドカー87件中74件が利用可能、58件にCivitAI情報あり。
+- **並列ハッシュ（3並列）+ 1MB読み**、確定ごとに5秒間隔でメタデータへ保存（途中で止めても計算済み分が残る。以前は最後にまとめて保存していた）。
+- **プレビュー保存**を4並列・別スレッド化（以前はasyncハンドラ内で逐次ダウンロードしイベントループを塞いでいた）。進捗に「プレビュー保存中」を追加。
+- **未登録スキップ**: CivitAIに存在しなかったモデルに `civitaiNotFound` を記録し、ツールバーの「未登録はスキップ」で一括取得の対象外にできる（既定オフ）。通信エラーで失敗した分は記録しない。見つかれば記録は自動解除。
+
+### フォルダのシンボリックリンク／ジャンクション対応
+
+- モデル走査を `rglob` から自前の `_iter_files` に変更。リンクは辿りつつ、祖先フォルダへ戻る循環だけを検出して入らない（警告ログ）。
+- 一括移動の移動先チェックを `resolve()` 比較から論理パス比較に変更し、リンク先フォルダへの移動が「Destination is outside model root」で拒否される問題を修正（`..`・絶対パスでの脱出は従来通り拒否）。
+- 注意: リンク配下のモデルを削除すると、リンク先の実ファイルが消える。
+
+### 実機で分かったこと
+
+- TextEncoderタブでの一括取得中にComfyUIが応答しなくなる事象があった。py-spyのダンプでは、イベントループがWindowsの`closesocket`内で停止しており（作業スレッドは全て待機中でプラグインのコードはスタックに無い）、本変更が直接原因とは断定できなかった。PC再起動と動作に影響しうる他のカスタムノードの削除後は正常動作を確認。
+- この環境（管理者権限なし）ではシンボリックリンクを作れず、ジャンクションのみでテストした。
+
+---
+
+## v0.7.8（2026-10-01）
+
+### Video Edit: マルチトラック化（ビデオ/オーバーレイ/テキスト/オーディオ）
+
+タイムライン上部のボタンでトラック表示を切り替える（ビデオ=青 `#4a9eff`・オーバーレイ=青・テキスト=緑 `#3fb950`・オーディオ=赤 `#f85149`）。下のツールメニューも連動して切り替わる（ビデオ=トリム+クロップ、オーバーレイ=オーバーレイクリップ、テキスト=テキストオーバーレイ、オーディオ=オーディオ設定）。Save/Load/書き出しは右に固定。
+
+- **テキストをタイムライン直付けに変更**: 時間をクリップ相対でなくタイムライン絶対秒で持つ（`_s.texts`）。テキスト帯のドラッグ移動（クリップをまたげる）と端ドラッグでのリサイズに対応。旧形式プロジェクト（クリップ内`texts`）は読込時に絶対秒へ自動変換する（変換処理は実機未検証）。クリップ複製ではテキストは複製されなくなった。
+- **追加サウンド**: オーディオトラックに「+ サウンド...」で効果音・ナレーションを何個でも配置（開始/長さ/音量dB、帯のドラッグで移動・端ドラッグでトリム）。書き出しは`LoadAudio→TrimAudioDuration→AudioAdjustVolume→AudioConcat(無音パディング)→AudioMerge`でBGMの上にミックス。実際のComfyUIで実行成功を確認（音の位置自体は耳では未確認）。
+- **オーバーレイ(PinP)**: 動画/画像をメイン動画の上に重ねる。時間・位置（9方向プリセット/X/Y）・サイズ・不透明度を個別指定。追加位置は4隅→中央の順にずらす。プレビューには点線枠+サムネイルを表示。Assetタブの詳細パネルに「オーバーレイに追加（PinP）」ボタンを追加。
+- **合成方式**: ComfyUIグラフには手を入れず、既存のテキスト焼き込みと同じPyAV 1パス（`/api/wfm/video/edit/overlay-text`に`pips`を追加）で、オーバーレイ→テキストの順に描画。動画オーバーレイは終端フレームを保持。オーバーレイ自身の音声はミックスしない。実際の書き出し出力のフレームを目視確認。
+- Undo/Redo・プロジェクト保存/読込・ヘルプ（3言語）に対応。
+
+### フルバックアップ: 追加サウンド/オーバーレイの素材漏れを修正
+
+「Video Editプロジェクトの素材を含める」が、クリップとBGMしか集めていなかったため、追加サウンドとオーバーレイクリップの素材がZIPに入らなかった（`_iter_video_edit_media_refs`が`clips`とBGMだけを走査）。`sounds`/`pips`も走査するよう修正。単体テストと実APIでの出力ZIPの中身確認済み（パストラバーサル・出力フォルダ参照・旧形式・壊れたJSONの扱いも確認）。復元側は無変更。
+
+### 実機で分かったこと
+
+- **ファイル選択ダイアログ**: Overlay追加ボタン（label+非表示input、BGMと同方式）が、ユーザーの通常ブラウザタブではダイアログを出さず、Shift+クリックの別ウィンドウでは出た。コードの欠陥ではなく通常タブ環境側の可能性が高い（未特定）。念のためOverlay/Soundボタンは透明な本物の`<input type=file>`をボタンに重ねる方式に変更。Playwrightはダイアログを横取りするため、この種の不具合は自動テストでは検出できない。
+- 検証用ブラウザに待機中のファイル選択が溜まると、ページが古い状態のままになりうる（サーバーは`Cache-Control: no-store`）。
+
+---
+
+## v0.7.7（2026-09-30）
+
+### 意思決定モデル: Ollama 0.35+ バックエンド追加
+
+Ollama v0.35.0（2026-09-28）が`POST /v1/systemone`で意思決定モデルに対応した（質問・回答の形式はUnsloth/ollayaと同じ）。モデルは`tev1`（Together AI、4B・4.5GB）/ `tev1:0.8b`（812MB）/ `nimble`（Bespoke Labs、9B・9.5GB）で、`ollama pull`で取得する。
+
+- `decision-client.js`: バックエンド`ollama`を追加。APIキー不要でCORSも許可されているため、Unslothのようなサーバー中継は通さずブラウザから直接呼ぶ（既存のOllama LLMバックエンドと同じ）。Ollamaのエラー`{"error": ...}`（例: `model "tev1" not found, try pulling it first`）はそのまま表示。
+- `listDecisionModels()`: `/api/tags`の`capabilities`に`"decision"`を持つインストール済みモデルだけを返す（通常のLLMは出ない）。
+- Settings「意思決定モデル」: バックエンド切替でURL（11434）とモデル一覧を更新、↻ボタン、意思決定モデルが無い場合は`ollama pull tev1:0.8b`等を案内。Laya専用でなくなったためセクション名を「意思決定モデル」に変更。保存済みモデル名が別バックエンドのもの（Ollamaなのに`laya`等）なら既定モデルへ戻す。
+- **実測**: Layaが外した画像プロンプト（「masterpiece, 1girl, silver hair, school uniform…」）の判定を、`tev1:0.8b`は主題person 0.98〜0.99・NSFW「none」0.97〜0.98と全問正解。2回目以降0.2〜0.6秒。ユーザー実機のテストボタンで「接続成功 ✓ 280 ms、yes=0.914」。
+- **作業中の不具合**: Pythonスクリプト経由で書いた正規表現の`\b`がバックスペース制御文字（0x08）に化け、モデル名補正が効かなかった（構文エラーにならず単体テストで発覚）。修正後、リポジトリ全体に制御文字が無いことを確認。
+
+### Unsloth: APIキー未設定時はキー無しで送信（Keyless API access対応）
+
+Unsloth Desktopの Settings → API → Keyless API access →「Chat and inference」をオンにするとキー無しで使えるため、`UNSLOTH_API_KEY`未設定を許容した。
+
+- 対象は中継（`py/routes/unsloth_routes.py`: AI TOOL・サイドパネル・意思決定API）とTaggerのUnsloth VLM経路（`py/services/tagger_service.py`）の2か所。キー未設定なら事前エラーにせず`Authorization`無しで送る。localhost限定（SSRF対策）は維持。
+- キー無しでUnslothが401を返した場合は「.envにキーを設定するか、Keyless API access →『Chat and inference』をオンに」という案内を返す。
+- 偽Unslothサーバー（キー必須/不要）で、キー無し成功・案内メッセージ・キー付与・非localhost拒否を検証（5回連続合格）、ユーザー実機でも確認。
+- ヘルプ・README・`.env.example`に、この設定は同じLAN内にもAPIを開放すること、「Allow tools」（キー無しの接続元にPython/ターミナル実行を許す）はオフのままにすることを明記。
+- **実機で発生した不具合**: 英語ヘルプ文に`"Chat and inference"`をエスケープせずに入れ、`i18n.js`が構文エラーになりSPA全体が「Loading workflows...」で停止した。この環境では`node --check x.js`がESモジュールの構文エラーを見逃す（終了コード0）ことが原因で、以後は`.mjs`にコピーして`node --check`する方式で確認している。
+
+### ヘルプ（英日中）の点検と修正
+
+Settings・Video（Edit）ページを3言語で点検。言語間の内容差は無かったが、3言語共通の記載漏れ・不正確な点を修正した。
+
+- Video Edit: Saveで保存される内容に、クロップ・テキストオーバーレイ・音声/BGM設定を追記（従来は順序・トリム・参照ファイルのみ記載）。本文に出ていた内部キー名「(see helpVideo9)」を「Projectタブの項目を参照」に。素材はinput内ファイルへの参照のみであること、フルバックアップの素材オプションで保存できることを追記。
+- Settings: 未記載だった5セクション（Video Volume、Gallery出力フォルダ、デフォルトCheckpoint、CivitAI APIキー、G'MIC-Qtパス）をhelpSettings18〜22として追加。
+- フォント数「Google Fonts 16種」→「15種＋システム既定」に訂正。
+- テンプレート（index.html）の英語初期表示のうち古くなっていた項目を、Settings・Video全項目についてi18nの英語と同期。
+
+---
+
+## v0.7.6（2026-09-30）
+
+### Settings: 意思決定モデル (Laya) の専用設定
+
+v0.7.5で入れた`decision-client.js`は接続先を「AI TOOLのバックエンドがUnslothならそのURL、それ以外は8888」とAI TOOL設定から借りていたため、LLM/VLMと併用するとURL変更が連動する・モデルやしきい値を選べない問題があった。Settingsタブに独立したセクションを新設し、`wfm_decision_settings`（backend / baseUrl / model / threshold）としてAI TOOL・Tagger設定とは別に保存する。
+
+- backendは現状Unslothのみだが、同じTypeSafe互換APIを話すollaya（:11435、キー不要）等を後から足せるようフィールドとして持つ。
+- モデル: `laya`（Unsloth側で選択中）/ `laya-multilingual` / `laya-english` / `laya-typed-decisions`。
+- 既定しきい値（0.5〜0.99、既定0.8）: `isYes`/`pickChoice`/`pickScore`でしきい値省略時に使う。
+- テストボタン: 保存前のフォーム値でnoul1問を送り、応答時間と回答を表示（`testDecisionConnection()`）。
+- **実機確認**: 初回はUnsloth側で Settings → API → Decision API → Serve requests がオフのため HTTP 404 `The Decision API is off`（中継・APIキーは正常に通っている）。オン後は「接続成功 ✓ 10430 ms、テスト回答 yes=0.945」（初回はモデル読み込み込み）。
+
+### Settings: フルバックアップのVideo Edit対応
+
+Video Editのプロジェクト（`video_edit_project/*.json`）はデータフォルダ内なので元からZIPに入っていたが、中身はComfyUIの`input/`にアップロードしたクリップ・BGMへの参照（`serverRef`）だけで、素材そのものは含まれていなかった。別環境への復元や`input/`整理後はプロジェクトを開いてもクリップが読み込めない。説明文にもVideo Editの記載がなかった。
+
+- 3つ目のオプション「Video Editプロジェクトの素材を含める」（`include_video_media=1`）: 全プロジェクトの`clips[].serverRef`と`audio.bgm.serverRef`（type=input）を`_video_edit_media/<subfolder>/<filename>`に同梱。重複・欠損は除外し、`input/`の外を指す参照（`..`等）は含めない。
+- 復元時、`_video_edit_media/`はデータフォルダではなく`input/`へ戻す。同名ファイルが既にあれば上書きしない（`input/`は他のワークフローと共有のため）。結果に`media_restored`/`media_existing`を返し「Video Edit素材: ○件復元、○件は既存」と表示。エクスポート専用の`_external/`とは扱いが異なる。
+- 説明文（Settings注記・ヘルプ・README）のバックアップ対象にVideo Editプロジェクトを追加。
+
+**実機で判明した既存問題（Request Entity Too Large）**: aiohttp 3.14の`BodyPartReader.read()`はComfyUIの`--max-upload-size`（既定100MB）を強制する。workflows/wildcardオプション込みのバックアップは約125MB（`_external/`だけで118MB）で超過し復元できなかった（今回の追加以前から起こり得た）。`handle_import_full`を`read_chunk()`で1MBずつ一時ファイルへ流し込む方式に変更し、上限に関係なく復元できるようにした（ZIP全体をメモリに載せることもなくなった）。
+
+**検証**: 一時フォルダでの単体テスト（素材収集・重複/欠損除外・パストラバーサル遮断・既存非上書き）、上限1MBのaiohttpテストサーバー（ComfyUIと同じ3.14.3）への5MBアップロード、ユーザー実機で「インポート完了: 45件 / Video Edit素材: 1件復元、3件は既存」を確認。
+
+### ヘルプ
+
+Settingsページの「Connections」カードに意思決定モデルの項目（helpSettings17、英日中）を追加。フルバックアップの項目（helpSettings15/16）にVideo Editプロジェクトと素材オプションを追記し、テンプレート側の英語初期表示もi18nと同期（15はVideo Plansが抜けたままになっていた）。
+
+---
+
+## v0.7.5（2026-09-30）
+
+### Ming Image ワークフロー対応（GenerateUI / Gallery・Metadata / サイドパネルIタブ）
+
+ユーザー提供の`ming_image_test1〜5.json`（T2I・参照画像Edit・レイヤー分解×2・標準KSampler T2I）に対応。
+
+- `comfyui-workflow.js`: `TextEncodeMingImageEdit`（`prompt`単一ウィジェット＋`images.image_N`最大8枚のAutogrow参照画像）を`TextEncodeQwenImageEdit`と同じ扱いで検出。ロールはsampler/guider配線から決まるので、レイヤー分解ワークフローでKSamplerのnegativeに繋がる空プロンプトの2つ目のインスタンスはNegativeとして出る。linked promptへのロール伝播も追加。`EmptyQwenImageLayeredLatentImage`をLatentパネル対象に追加。
+- SamplerCustomAdvancedのSAMPLER入力が`sampler_name`を持たないノード（`SamplerLCM`）の場合は`samplerNodeId=null`とし、SettingsパネルのSampler欄をN/A無効化（従来は無関係なsampler名が選択表示され、Applyで存在しない入力に書き込んでいた）。
+- `metadata-tab.js` / `node_sets_menu.js`: `BasicGuider`の`conditioning`入力をpositive扱い（従来は判別不能テキスト扱い）。UI形式でCLIPTextEncodeの`text`がリンクされている場合、`widgets_values[0]`に残る古い入力値よりリンク先（`PrimitiveStringMultiline`等）を優先。
+
+**汎用バグ修正（top-levelノードのwidgets_valuesズレ）**: ウィジェットをリンク入力化しても現行フロントエンドは値を`widgets_values`に残す（legacy full形式）。サブグラフ内部ノードは`_stripLegacyLinkedWidgetValues`で正規化していたが、top-levelノードは未対応で、リンクされたウィジェットより後ろの値が1つずつズレていた（`EmptyLatentImage`のwidth/heightを`GetImageSize`/`PrimitiveInt`に繋ぐと`batch_size=1024`、`EmptyQwenImageLayeredLatentImage`の`layers=1024`等）。判定ロジックを`_normalizeLinkedWidgetValues`に切り出し、`convertUiToApi`の本ループ前にも適用。
+
+**検証**: Node上で稼働中ComfyUIの`/object_info`を使い3系統（analyzeWorkflow / metadata-tab / node_sets_menu、UI形式・API形式両方）を5ワークフローで確認。回帰確認として`user/default/workflows`配下366件を修正前後の`convertUiToApi`で比較し、差分35件はすべてズレていた値が正しくなったもの（KSampler `steps=397027830130951`→10、`cfg=25`→8等）。変換エラー1件は修正前から発生する無関係なもの。ユーザー実機で生成まで確認済み。
+
+### Unsloth Decision API（Laya決定モデル）クライアントの土台
+
+Unsloth DesktopがTypeSafe互換の意思決定API（`POST /v1/systemone`、Laya）を提供するようになったため、活用機能の試行に先立って呼び出しの土台のみ実装（UIからの利用は未実装）。
+
+- `py/routes/unsloth_routes.py`: 既存プロキシ（`.env`のAPIキー付与＋localhost限定）の`_ALLOWED_PATHS`に`/v1/systemone`を追加。HTTPエラー時はUnsloth側エラー本文の先頭300字をmessageに含める（質問スキーマ誤りをフロントから診断できるように）。
+- `static/js/decision-client.js`（新規、SPA用）: `decide(state, questions, {model, baseUrl})`・`decideMany`（同時実行数制限、個別失敗は`{error}`）、ビルダー`noul`/`choice`/`score`（Unslothの`instructions`＋`criteria`形式）、上限チェック（64問/255選択肢/10段階）、`isYes`/`pickChoice`/`pickScore`。ドキュメントの推奨どおり`confidence`ではなく`probabilities`でしきい値判定し、しきい値未満は`confident:false`（自動適用せず提案表示する用途向け）。接続先はAI TOOL設定がUnslothならそのURL、それ以外は`http://localhost:8888`。
+- Layaはテキスト専用（画像入力なし）。画像の判定にはTaggerタグやVLMキャプションを経由させる必要がある。
+- 検証はプロキシをモックしたNode単体テストのみ（作業時にUnslothのDecision APIが待ち受けておらず実APIは未検証）。
+
+---
+
+## v0.7.4（2026-09-29）
+
+### Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
+
+[VIDEO_EDIT_TAB_PLAN.md](VIDEO_EDIT_TAB_PLAN.md)のPhase 4。着手前に既存の動画編集系ノードを調査し、ComfyUI Core 0.37.0の音声ノード群（`LoadAudio`/`TrimAudioDuration`/`AudioConcat`/`AudioMerge`/`AudioAdjustVolume`/`EmptyAudio`）と`ConcatenateVideo`の`complete_audio`入力（結合動画全体の音声を上書き）だけで、書き出しグラフ内で完結できると判明したため、計画にあった独自`mix-audio` APIは作らなかった。音声トラックの組み方はH3Studioのreel書き出し（クリップ音声を尺にconform→連結→musicを重ねる）を参考にした。
+
+**グラフ構成**: クリップごとに`EmptyAudio(クリップ尺)`＋`AudioMerge(自クリップの音声)`で尺ぴったりのセグメントを作り（`AudioMerge`はaudio2をaudio1の長さにpad/trimし、音声なしクリップ＝Noneならaudio1をそのまま返す）、`AudioConcat`で連結→（元音量≠0dBなら`AudioAdjustVolume`）→BGM（`LoadAudio→TrimAudioDuration(開始位置, 総尺)→AudioAdjustVolume`）を`AudioMerge`で重ねて`complete_audio`へ渡す。単一の動画クリップで元音声そのまま・BGMなしの場合のみ従来通り再エンコードなしでパススルー。
+
+**UI**: 書き出しパネルにオーディオ欄（元の音声を残す＋音量dB、BGMファイル、BGM音量、BGM開始位置）。BGMは「BGM選択...」ボタン、オーディオ欄への音声/動画ファイルのドラッグ&ドロップ、AssetサブタブのVideoに追加した「BGMに設定（音声のみ）」（動画の音声トラックを使う。Galleryは音声ファイルを扱わないため）で指定できる。▶プレビュー中はBGMも`<audio>`で同時再生。クリアボタンでオーディオ欄も初期状態に戻る（BGMのみ設定されている状態でもクリア可能）。
+
+**実機で判明した注意点**: 生の`Video Slice`出力と画像由来の`CreateVideo`クリップを`ConcatenateVideo`へ直接混ぜると`Video chunk N could not be encoded compatibly`（extradata/color space不一致）で失敗する——complete_audioの有無に関係なく。既存の「複数クリップ時は全クリップを`GetVideoComponents→CreateVideo`で再構成する」処理は音声対策だけでなくこのためにも必要だったので維持した。
+
+**検証**: 動画2本（片方トリム）＋静止画＋BGM(-6dB)をUIから書き出し、尺6.625秒・音声同尺、区間ごとのRMSで元音声＋BGM／BGMのみを確認。音声なし動画（audio=None）＋BGM、mp4をBGMにした書き出しも確認。
+
+### Video Edit: テキストオーバーレイ（Phase 3）
+
+クリップ単位のテキスト（文字・クリップ内の開始/終了秒・サイズ(フレーム高さ%)・色・9方向アンカー・縁取り・背景）。クリップ相対時刻で保持するので並べ替えに追従し、書き出し時に絶対時刻へ変換する。
+
+Core `TextOverlay`は上/下固定・区間指定なし・既定フォントがCJK非対応、既存のテキスト系カスタムノード（advanced-textoverlay等）も静止画向けか独立パイプラインで、かつ全フレームをIMAGEテンソル化するとメモリが厳しい（720p×720フレームで約8GB）ため、新設の`POST /api/wfm/video/edit/overlay-text`（`VideoService.overlay_text_on_video()`、`asyncio.to_thread`）でPyAVストリーム処理にした: 1フレームずつデコード→該当区間のテキストレイヤー（事前に1回だけ描画）をPillowで合成→libx264でエンコード、音声パケットは再エンコードせずリマックス。書き出しはグラフ出力を`wfm_edit_pre`中間ファイルに保存→焼き込み→中間ファイル削除（`wfm_edit_pre`接頭辞かつoutput内のみ削除対象）の2段構成。フォントはmeiryo→YuGothM→NotoSansJP→msgothic→arialの順に探索。プレビューはSource/Result枠上にCSSで近似表示（`video-preview.js`に`getPreviewPaneElements()`を追加）。
+
+**検証**: ComfyUI再起動後、動画＋画像クリップに英日テキスト2件を付けて書き出し、各時刻のフレームで表示/非表示・位置・日本語描画・背景、音声長の一致、中間ファイル削除を確認。
+
+### Video Edit: クロップ（Phase 2）
+
+動画クリップごとに正規化座標(0..1)のクロップ矩形を持ち（ComfyUI-LoadVideoCropと同じ方式）、Sourceプレビュー上で移動＋四隅リサイズ（アスペクト比 自由/16:9/9:16/1:1/4:3/3:4固定可、外側は暗転）。「完了」で確定、「キャンセル」で編集前のクロップに戻す。Plan/Assetサブタブ・他タブへの移動、別クリップ選択時は「完了」扱いで編集モードを自動終了。書き出しはCore `VideoCrop`（0.37.0でもexperimental）を`Video Slice`の直後に挿入——`crop`入力は計画どおり二重ネスト`{"crop":{"x","y","width","height"}}`で、偶数ピクセルに丸める（H.264 4:2:0制約）。出力サイズは先頭動画クリップのクロップ後サイズで、サイズの異なる他クリップは`ImageScale(crop=center)`でフィット。解像度不一致ガードはクロップなしの動画クリップ同士だけ比較。`ImageCrop`は0.37でdeprecatedのため不採用。
+
+**検証**: 608x352→300x200のクロップ出力が元フレームの同領域と一致（平均画素差3.1＝コーデック誤差程度）。UIで1:1クロップしたクリップを先頭に書き出し、280x280・字幕がクロップ後の枠内・2本目が中央フィットされることを確認。
+
+### Video Edit: Undo/Redo（Phase 5残り）
+
+編集状態（クリップ順・トリム・保持時間・クロップ・テキスト・オーディオ設定）のJSONスナップショット履歴（上限100）。各編集経路に個別に仕込むのではなく、全編集が必ず通る既存の再描画3関数（`_renderTimeline`/`_refreshTextPreview`/`_syncAudioPanel`）から300msデバウンスで記録し、状態が変わったときだけpushする（選択・プレビュー・リサイズでは積まれず、連続入力やドラッグは1ステップにまとまる）。削除クリップはFile参照を持つ`_clipRegistry`から再アップロードなしで復元。↶/↷ボタンとCtrl+Z / Ctrl+Y / Ctrl+Shift+Z（入力欄内はブラウザ標準のundoを優先）。プロジェクト読込時は履歴リセット。
+
+### その他
+
+- **プロジェクト保存**にクロップ・テキスト・オーディオ設定を追加（旧プロジェクトは既定値で読込）。
+- **BGM選択・Loadボタンが実ブラウザでダイアログを開かない不具合を修正**: hidden `<input type=file>`をボタンのclickハンドラから`input.click()`で開く方式が、ユーザー環境ではエラーも出さずに無反応だった（同タブのVideo Sourceは`<label>`で包む方式で正常動作）。両ボタンを`<label>`方式に変更。Playwrightはファイル選択を横取りするため自動テストでは再現できなかった。
+- **トリム値入力直後に「+ テキスト追加」のクリックが効かない不具合を修正**（テキスト欄実装時に混入）: blur時の`change`でテキスト欄全体を再構築し、押そうとしたボタンが置き換わっていた。上限値だけ更新する方式に変更。
+
+**How to apply**: ComfyUI Coreの新しい動画/音声ノードは、`execution_success`で判断せず出力をprobe・画素比較まで実測すること（`VideoTrim`/`VideoCrop`の二重ネストのように、形式を誤ってもエラーにならず無視されるノードがある）。ファイル選択UIは`<label>`で包むネイティブ方式で作り、動作確認はユーザー実機で行うこと。
+
+---
+
 ## v0.7.3（2026-09-24）
 
 ### GenerateUIタブにQwen Image 2.1（TextEncodeQwenImage21）対応を追加

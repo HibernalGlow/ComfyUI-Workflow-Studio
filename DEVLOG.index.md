@@ -2,6 +2,14 @@
 
 Condensed version-by-version index of DEVLOG.md (each line: version + one-line summary of what changed and why). Full rationale, code details, and "How to apply" lessons live in the excluded DEVLOG.md itself; this index exists so graphify can extract a queryable semantic node per release without feeding the full log to the local Ollama model. Regenerate with `python tools/generate_doc_index.py devlog` whenever DEVLOG.md changes.
 
+- **v0.7.11（2026-10-02）** — セキュリティ: CivitAI情報の説明文のHTML無害化（保存型XSS対策）
+- **v0.7.10（2026-10-02）** — Windows: ComfyUIが固まる問題の原因特定と対策（Selectorイベントループ）
+- **v0.7.9（2026-10-02）** — Models: CivitAIベースモデルからの自動バッジ作成
+- **v0.7.8（2026-10-01）** — Video Edit: マルチトラック化（ビデオ/オーバーレイ/テキスト/オーディオ）
+- **v0.7.7（2026-09-30）** — 意思決定モデル: Ollama 0.35+ バックエンド追加
+- **v0.7.6（2026-09-30）** — Settings: 意思決定モデル (Laya) の専用設定
+- **v0.7.5（2026-09-30）** — Ming Image ワークフロー対応（GenerateUI / Gallery・Metadata / サイドパネルIタブ）
+- **v0.7.4（2026-09-29）** — Video Edit: BGM/音声トラック合成（Phase 4）— 複数クリップ結合時の音声消失も解消
 - **v0.7.3（2026-09-24）** — GenerateUIタブにQwen Image 2.1（TextEncodeQwenImage21）対応を追加
 - **v0.7.2（2026-09-18）** — Workflowタブにソート機能追加（Date/Name 昇順降順）
 - **v0.7.1（2026-09-17）** — セキュリティ修正: Tagger VLM の Unsloth 経路でAPIキーがSSRFにより外部送信され得る不備を修正

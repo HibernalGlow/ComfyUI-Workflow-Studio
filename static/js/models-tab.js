@@ -13,6 +13,7 @@ import { openBadgeEditModal, renderBadgeFilter, setGridChangeCallback } from "./
 import { isModelDisabled, renderTagFilter, renderGroupFilter, renderDirFilter } from "./models/filters.js";
 import { renderModelGrid, clearBatchGroup, clearStackGroup } from "./models/grid-view.js";
 import { toggleSelectMode, renderBulkActionBar, fetchSubdirs } from "./models/selection-bulk.js";
+import { fetchPreviewKeys } from "./models/helpers.js";
 import { closeSidePanel, renderSideCivitai, renderSideInfo, batchFetchCivitai, fetchCivitaiCache } from "./models/detail-panel.js";
 
 export { openBadgeEditModal };
@@ -302,7 +303,7 @@ async function loadModelsForCurrentType() {
         if (!fetchFn) throw new Error("Unknown model type: " + type);
 
         const [models, disabledList, groups] = await Promise.all([
-            fetchFn(), fetchDisabledModels(type), fetchModelGroups(),
+            fetchFn(), fetchDisabledModels(type), fetchModelGroups(), fetchPreviewKeys(type),
         ]);
         const disabledSet = new Set(Array.isArray(disabledList) ? disabledList : []);
         state.disabledModels[type] = disabledSet;
@@ -550,6 +551,16 @@ export function initModelsTab() {
     document.getElementById("wfm-models-civitai-batch-btn")?.addEventListener("click", () => {
         batchFetchCivitai();
     });
+    // Skip models already known to be missing on CivitAI (persisted per browser)
+    const skipNfEl = document.getElementById("wfm-models-civitai-skip-nf");
+    const skipNfLabel = document.getElementById("wfm-models-civitai-skip-nf-label");
+    if (skipNfLabel) skipNfLabel.textContent = t("civitaiSkipNotFound");
+    if (skipNfEl) {
+        skipNfEl.checked = localStorage.getItem("wfm_models_civitai_skip_nf") === "1";
+        skipNfEl.addEventListener("change", () => {
+            localStorage.setItem("wfm_models_civitai_skip_nf", skipNfEl.checked ? "1" : "0");
+        });
+    }
 
     // Side panel tab switching
     document.querySelectorAll(".wfm-models-side-tab-btn").forEach((btn) => {

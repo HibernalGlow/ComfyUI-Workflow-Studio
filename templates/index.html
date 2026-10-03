@@ -248,6 +248,9 @@
                     <span id="wfm-models-count" class="wfm-nodes-count"></span>
                     <button id="wfm-models-refresh-btn" class="wfm-btn wfm-btn-sm">Refresh</button>
                     <button id="wfm-models-civitai-batch-btn" class="wfm-btn wfm-btn-sm" title="Fetch CivitAI info for all models">CivitAI</button>
+                    <label style="font-size:11px;color:var(--wfm-text-secondary);white-space:nowrap;cursor:pointer;">
+                        <input type="checkbox" id="wfm-models-civitai-skip-nf"> <span id="wfm-models-civitai-skip-nf-label">Skip not found</span>
+                    </label>
                     <span id="wfm-models-civitai-progress" style="font-size:12px;color:var(--wfm-text-secondary);"></span>
                     <button id="wfm-models-badge-settings-btn" class="wfm-btn wfm-btn-sm" title="Badge settings">&#9881; Badge</button>
                     <button id="wfm-models-select-btn" class="wfm-btn wfm-btn-sm wfm-btn-success" title="Multi-select models">Select</button>
@@ -1668,7 +1671,7 @@
                             <h3 id="wfm-help-settings-card-general-title">General</h3>
                             <ul>
                                 <li id="wfm-help-settings-1">UI language and summary language</li>
-                                <li id="wfm-help-settings-2">Theme selection (13 presets) with customization: color overrides, background patterns (stripes, polka dot, checkerboard, SVG tiling), and font selection (16 Google Fonts including Japanese display fonts)</li>
+                                <li id="wfm-help-settings-2">Theme selection (13 presets) with customization: color overrides, background patterns (stripes, polka dot, checkerboard, SVG tiling), and font selection (15 Google Fonts including Japanese display fonts, plus the system default)</li>
                                 <li id="wfm-help-settings-9">All sections are collapsible accordion panels</li>
                             </ul>
                         </div>
@@ -1678,20 +1681,26 @@
                                 <li id="wfm-help-settings-4">ComfyUI connection URL and test</li>
                                 <li id="wfm-help-settings-5">AI Assistant settings have moved out of this tab &mdash; the Prompt tab, Tagger tab, and AI TOOL tab each have their own &#9881; Settings button (backend, URL, model, Thinking mode, Max tokens, unload model), saved independently</li>
                                 <li id="wfm-help-settings-7">Eagle integration URL and auto-save toggle</li>
+                                <li id="wfm-help-settings-22">G'MIC-Qt Integration: path to the G'MIC-Qt executable (gmic_qt.exe) used by the Image Edit tab's G'MIC filter (Edit with G'MIC); Save stores it — see the Image Edit help for installing G'MIC-Qt</li>
+                                <li id="wfm-help-settings-17">Decision Model: its own section, independent of the AI TOOL / Tagger LLM/VLM backends so it can be used alongside them — backend, URL, model and a default probability threshold (answers below it are treated as suggestions to confirm). Unsloth: Laya models (laya / laya-multilingual / laya-english / laya-typed-decisions); requires Settings → API → Decision API → Serve requests in Unsloth Desktop (otherwise HTTP 404 "The Decision API is off") and either UNSLOTH_API_KEY in .env or Keyless API access → "Chat and inference". Ollama (0.35+): lists installed models whose capabilities include "decision" (tev1, tev1:0.8b, nimble — ollama pull first; ↻ refreshes the list); no key needed. Test sends one yes/no question with the unsaved form values; the first request loads the model.</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-settings-card-workflow-title">Workflow Defaults</h3>
                             <ul>
                                 <li id="wfm-help-settings-3">Workflow data folder path</li>
+                                <li id="wfm-help-settings-23">Models Folder: add extra model root folders (e.g. Stability Matrix's Models) — their subfolders (StableDiffusion / Lora / VAE / ControlNet / TextEncoders / DiffusionModels / Embeddings / HyperNetworks, or ComfyUI names like checkpoints / loras) are listed in the Models tab in addition to ComfyUI's own folders; separate several roots with ; — Apply saves, Default clears</li>
+                                <li id="wfm-help-settings-19">Gallery Output Folder: the ComfyUI output folder the Gallery tab browses — leave blank to use ComfyUI's default output directory; Apply takes effect immediately, Default resets it, and the folder currently in use is shown below the field</li>
                                 <li id="wfm-help-settings-6">Default workflow setting</li>
-                                <li id="wfm-help-settings-10">Wildcard Integration: link WFS wildcard dir to ComfyUI-Impact-Pack wildcards (junction/symlink); existing files migrated automatically</li>
+                                <li id="wfm-help-settings-20">Default Checkpoint: when "Force default checkpoint on workflow load" is on, every checkpoint loader node's model is replaced with the chosen checkpoint whenever a workflow is loaded into GenerateUI (a toast shows when it's applied) — avoids errors or garbled images caused by a model name saved in the workflow that you don't have; Refresh reloads the checkpoint list, Save stores the setting</li>
+                                <li id="wfm-help-settings-10">Wildcard Integration: link WFS wildcard dir to ComfyUI-Impact-Pack wildcards (directory junction on Windows / symlink on other OS); existing files migrated automatically</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-settings-card-editor-title">Editor Customization</h3>
                             <ul>
                                 <li id="wfm-help-settings-11">Text Size: one slider (10–28 px) adjusts font size for all prompt and chat textareas at once — Generate UI positive/negative prompts, AI Assistant chat input, Preset positive/negative, Wildcard prompt and file editor, and Metadata prompt full preview; takes effect immediately and saved with Save Settings</li>
+                                <li id="wfm-help-settings-18">Video Volume: one slider (0–100%) sets the playback volume of the Video tab preview and the Gallery detail / lightbox / compare video players; the level set here (or changed with any video's own controls) carries over to the next video opened anywhere in the app</li>
                                 <li id="wfm-help-settings-12">RAW JSON Colors: customize the 6 syntax highlight colors for the Raw JSON editor in Generate UI — Default Text, Name/Scheduler, Title, Width/Height, Prompt/Text, Image/File; changes apply immediately on color pick; Reset Defaults restores the original color scheme</li>
                                 <li id="wfm-help-settings-14">GenerateUI Model Tab Highlight: pick the color used to mark Checkpoint/VAE/Diffusion Model/Text Encoder/ControlNet/Hypernetwork labels and the LoRA column header in GenerateUI's Model tab when the loaded workflow actually contains that type of node; default bright green; changes apply immediately, Reset Defaults restores it</li>
                             </ul>
@@ -1699,10 +1708,12 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-settings-card-misc-title">Data &amp; Misc</h3>
                             <ul>
-                                <li id="wfm-help-settings-8">Data Management: export core settings/metadata/prompts to JSON / import to restore</li>
-                                <li id="wfm-help-settings-15">Full Backup (ZIP): unlike the JSON export above, also includes folder-based data (AI Skills, Lab Plans, Style presets) and the Tagger database; Restore overwrites existing files — restart ComfyUI afterward</li>
-                                <li id="wfm-help-settings-16">Two opt-in checkboxes above the Full Backup buttons additionally include ComfyUI's default workflows folder and the Impact Pack's wildcard folder in the export — both export-only, never restored automatically; copy the ZIP's _external/ folder back by hand if you want them</li>
+                                <li id="wfm-help-settings-8">Data Management: export core settings, metadata, and prompts to a JSON file, or import to restore. After importing, restart ComfyUI.</li>
+                                <li id="wfm-help-settings-15">Full Backup (ZIP): unlike the JSON export above, also includes folder-based data (AI Skills, Lab Plans, Video Plans, Video Edit projects, Style presets) and the Tagger database — everything the JSON export can't represent. Restoring overwrites existing files; restart ComfyUI afterward.</li>
+                                <li id="wfm-help-settings-16">Two opt-in checkboxes above the Full Backup buttons additionally include ComfyUI's default workflows folder and the Impact Pack's wildcard folder in the export — both export-only, never restored automatically; copy the ZIP's _external/ folder back by hand if you want them. A third checkbox includes the clips, BGM, sounds and overlay clips referenced by saved Video Edit projects (projects only store references to files in ComfyUI's input folder) — unlike the other two, these are restored into the input folder, skipping any file that already exists there.</li>
                                 <li id="wfm-help-settings-13">CivitAI Host: choose between civitai.com (SFW only) and civitai.red (unrestricted) — determines which site opens when clicking a model link in the Models tab CivitAI panel</li>
+                                <li id="wfm-help-settings-21">CivitAI API Key: optional key for authenticated CivitAI access from the Models tab (get it at civitai.com → Account Settings → API Keys); stored in settings.json but left out of the JSON export and Full Backup, and the CIVITAI_API_KEY environment variable takes priority when set</li>
+                                <li id="wfm-help-settings-24">Windows Stability: "Use the Selector event loop on Windows" switches ComfyUI's asyncio loop from Proactor to Selector (applied at the next ComfyUI start). Turn it on if ComfyUI freezes entirely after switching Models lists that load many preview images; the trade-offs are no asyncio subprocess support and a connection limit of about 512. The same switch is available through the WFS_SELECTOR_LOOP=1 environment variable</li>
                             </ul>
                         </div>
                     </div>
@@ -1825,7 +1836,7 @@
                             <h3 id="wfm-help-models-card-civitai-title">Side Panel &amp; CivitAI</h3>
                             <ul>
                                 <li id="wfm-help-models-4">Side panel: opens to CivitAI tab by default when a model is selected; Info (file path, tags, memo), Groups management, CivitAI integration</li>
-                                <li id="wfm-help-models-5">CivitAI integration: fetch model info by SHA256 hash, batch fetch per model type</li>
+                                <li id="wfm-help-models-5">CivitAI integration: fetch model info by SHA256 hash, batch fetch per model type; the batch fetch reuses saved hashes, imports from existing .metadata.json sidecars and hashes the rest in parallel; 'Skip not found' skips models known to be missing on CivitAI</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1839,7 +1850,7 @@
                             <h3 id="wfm-help-models-card-groups-title">Groups &amp; Badges</h3>
                             <ul>
                                 <li id="wfm-help-models-7">Group management: create, rename, delete groups and assign/remove models; Checkpoint and LoRA tabs support B (Batch) and S (Stack) quick-assign buttons per model in both card and table views</li>
-                                <li id="wfm-help-models-9">User-defined badges: assign free-label badges with custom colors shared with the Workflow tab</li>
+                                <li id="wfm-help-models-9">User-defined badges: assign free-label badges with custom colors shared with the Workflow tab; 'Auto badges from CivitAI' in Manage Badges creates badges from CivitAI base models</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1935,7 +1946,7 @@
                         </div>
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-ai-card-settings-title">Settings pane</h3>
-                            <p id="wfm-help-ai-6">Settings pane: choose backend (Ollama / LM Studio / Lemonade / Unsloth), set API URL, test connection, select model, and use the Unload Model button (next to Test connection) to free the loaded model from VRAM/memory &mdash; Ollama uses keep_alive:0, LM Studio uses /api/v1/models/unload, Lemonade uses /api/v1/unload; Unsloth has no unload API, so this shows an unsupported message for it; Unsloth always requires an API key even for local access — set UNSLOTH_API_KEY in a .env file in the plugin folder (copy .env.example) and restart ComfyUI, the key is read server-side and never sent to the browser; Unsloth also requires "Auto model switching (OpenAI API)" to be turned ON in the Unsloth Desktop app itself (its own Settings screen) — without it, requests fail with HTTP 404 unless a model was already manually loaded in the Unsloth Studio UI; Unsloth reasoning models return their thinking in a separate reasoning_content field rather than inline &lt;think&gt; tags, so a low Max tokens can make the model spend its whole budget reasoning and return an empty reply — increase Max tokens (2048+) if replies come back blank; Generation section — Thinking mode toggle (off by default; Ollama receives a `think` flag, and regardless of backend any &lt;think&gt;...&lt;/think&gt; block is stripped from the output when off, so reasoning models don't clutter Translation/Chat/TOOLS results) and Max tokens (Ollama: num_predict, LM Studio/Lemonade/Unsloth: max_tokens; 0 = unlimited); configure Free language names; Chat Image Generation section lets you enable a dedicated workflow for Chat-triggered text-to-image generation instead of the one currently loaded in GenerateUI; Chat I2I Generation section is the same but for image-to-image generation when an image is attached; settings are shared with the Library panel's A tab via localStorage</p>
+                            <p id="wfm-help-ai-6">Settings pane: choose backend (Ollama / LM Studio / Lemonade / Unsloth), set API URL, test connection, select model, and use the Unload Model button (next to Test connection) to free the loaded model from VRAM/memory &mdash; Ollama uses keep_alive:0, LM Studio uses /api/v1/models/unload, Lemonade uses /api/v1/unload; Unsloth has no unload API, so this shows an unsupported message for it; Unsloth needs either an API key or Keyless API access — set UNSLOTH_API_KEY in a .env file in the plugin folder (copy .env.example) and restart ComfyUI (the key is read server-side and never sent to the browser), or leave it unset and turn on Keyless API access → "Chat and inference" in Unsloth Desktop's Settings → API (requests are then sent without a key; note that setting also opens the API to your private LAN, and keep "Allow tools" off); Unsloth also requires "Auto model switching (OpenAI API)" to be turned ON in the Unsloth Desktop app itself (its own Settings screen) — without it, requests fail with HTTP 404 unless a model was already manually loaded in the Unsloth Studio UI; Unsloth reasoning models return their thinking in a separate reasoning_content field rather than inline &lt;think&gt; tags, so a low Max tokens can make the model spend its whole budget reasoning and return an empty reply — increase Max tokens (2048+) if replies come back blank; Generation section — Thinking mode toggle (off by default; Ollama receives a `think` flag, and regardless of backend any &lt;think&gt;...&lt;/think&gt; block is stripped from the output when off, so reasoning models don't clutter Translation/Chat/TOOLS results) and Max tokens (Ollama: num_predict, LM Studio/Lemonade/Unsloth: max_tokens; 0 = unlimited); configure Free language names; Chat Image Generation section lets you enable a dedicated workflow for Chat-triggered text-to-image generation instead of the one currently loaded in GenerateUI; Chat I2I Generation section is the same but for image-to-image generation when an image is attached; settings are shared with the Library panel's A tab via localStorage</p>
                         </div>
                     </div>
 
@@ -2112,7 +2123,7 @@
 
                     <div class="wfm-help-page" id="wfm-help-page-video">
                         <h2 id="wfm-help-video-title">Video Tab</h2>
-                        <p id="wfm-help-video-desc">A dedicated video generation tab for MiniMax H3 (Image to Video), LTX-2.5 (Text / Image / First & Last Frame to Video), and Wan2.2 (Text to Video) workflows, independent of the GenerateUI tab. The center panel's Plan / Edit / Asset subtabs handle batch generation, clip editing, and browsing generated videos; the sidebar's Project subtab handles saved plans.</p>
+                        <p id="wfm-help-video-desc">A dedicated video generation tab for MiniMax H3 (Image to Video), LTX-2.5 (Text / Image / First &amp; Last Frame to Video), and Wan2.2 (Text to Video) workflows, independent of the GenerateUI tab. The center panel's Plan / Edit / Asset subtabs handle batch generation, clip editing, and browsing generated videos; the sidebar's Project subtab handles saved plans (while Plan is active) or saved Edit projects (while Edit is active).</p>
                         <div class="wfm-help-card">
                             <ul>
                                 <li id="wfm-help-video-1">Plan subtab: the topbar's settings row holds Aspect Ratio / Megapixels / Multiple / Duration (seconds) / Noise Seed as this plan's base settings — Duration always reflects the currently selected block (each block keeps its own value), the rest are plan-wide. A second row below adds Width / Height / Turbo Mode / Strength / Steps / Prompt Enhance, each enabled only for workflows that actually support it (see helpVideo2). Split the timeline into blocks with the ＋ Split / ＋ Block / Delete buttons — each block has its own Prompt, Duration, and First/Last Image — First Image can be None, an explicit image, or "use previous block's last frame" (an explicit Last Image on the previous block always wins over extracting one from its generated video). Click Run to generate every block in order; Pause/Cancel work mid-run.</li>
@@ -2123,9 +2134,9 @@
                                 <li id="wfm-help-video-6">Frame tab (right panel): play/seek the preview video to the position you want, click Capture Frame to grab that frame client-side, then Save to Output to write it as a PNG into ComfyUI's output folder — check "Add to Video Assets group" first to also tag the saved frame into Gallery's Video Assets group.</li>
                                 <li id="wfm-help-video-7">GIF tab (right panel): set Start/End (seconds), FPS, and an optional Max Width, then Convert to GIF — the server decodes the video and encodes an animated GIF into ComfyUI's output folder.</li>
                                 <li id="wfm-help-video-8">Chaining: setting a block's First Image to "use previous block's last frame" continues smoothly from the previous clip — if that previous block has its own explicit Last Image, that image is used directly; otherwise the actual last frame of its generated video is extracted automatically.</li>
-                                <li id="wfm-help-video-9">Project tab (sidebar): browse every saved plan file (thumbnail, block count, last updated), click one to load it into the Plan editor, or delete it with the × button; clicking the same tab again collapses the panel.</li>
+                                <li id="wfm-help-video-9">Project tab (sidebar): lists saved Video Plans while the center Plan subtab is active, or saved Edit projects while the center Edit subtab is active (thumbnail/block or clip count, last updated) — click one to load it, or delete it with the × button; clicking the same tab again collapses the panel.</li>
                                 <li id="wfm-help-video-10">Highlight color: the Prompt / Duration / First Image / Last Image / Aspect Ratio / Megapixels / Multiple / Noise Seed / Width / Height / Turbo Mode / Strength / Steps / Prompt Enhance labels turn the same highlight color as the GenerateUI Model tab (customizable in the Settings tab) when the loaded workflow actually supports that field — e.g. for a Wan2.2 workflow (no ResolutionSelector node), the Aspect Ratio / Megapixels / Multiple labels stay unhighlighted while Width / Height light up instead.</li>
-                                <li id="wfm-help-video-11">Edit subtab: a lightweight clip timeline for trimming and concatenating video/image clips outside of generation. Add clips via the Video Source panel's "Add to Edit" button or the Asset subtab's "Send to Edit" button, then drag blocks to reorder (or use the ◀/▶ toolbar buttons), Duplicate/Delete the selected clip, and Clear to empty the timeline. The trim panel for the selected video clip shows a time ruler, a draggable playhead synced to the Source preview, and draggable in/out handles with time badges — image clips instead get a simple hold-duration field. ▶ Preview plays every ready clip back-to-back (trimmed to its in/out points) in the right-hand result preview; Export builds and runs the actual ComfyUI graph (trim → concatenate if more than one clip → save), tagging the result into the Video Temp group automatically. Exporting more than one clip currently drops audio, since ComfyUI's concatenation node requires uniform audio across all inputs.</li>
+                                <li id="wfm-help-video-11">Edit subtab: a lightweight clip timeline for trimming and concatenating video/image clips outside of generation. Add clips via the Video Source panel's "Add to Edit" button or the Asset subtab's "Send to Edit" button, then drag blocks to reorder (or use the ◀/▶ toolbar buttons), Duplicate/Delete the selected clip, and Clear to empty the timeline (this also resets the Audio section). The trim panel for the selected video clip shows a time ruler, a draggable playhead synced to the Source preview, and draggable in/out handles with time badges — image clips instead get a simple hold-duration field. ▶ Preview plays every ready clip back-to-back (trimmed to its in/out points) in the right-hand result preview; Export builds and runs the actual ComfyUI graph (trim → concatenate if more than one clip → save), tagging the result into the Video Temp group automatically. The Audio section of the export panel controls the soundtrack: "Keep original audio" (with its own volume in dB) keeps each clip's audio aligned to its segment even across multiple clips (image clips contribute silence), and "BGM..." lays one audio file over the whole video with its own volume and start offset (a longer BGM is cut to the video length). Each clip can also carry text overlays ("+ Add text" under the trim panel: text, start/end seconds within the clip, size as % of frame height, color, 9-position anchor, outline, background box); they are previewed live over the Source/Result panes and burned in on Export as a final pass. The BGM can be chosen with "BGM...", by dropping an audio/video file onto the Audio section, or with "Set as BGM" on a video in the Asset subtab (its audio track is used). Video clips can also be cropped: "Edit crop" shows a draggable/resizable rectangle over the Source preview (optionally locked to 16:9 / 9:16 / 1:1 / 4:3 / 3:4) — "Done" keeps it, "Cancel" restores the crop from before editing, and switching to another subtab/tab ends editing like Done; the export size becomes the first video clip's cropped size, and other clips of a different size are center-fit to it. ↶/↷ in the timeline toolbar (or Ctrl+Z / Ctrl+Y) undo and redo edits to clips, trims, crops, text and audio settings. The export panel's Save/Save As/Load buttons persist the timeline itself (clip order, trim points, crop, text overlays, audio/BGM settings, and which uploaded file each clip and the BGM refer to) as a JSON project file on the server. The project only stores references to those files in ComfyUI's input folder, so Load re-fetches each clip from its saved server reference and re-probes it — the original files must still exist (Settings → Full Backup can bundle them with "Include media used by Video Edit projects"). These saved projects also show up in the sidebar's Project tab whenever the Edit subtab is active (see the Project tab item).</li>
                                 <li id="wfm-help-video-12">Asset subtab (center panel, next to Plan/Edit): browses every video/image tagged into Video Assets or Video Temp (via the group dropdown, or "All Video Assets" for both). Search filters by filename; the ▦/☰ buttons switch between a thumbnail grid and a table (filename/updated/tags). Selecting an item shows its tags/memo, loads it into the center preview, and offers "Send to Edit" (queues it as a clip in the Edit subtab) plus, for images only, "Set as First Image"/"Set as Last Image" (uploads it straight into the currently-selected Plan block, switching to the Plan subtab).</li>
                             </ul>
                         </div>
@@ -2942,29 +2953,81 @@
                          (個別行ボタンではなく「選択中クリップに対して働く」共通ボタン方式)。 -->
                     <div id="wfm-video-subtab-edit" class="wfm-video-subtab-panel wfm-video-edit-panel" data-video-subtab-panel="edit" style="display:none;">
                         <div class="wfm-video-timeline-wrap">
-                            <div class="wfm-video-edit-timeline-track" id="wfm-video-edit-timeline-track"></div>
+                            <div class="wfm-video-edit-track-tabs" id="wfm-video-edit-track-tabs">
+                                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab active" data-track="video" id="wfm-video-edit-track-video">Video</button>
+                                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab" data-track="pip" id="wfm-video-edit-track-pip">Overlay</button>
+                                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab" data-track="text" id="wfm-video-edit-track-text">Text</button>
+                                <button type="button" class="wfm-btn wfm-btn-xs wfm-video-edit-track-tab" data-track="audio" id="wfm-video-edit-track-audio">Audio</button>
+                            </div>
+                            <div class="wfm-video-edit-timeline-track" id="wfm-video-edit-timeline-track" data-track="video"></div>
                             <div class="wfm-video-timeline-toolbar">
                                 <button type="button" id="wfm-video-edit-move-left-btn" class="wfm-btn wfm-btn-xs" title="Move left">◀</button>
                                 <button type="button" id="wfm-video-edit-move-right-btn" class="wfm-btn wfm-btn-xs" title="Move right">▶</button>
                                 <button type="button" id="wfm-video-edit-duplicate-btn" class="wfm-btn wfm-btn-xs">Duplicate</button>
                                 <button type="button" id="wfm-video-edit-delete-btn" class="wfm-btn wfm-btn-xs">Delete</button>
                                 <button type="button" id="wfm-video-edit-preview-btn" class="wfm-btn wfm-btn-xs">▶ Preview</button>
+                                <button type="button" id="wfm-video-edit-undo-btn" class="wfm-btn wfm-btn-xs" title="Undo (Ctrl+Z)" disabled>↶</button>
+                                <button type="button" id="wfm-video-edit-redo-btn" class="wfm-btn wfm-btn-xs" title="Redo (Ctrl+Y)" disabled>↷</button>
                                 <span class="wfm-i2i-status wfm-video-edit-total-duration" id="wfm-video-edit-total-duration" style="margin-left:auto;"></span>
                                 <button type="button" id="wfm-video-edit-clear-btn" class="wfm-btn wfm-btn-xs wfm-btn-danger">Clear</button>
                             </div>
                         </div>
 
                         <div class="wfm-video-edit-main-row">
-                            <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
+                            <!-- Tool menu: its contents follow the timeline's track view (data-view, set by _setTrackView):
+                                 video = trim + crop, text = text overlays, pip = overlay clips, audio = audio. Export stays fixed on the right. -->
+                            <div class="wfm-video-edit-tools" id="wfm-video-edit-tools" data-view="video">
+                                <div class="wfm-video-edit-trim-panel" id="wfm-video-edit-trim-panel"></div>
+                                <div class="wfm-video-edit-pip-panel">
+                                    <div class="wfm-video-edit-section-head"><span id="wfm-video-edit-pip-title">Overlay clips (PinP)</span></div>
+                                    <div class="wfm-video-edit-sound-head">
+                                        <!-- The real <input> sits transparently over the button (not display:none behind a <label>), so the click lands on the native file input itself. -->
+                                        <label class="wfm-btn wfm-btn-xs wfm-video-edit-file-btn wfm-video-edit-file-overlay" tabindex="0" role="button"><span id="wfm-video-edit-pip-btn">+ Overlay clip...</span><input type="file" id="wfm-video-edit-pip-input" multiple accept="video/*,image/*"></label>
+                                    </div>
+                                    <div class="wfm-video-edit-sound-list" id="wfm-video-edit-pip-list"></div>
+                                </div>
+                                <div class="wfm-video-edit-audio-panel">
+                                    <div class="wfm-video-edit-section-head"><span id="wfm-video-edit-audio-title">Audio</span></div>
+                                    <label class="wfm-video-checkbox-inline">
+                                        <input type="checkbox" id="wfm-video-edit-keep-audio" checked> <span id="wfm-video-edit-keep-audio-label">Keep original audio</span>
+                                    </label>
+                                    <div class="wfm-video-edit-audio-row">
+                                        <label for="wfm-video-edit-orig-vol" id="wfm-video-edit-orig-vol-label">Original volume</label>
+                                        <input type="range" id="wfm-video-edit-orig-vol" min="-30" max="12" step="1" value="0">
+                                        <span class="wfm-video-edit-audio-val" id="wfm-video-edit-orig-vol-val">0 dB</span>
+                                    </div>
+                                    <div class="wfm-video-edit-bgm-file">
+                                        <label class="wfm-btn wfm-btn-xs wfm-video-edit-file-btn" tabindex="0" role="button"><span id="wfm-video-edit-bgm-btn">BGM...</span><input type="file" id="wfm-video-edit-bgm-input" accept="audio/*,video/mp4,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4" style="display:none;"></label>
+                                        <span class="wfm-i2i-status wfm-video-edit-bgm-name" id="wfm-video-edit-bgm-name"></span>
+                                        <button type="button" id="wfm-video-edit-bgm-clear" class="wfm-btn wfm-btn-xs" title="Remove BGM">✕</button>
+                                    </div>
+                                    <div class="wfm-i2i-status wfm-video-edit-bgm-hint" id="wfm-video-edit-bgm-hint">Drop an audio file here, or use &quot;Set as BGM&quot; on a video in Asset</div>
+                                    <div class="wfm-video-edit-audio-row">
+                                        <label for="wfm-video-edit-bgm-vol" id="wfm-video-edit-bgm-vol-label">BGM volume</label>
+                                        <input type="range" id="wfm-video-edit-bgm-vol" min="-30" max="12" step="1" value="-6">
+                                        <span class="wfm-video-edit-audio-val" id="wfm-video-edit-bgm-vol-val">-6 dB</span>
+                                    </div>
+                                    <div class="wfm-video-edit-audio-row">
+                                        <label for="wfm-video-edit-bgm-offset" id="wfm-video-edit-bgm-offset-label">BGM start (s)</label>
+                                        <input type="number" id="wfm-video-edit-bgm-offset" class="wfm-input" min="0" step="0.1" value="0">
+                                    </div>
+                                    <div class="wfm-video-edit-sound-head">
+                                        <label class="wfm-btn wfm-btn-xs wfm-video-edit-file-btn wfm-video-edit-file-overlay" tabindex="0" role="button"><span id="wfm-video-edit-sound-btn">+ Sound...</span><input type="file" id="wfm-video-edit-sound-input" multiple accept="audio/*,video/*"></label>
+                                    </div>
+                                    <div class="wfm-video-edit-sound-list" id="wfm-video-edit-sound-list"></div>
+                                </div>
+                            </div>
 
                             <div class="wfm-video-edit-export-panel">
                                 <div id="wfm-video-edit-project-name" class="wfm-i2i-status" style="min-height:14px;margin-bottom:4px;"></div>
                                 <div style="display:flex;gap:6px;">
                                     <button type="button" id="wfm-video-edit-save-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save</button>
                                     <button type="button" id="wfm-video-edit-saveas-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Save As</button>
-                                    <button type="button" id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm" style="flex:1;">Load</button>
+                                    <!-- File pickers are native <label>-wrapped inputs (same as the Video Source drop zone),
+                                         not a button calling input.click() from JS — that programmatic path can be refused
+                                         by the browser without any error (confirmed on a user's machine for the BGM picker). -->
+                                    <label id="wfm-video-edit-load-btn" class="wfm-btn wfm-btn-sm wfm-video-edit-file-btn" style="flex:1;" tabindex="0" role="button">Load<input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;"></label>
                                 </div>
-                                <input type="file" id="wfm-video-edit-load-file-input" accept="application/json,.json" style="display:none;">
                                 <button type="button" id="wfm-video-edit-export-btn" class="wfm-btn wfm-btn-primary" style="width:100%;margin-top:8px;">Export</button>
                                 <div class="wfm-gen-progress-container" style="margin-top:8px;">
                                     <div class="wfm-gen-progress-track">

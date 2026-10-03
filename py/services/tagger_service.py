@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -256,9 +257,17 @@ class TaggerService:
 
     # ── VLM Tagging (Ollama / LM Studio / Lemonade / Unsloth) ──
 
+    # キー未設定でUnslothに拒否された場合の案内(py/routes/unsloth_routes.pyと同文)
+    _UNSLOTH_KEYLESS_REJECTED = (
+        "Unsloth rejected the request without an API key (HTTP 401). Either set UNSLOTH_API_KEY "
+        "in the plugin's .env (copy .env.example) and restart ComfyUI, or turn on Keyless API "
+        "access -> \"Chat and inference\" in Unsloth Desktop's Settings -> API."
+    )
+
     @staticmethod
     def _unsloth_api_key() -> Optional[str]:
-        """UNSLOTH_API_KEY を環境変数(.env)から取得。Unslothはローカルでも常に必須。"""
+        """UNSLOTH_API_KEY を環境変数(.env)から取得。未設定ならNone — その場合はAuthorization無しで
+        送る(Unsloth DesktopのKeyless API access → "Chat and inference" がオンなら通る)。"""
         return os.environ.get("UNSLOTH_API_KEY", "").strip() or None
 
     @staticmethod
@@ -282,15 +291,17 @@ class TaggerService:
                     logger.error("vlm_models: Unsloth backend URL must point to localhost/127.0.0.1/::1")
                     return []
                 key = self._unsloth_api_key()
-                if not key:
-                    logger.error("vlm_models: UNSLOTH_API_KEY is not set")
-                    return []
-                headers["Authorization"] = f"Bearer {key}"
+                if key:
+                    headers["Authorization"] = f"Bearer {key}"
             req = urllib.request.Request(api_url.rstrip("/") + "/v1/models", headers=headers)
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             return sorted(m["id"] for m in data.get("data", []))
         except Exception as e:
+            if (backend == "unsloth" and isinstance(e, urllib.error.HTTPError) and e.code == 401
+                    and not self._unsloth_api_key()):
+                logger.error("vlm_models: %s", self._UNSLOTH_KEYLESS_REJECTED)
+                return []
             logger.error("vlm_models: %s", e)
             return []
 
@@ -324,10 +335,8 @@ class TaggerService:
                     if not _is_allowed_unsloth_url(api_url):
                         return {"error": "Unsloth backend URL must point to localhost/127.0.0.1/::1"}
                     key = self._unsloth_api_key()
-                    if not key:
-                        return {"error": "UNSLOTH_API_KEY is not set. Copy .env.example to .env in the "
-                                          "plugin folder, fill in the key, and restart ComfyUI."}
-                    headers["Authorization"] = f"Bearer {key}"
+                    if key:
+                        headers["Authorization"] = f"Bearer {key}"
                 body = {
                     "model": model,
                     "messages": [{"role": "user", "content": [
@@ -360,6 +369,9 @@ class TaggerService:
             return {"tags": ", ".join(tags), "count": len(tags)}
         except Exception as e:
             logger.error("vlm_predict: %s", e)
+            if (backend == "unsloth" and isinstance(e, urllib.error.HTTPError) and e.code == 401
+                    and not self._unsloth_api_key()):
+                return {"error": self._UNSLOTH_KEYLESS_REJECTED}
             return {"error": str(e)}
 
     # ── ファイルメタデータ書込 ────────────────────────────────
