@@ -41,6 +41,12 @@ interface DirInfo {
 /** Fields of the server settings dict we render as toggles vs text inputs. */
 const TOGGLE_HINTS = ["auto", "enabled", "enable", "use", "show", "save", "inject", "override"];
 
+/**
+ * Keys that have their own card below — the generic editor must not also write them, because the
+ * plain dict POST would bypass `/settings/models-dir`'s folder validation and cache flush.
+ */
+const DEDICATED_KEYS = new Set(["models_dir", "windows_selector_event_loop"]);
+
 function isToggleKey(key: string): boolean {
     return TOGGLE_HINTS.some((hint) => key.toLowerCase().includes(hint));
 }
@@ -101,21 +107,27 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
         output: "",
         workflows: "",
     });
+    const [modelsDir, setModelsDir] = useState<{ saved?: string; roots?: string[]; effective?: Record<string, string[]> }>({});
+    const [modelsDirDraft, setModelsDirDraft] = useState("");
     const [lang, setLangState] = useState<string>(() => getLang());
     const fileRef = useRef<HTMLInputElement | null>(null);
 
     const load = useCallback(async (): Promise<void> => {
         setLoading(true);
         try {
-            const [s, out, wf] = await Promise.all([
+            const [s, out, wf, md] = await Promise.all([
                 api.getSettingsFromServer(),
                 api.getOutputDir(),
                 api.getWorkflowsDir(),
+                api.getModelsDir().catch(() => ({})),
             ]);
             setServer((s && typeof s === "object" ? s : {}) as Dict);
             setDirty({});
             setOutputDir((out || {}) as DirInfo);
             setWorkflowsDir((wf || {}) as DirInfo);
+            const mdInfo = (md || {}) as { saved?: string; roots?: string[]; effective?: Record<string, string[]> };
+            setModelsDir(mdInfo);
+            setModelsDirDraft(String(mdInfo.saved ?? ""));
             setDirDraft({
                 output: String((out as DirInfo)?.current ?? ""),
                 workflows: String((wf as DirInfo)?.current ?? ""),
@@ -154,6 +166,41 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
         try {
             await api.saveSettingsToServer(dirty);
             snackbar.show({ label: tr("nu.settings.saved", "Settings saved.") });
+            await load();
+        } catch (err) {
+            snackbar.show({ label: (err as Error).message, tone: "error" });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    /**
+     * `POST /api/wfm/settings/models-dir` validates that every root exists (400 otherwise) and
+     * clears the server's model scan cache — the generic dict editor below must not write this key,
+     * so it is excluded there and saved through this route only.
+     */
+    const saveModelsDir = async (value: string): Promise<void> => {
+        setSaving(true);
+        try {
+            const res = await api.setModelsDir(value.trim()) as {
+                saved?: string; roots?: string[]; effective?: Record<string, string[]>;
+            };
+            setModelsDir(res || {});
+            setModelsDirDraft(String(res?.saved ?? ""));
+            snackbar.show({ label: tr("modelsDirChanged", "Models folder changed. Reload the Models tab.") });
+        } catch (err) {
+            snackbar.show({ label: `${tr("workflowsDirError", "Folder change error")}: ${(err as Error).message}`, tone: "error" });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    /** Upstream v0.7.11: a plain settings key, but it only takes effect at prestartup. */
+    const saveSelectorLoop = async (enabled: boolean): Promise<void> => {
+        setSaving(true);
+        try {
+            await api.saveSettingsToServer({ windows_selector_event_loop: enabled });
+            snackbar.show({ label: tr("selectorLoopSaved", "Saved. Restart ComfyUI to apply.") });
             await load();
         } catch (err) {
             snackbar.show({ label: (err as Error).message, tone: "error" });
@@ -280,6 +327,7 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
             >
                 <div className="nu-fields">
                     {Object.entries(server).map(([key, value]) => {
+                        if (DEDICATED_KEYS.has(key)) return null;
                         if (value === null || value === undefined) return null;
                         if (typeof value === "boolean") {
                             return (
@@ -313,6 +361,50 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
                             />
                         );
                     })}
+                </div>
+            </SettingsCard>
+
+            {/* Upstream v0.7.10: extra model roots are only reachable through the validated route. */}
+            <SettingsCard
+                title={tr("modelsDir", "Models Folder")}
+                actions={
+                    modelsDirDraft.trim() !== String(modelsDir.saved ?? "") ? (
+                        <MdFilledButton disabled={saving} onClick={() => void saveModelsDir(modelsDirDraft)}>
+                            {tr("workflowsDirApply", "Apply")}
+                        </MdFilledButton>
+                    ) : null
+                }
+            >
+                <div className="nu-fields">
+                    <MdOutlinedTextField
+                        label={tr("modelsDirLabel", "Additional Models Folder Path")}
+                        value={modelsDirDraft}
+                        onInput={(e) => setModelsDirDraft((e.target as HTMLInputElement).value)}
+                    />
+                    <div className="nu-row">
+                        <MdOutlinedButton
+                            disabled={saving || !String(modelsDir.saved ?? "").length}
+                            onClick={() => void saveModelsDir("")}
+                        >
+                            {tr("workflowsDirDefault", "Default")}
+                        </MdOutlinedButton>
+                    </div>
+                    <p className="nu-muted">{tr("modelsDirHint", "Models root folder (e.g. Stability Matrix's Models). Subfolders such as StableDiffusion / Lora / VAE / ControlNet / TextEncoders / DiffusionModels / Embeddings / HyperNetworks (or ComfyUI names like checkpoints / loras) are added to the Models tab. Separate multiple folders with ;. Empty to reset.")}</p>
+                    {(modelsDir.roots ?? []).map((root) => (
+                        <p className="nu-muted" key={root}>{root}</p>
+                    ))}
+                </div>
+            </SettingsCard>
+
+            {/* Upstream v0.7.11: read at prestartup, so it cannot apply without a ComfyUI restart. */}
+            <SettingsCard title={tr("selectorLoop", "Windows Stability (Event Loop)")}>
+                <div className="nu-fields">
+                    <SwitchRow
+                        label={tr("selectorLoopLabel", "Use the Selector event loop on Windows (restart required)")}
+                        selected={server.windows_selector_event_loop === true || String(server.windows_selector_event_loop) === "true"}
+                        onChange={(next) => void saveSelectorLoop(next)}
+                    />
+                    <p className="nu-muted">{tr("selectorLoopHint", "Turn this on if ComfyUI freezes (all tabs stop responding, even generation) after switching Models lists with many previews. Switches the Windows asyncio loop from Proactor to Selector. Takes effect after restarting ComfyUI; asyncio subprocess features are unavailable and the connection limit is about 512. Leave off if you have no problem.")}</p>
                 </div>
             </SettingsCard>
 

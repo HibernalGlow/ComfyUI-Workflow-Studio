@@ -26,6 +26,7 @@ import { useSnackbar } from "../snackbar.js";
 import { requestApply, requestPromptAppend, getState, touchBatch } from "../store.js";
 import { batch as B } from "core";
 import { confirmDialog, promptDialog } from "../dialogs.js";
+import AutoBadges from "../AutoBadges.js";
 import {
     api,
     models as M,
@@ -102,7 +103,9 @@ function Thumb({ src, alt, fallbackSrc }: { src: string; alt: string; fallbackSr
 function civitaiSample(r: Record_): string | undefined {
     const images = (r.civitai as { images?: unknown } | undefined)?.images;
     const first = Array.isArray(images) ? images[0] : undefined;
-    return typeof first === "string" && first ? first : undefined;
+    // A remote record's URL goes through the same absolute-http(s) filter upstream applies before
+    // touching the DOM, so nothing but a real http(s) endpoint can become an <img src>.
+    return typeof first === "string" ? M.safeRemoteUrl(first) || undefined : undefined;
 }
 
 /** `M.civitaiUrl` gives null when neither a model nor a version id is cached, so no dead link. */
@@ -147,7 +150,7 @@ export default function Models({ navigate }: ViewProps): ReactElement {
     const [newDirName, setNewDirName] = useState("");
     const [cancelFetch, setCancelFetch] = useState<(() => void) | null>(null);
     const [loading, setLoading] = useState(false);
-    const [civitaiProgress, setCivitaiProgress] = useState<{ current: number; total: number } | null>(null);
+    const [civitaiProgress, setCivitaiProgress] = useState<{ current: number; total: number; status?: string } | null>(null);
 
     const loadType = useCallback(
         async (modelType: string, keepSelection = false): Promise<void> => {
@@ -402,6 +405,20 @@ export default function Models({ navigate }: ViewProps): ReactElement {
         }
     };
 
+    /** Upstream's per-status label, `previews` included (v0.7.10). */
+    const statusLabel = (status: string): string => {
+        switch (status) {
+            case "hashing": return tr("civitaiHashing2", "Hashing...");
+            case "fetching": return tr("civitaiFetching", "Fetching...");
+            case "previews": return tr("civitaiSavingPreviews", "Saving previews...");
+            case "cached":
+            case "found": return "✓";
+            case "not_found":
+            case "needs_hash": return "—";
+            default: return "";
+        }
+    };
+
     const fetchAll = async (): Promise<void> => {
         // Upstream skips models already in the Civitai cache and refuses an empty batch: the
         // route answers 400 for a nameless list, which the previous version guaranteed.
@@ -414,14 +431,32 @@ export default function Models({ navigate }: ViewProps): ReactElement {
         setCancelFetch(() => controller.abort());
         setCivitaiProgress({ current: 0, total: targets.length });
         try {
-            await M.batchFetchCivitai(
+            const done = (await M.batchFetchCivitai(
                 type,
                 targets.map((r) => r.name),
-                (p: { current: number; total: number }) => setCivitaiProgress({ current: p.current, total: p.total }),
+                (p: { current: number; total: number; status?: string }) =>
+                    setCivitaiProgress({ current: p.current, total: p.total, status: p.status ?? "" }),
                 controller.signal,
-            );
+            )) as {
+                found?: number; not_found?: number; needs_hash?: number;
+                preview_saved?: number; hashes?: Record<string, string>;
+            } | null;
             setCache(await M.loadCivitaiCache());
-            setMetadata(await M.loadMetadata());
+            const fresh = await M.loadMetadata();
+            // The route writes the hashes it computed itself, but a refetch can still race the
+            // flush — upstream applies the batch's own hashes over what it just read (detail-panel.js).
+            for (const [name, sha] of Object.entries(done?.hashes ?? {})) {
+                const entry = (fresh[name] ?? {}) as Record<string, unknown>;
+                if (!entry.sha256) fresh[name] = { ...entry, sha256: sha };
+            }
+            setMetadata(fresh);
+            if (done) {
+                const previewNote = (done.preview_saved ?? 0) > 0 ? ` (+${done.preview_saved} preview)` : "";
+                snackbar.show({
+                    label: tr("civitaiBatchDone", `CivitAI: ${done.found ?? 0} found, ${done.not_found ?? 0} not found`,
+                        done.found ?? 0, done.not_found ?? 0, done.needs_hash ?? 0) + previewNote,
+                });
+            }
         } catch (err) {
             snackbar.show({ label: (err as Error).message, tone: "error" });
         } finally {
@@ -495,6 +530,9 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                         value={civitaiProgress.total ? civitaiProgress.current / civitaiProgress.total : 0}
                         aria-label={tr("nu.models.civitaiProgress", "Civitai metadata")}
                     />
+                    <span className="nu-muted">
+                        {`${civitaiProgress.current}/${civitaiProgress.total} ${statusLabel(civitaiProgress.status ?? "")}`}
+                    </span>
                     {cancelFetch ? (
                         <MdOutlinedButton onClick={() => cancelFetch()}>
                             {tr("nu.action.cancel", "Cancel")}
@@ -934,6 +972,17 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                 >
                     + badge
                 </MdOutlinedButton>
+                {/* Upstream v0.7.9: one badge per model, derived from the cached CivitAI baseModel. */}
+                <AutoBadges
+                    names={filtered.map((r) => r.name)}
+                    metadata={metadata}
+                    cache={cache}
+                    palette={palette}
+                    onApplied={(next) => {
+                        setPalette(next);
+                        void loadType(type, true);
+                    }}
+                />
             </MdChipSet>
         </div>
     );

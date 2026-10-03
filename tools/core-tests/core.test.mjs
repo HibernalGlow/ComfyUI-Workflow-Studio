@@ -394,6 +394,93 @@ test("models: the badge palette uses a nu_ pref, never the old-UI key", () => {
     assert.equal(models.badgeColor({ WIP: "#0f0" }, "absent"), null,
         "no colour means the caller falls back to a design token, not to a literal");
 });
+
+test("models: the auto-badge family table matches upstream's rule list entry for entry", () => {
+    const src = readFs(new URL("../../static/js/models/auto-badge.js", import.meta.url), "utf8");
+    const body = src.slice(src.indexOf("const FAMILY_RULES"), src.indexOf("const SKIP_VALUES"));
+    const rules = [...body.matchAll(/\[(\/.+?\/i), "([^"]+)", "(#[0-9a-fA-F]{6})"\]/g)];
+    assert.ok(rules.length >= 18, `expected upstream's family rules, parsed ${rules.length} — did upstream add one?`);
+    for (const [, source, label, colour] of rules) {
+        assert.deepEqual(models.baseModelToBadge(label), { label, colour },
+            `${source} must collapse to ${label} ${colour} in both UIs`);
+    }
+    for (const v of ["", "Other", " unknown "]) {
+        assert.equal(models.baseModelToBadge(v), null, `${JSON.stringify(v)} carries no family`);
+    }
+    const unknown = models.baseModelToBadge("Totally-New-Base");
+    assert.equal(unknown.label, "Totally-New-Base", "an unlisted family still gets its raw label");
+    assert.deepEqual(unknown, models.baseModelToBadge("Totally-New-Base"), "and the colour is deterministic");
+});
+
+test("models: the auto-badge plan only counts models whose sha256 is in the CivitAI cache", () => {
+    const metadata = { "a.safetensors": { sha256: "AA" }, "b.safetensors": { sha256: "BB" }, "c.safetensors": {} };
+    const cache = { AA: { baseModel: "Pony" }, BB: { baseModel: "other" } };
+    const plan = models.planAutoBadges(["a.safetensors", "b.safetensors", "c.safetensors"], metadata, cache);
+    assert.deepEqual(plan.assignments, [{ model: "a.safetensors", label: "Pony" }]);
+    assert.equal(plan.noInfo, 2, "the model without cache and the one without a hash both drop out");
+    assert.deepEqual([...plan.labels.entries()], [["Pony", { colour: "#d946ef", count: 1 }]]);
+});
+
+test("models: applying an auto-badge plan appends, skips labels already present, and honours skipExisting", async () => {
+    const saved = [];
+    routes.set("/api/wfm/models/metadata", ({ body }) => { saved.push(body); return json(body); });
+    const metadata = {
+        "new.safetensors": { sha256: "AA" },
+        "wipped.safetensors": { sha256: "BB", badges: ["WIP"] },
+        "pony.safetensors": { sha256: "CC", badges: ["Pony"] },
+    };
+    const plan = {
+        assignments: [
+            { model: "new.safetensors", label: "Pony" },
+            { model: "wipped.safetensors", label: "SDXL" },
+            { model: "pony.safetensors", label: "Pony" },
+        ],
+        labels: new Map([["Pony", { colour: "#d946ef", count: 2 }], ["SDXL", { colour: "#3b82f6", count: 1 }]]),
+    };
+    assert.equal(await models.assignAutoBadges(plan, metadata), 2,
+        "the model already carrying Pony is not rewritten");
+    assert.deepEqual(
+        saved.map((b) => `${b.modelName}:${(b.badges || []).join("+")}`).sort(),
+        ["new.safetensors:Pony", "wipped.safetensors:WIP+SDXL"],
+        "an existing badge is kept and the new one appended",
+    );
+
+    saved.length = 0;
+    assert.equal(await models.assignAutoBadges(plan, metadata, { skipExisting: true }), 1,
+        "skipExisting drops every model that has any badge");
+    assert.deepEqual(saved.map((b) => b.modelName), ["new.safetensors"]);
+
+    assert.deepEqual(models.mergeAutoBadgePalette({ Pony: "#000000" }, plan, { overwrite: true }),
+        { Pony: "#d946ef", SDXL: "#3b82f6" }, "overwrite recolours a label already in the palette");
+    assert.deepEqual(models.mergeAutoBadgePalette({ Pony: "#000000" }, plan, { overwrite: false }),
+        { Pony: "#000000", SDXL: "#3b82f6" }, "and leaves it alone when off");
+});
+
+test("api: the models-dir pair uses upstream's validated route, error included", async () => {
+    routes.set("/api/wfm/settings/models-dir", ({ init }) =>
+        (init.method || "GET") === "POST"
+            ? json({ saved: "E:/Matrix/Models", roots: ["E:/Matrix/Models"], effective: {} })
+            : json({ saved: "", roots: [], effective: {} }));
+    assert.deepEqual(await api.getModelsDir(), { saved: "", roots: [], effective: {} });
+    const written = await api.setModelsDir("E:/Matrix/Models");
+    assert.equal(written.saved, "E:/Matrix/Models", "POST answers with the GET payload verbatim");
+    assert.equal(calls[1].method, "POST");
+    assert.deepEqual(calls[1].body, { models_dir: "E:/Matrix/Models" });
+
+    routes.set("/api/wfm/settings/models-dir", () => json({ error: "Folder not found: E:/Nope" }, 400));
+    await assert.rejects(() => api.setModelsDir("E:/Nope"), /Folder not found: E:\/Nope/,
+        "a missing folder must surface as the server's own message, not a silent save");
+});
+
+test("models: a cache-supplied thumbnail URL must be absolute http(s) before it reaches the DOM", () => {
+    assert.equal(models.safeRemoteUrl("https://image.civitai.com/x/y.png"), "https://image.civitai.com/x/y.png");
+    assert.equal(models.safeRemoteUrl("javascript:alert(1)"), "", "upstream v0.7.11 rejects a scripted scheme");
+    assert.equal(models.safeRemoteUrl("data:image/png;base64,AAAA"), "");
+    assert.equal(models.safeRemoteUrl("/api/wfm/models/preview?type=lora&name=x"), "",
+        "a relative value would let remote data aim at our own API");
+    assert.equal(models.safeRemoteUrl("http://example.com/a b"), "");
+    assert.equal(models.safeRemoteUrl(undefined), "");
+});
 test("models: disabled models load as a Set and default to enabled", async () => {
     routes.set("/api/wfm/models/disabled", () => json(["off.safetensors"]));
     const set = await models.loadDisabled("lora");

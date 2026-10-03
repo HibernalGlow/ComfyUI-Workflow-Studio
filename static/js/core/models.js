@@ -172,6 +172,112 @@ export function badgeColor(palette, label) {
     return typeof c === "string" && c ? c : null;
 }
 
+// --- auto badges from CivitAI base model info -------------------------------
+
+// [pattern, label, colour] — first match wins, so the specific families come first. Kept in sync
+// with upstream's static/js/models/auto-badge.js: both UIs must collapse the same `baseModel`
+// string ("SDXL 1.0", "SD 1.5", "flux.1-dev") into the same label and colour.
+const BADGE_FAMILY_RULES = [
+    [/^pony/i, "Pony", "#d946ef"],
+    [/^illustrious/i, "Illustrious", "#f59e0b"],
+    [/^noobai/i, "NoobAI", "#14b8a6"],
+    [/^sdxl|^sd ?xl/i, "SDXL", "#3b82f6"],
+    [/^sd ?1\.[45]/i, "SD1.5", "#22c55e"],
+    [/^sd ?2/i, "SD2", "#84cc16"],
+    [/^sd ?3/i, "SD3", "#06b6d4"],
+    [/^flux\.?1|^flux$/i, "Flux.1", "#ef4444"],
+    [/^flux\.?2/i, "Flux.2", "#dc2626"],
+    [/^qwen/i, "Qwen", "#8b5cf6"],
+    [/^wan/i, "Wan", "#0ea5e9"],
+    [/^z-?image/i, "Z-Image", "#ec4899"],
+    [/^hidream/i, "HiDream", "#f97316"],
+    [/^hunyuan/i, "Hunyuan", "#6366f1"],
+    [/^chroma/i, "Chroma", "#a855f7"],
+    [/^lumina/i, "Lumina", "#10b981"],
+    [/^auraflow/i, "AuraFlow", "#64748b"],
+    [/^kolors/i, "Kolors", "#e11d48"],
+];
+const BADGE_SKIP_VALUES = new Set(["", "other", "unknown"]);
+const BADGE_FALLBACK_COLOURS = ["#0891b2", "#7c3aed", "#be185d", "#b45309", "#4d7c0f", "#475569"];
+
+/**
+ * Badge derived from a CivitAI `baseModel` string, or `null` when it carries no category. An
+ * unrecognised value still gets a badge (the raw string) with a colour hashed from it, so two runs
+ * over the same library always produce the same palette.
+ */
+export function baseModelToBadge(baseModel) {
+    const raw = String(baseModel || "").trim();
+    if (BADGE_SKIP_VALUES.has(raw.toLowerCase())) return null;
+    for (const [re, label, colour] of BADGE_FAMILY_RULES) {
+        if (re.test(raw)) return { label, colour };
+    }
+    let h = 0;
+    for (const ch of raw) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return { label: raw, colour: BADGE_FALLBACK_COLOURS[h % BADGE_FALLBACK_COLOURS.length] };
+}
+
+/**
+ * Which badge each model of one type would get: `{assignments:[{model,label}], labels:Map(label →
+ * {colour, count}), noInfo}`. Only a model whose cached metadata carries a sha256, and whose sha256
+ * is in the CivitAI cache, contributes — upstream's `autoBadgeNoInfo` counts the rest.
+ */
+export function planAutoBadges(names, metadata, civitaiCache) {
+    const assignments = [];
+    const labels = new Map();
+    let noInfo = 0;
+    for (const model of names || []) {
+        const sha = entryOf(metadata, model).sha256;
+        const civ = sha && civitaiCache?.[sha];
+        const badge = civ ? baseModelToBadge(civ.baseModel) : null;
+        if (!badge) { noInfo++; continue; }
+        assignments.push({ model, label: badge.label });
+        const entry = labels.get(badge.label) || { colour: badge.colour, count: 0 };
+        entry.count++;
+        labels.set(badge.label, entry);
+    }
+    return { assignments, labels, noInfo };
+}
+
+/**
+ * Palette the plan would write: labels actually being applied are added, and an existing label is
+ * recoloured only when `overwrite` is on (upstream's dialog defaults it to checked).
+ */
+export function mergeAutoBadgePalette(palette, plan, { overwrite = true } = {}) {
+    const used = new Set(plan.assignments.map((a) => a.label));
+    const next = { ...(palette || {}) };
+    for (const [label, info] of plan.labels) {
+        if (!used.has(label)) continue;
+        if (!(label in next) || overwrite) next[label] = info.colour;
+    }
+    return next;
+}
+
+/**
+ * Models the plan should touch: with `skipExisting` (upstream's second checkbox) a model that
+ * already carries any badge drops out.
+ */
+export function autoBadgeTargets(plan, metadata, { skipExisting = false } = {}) {
+    return skipExisting
+        ? plan.assignments.filter(({ model }) => entryOf(metadata, model).badges.length === 0)
+        : plan.assignments;
+}
+
+/**
+ * Append each planned label to its model's badges, 8 writes in flight like upstream. Returns how
+ * many models were written — a model already carrying the label is skipped, as is every badged
+ * model when `skipExisting` is on.
+ */
+export async function assignAutoBadges(plan, metadata, { skipExisting = false } = {}) {
+    const todo = autoBadgeTargets(plan, metadata, { skipExisting })
+        .filter(({ model, label }) => !entryOf(metadata, model).badges.includes(label));
+    for (let i = 0; i < todo.length; i += 8) {
+        await Promise.all(todo.slice(i, i + 8).map(({ model, label }) => (
+            saveMetadata(model, { badges: [...entryOf(metadata, model).badges, label] })
+        )));
+    }
+    return todo.length;
+}
+
 // --- enable / disable -------------------------------------------------------
 
 /** `Set` of disabled file names for a type. */
@@ -232,6 +338,23 @@ export function civitaiUrl(record, host = getCivitaiHost()) {
     if (versionId) return `${base}/model-versions/${versionId}`;
     if (modelId) return `${base}/models/${modelId}`;
     return null;
+}
+
+/**
+ * Absolute http(s) only, else "". A cached CivitAI record is remote data, and its `images[0]` is
+ * fed straight into an <img src> — upstream v0.7.11 wrapped every such URL in `safeHttpUrl`
+ * (static/js/util.js) for exactly that reason, so a `javascript:` / `data:` / relative value can
+ * never leave the cache and reach the page. Same rule, same acceptance, no DOM here.
+ */
+export function safeRemoteUrl(url) {
+    const s = String(url ?? "").trim();
+    if (!/^https?:\/\/[^\s]+$/i.test(s)) return "";
+    try {
+        void new URL(s);
+        return s;
+    } catch {
+        return "";
+    }
 }
 
 export function fetchCivitai(type, name) {

@@ -299,6 +299,27 @@ export function setOutputDir(dir) {
     });
 }
 
+/**
+ * GET /api/wfm/settings/models-dir → `{saved, roots:[], effective:{model_type:[]}}`.
+ * `saved` is the `;`-joined list of extra model folders (upstream v0.7.10); `effective` is what
+ * each model type actually resolves to right now, ComfyUI's own paths included.
+ */
+export function getModelsDir() {
+    return request("/api/wfm/settings/models-dir");
+}
+
+/**
+ * POST /api/wfm/settings/models-dir ← `{models_dir}` → the GET payload verbatim.
+ * Every root must exist, else `400 {error:"Folder not found: …"}`; the server stores the
+ * normalised list and clears the model scan cache. `""` resets.
+ */
+export function setModelsDir(dir) {
+    return request("/api/wfm/settings/models-dir", {
+        method: "POST",
+        body: { models_dir: dir },
+    });
+}
+
 /** URL (GET download) for `/api/wfm/settings/export` — `wfm-data-export.json`. */
 export function settingsExportUrl() {
     return "/api/wfm/settings/export";
@@ -720,9 +741,11 @@ export function getCivitaiCache() {
 
 /**
  * POST /api/wfm/models/civitai/batch — Server-Sent Events.
- * Events: `progress` `{current,total,model,status}` (status one of
- * hashing/fetching/cached/found/not_found) and a final `done`
- * `{total,found,not_found,errors,hashes,preview_saved}`.
+ * Events: `progress` `{current,total,model,status}` (status one of hashing/fetching/previews/
+ * cached/found/not_found/needs_hash — `previews` is the trailing preview-download pass added in
+ * v0.7.10) and a final `done` `{total,found,not_found,errors,needs_hash,hashes,preview_saved}`.
+ * `hashes` must be merged into the caller's metadata immediately: the server flushes them, but a
+ * refetch can still race the write.
  *
  * @param {string} type
  * @param {string[]} models
@@ -786,7 +809,12 @@ export function toggleGroupEnabled(modelType, groupName, enabled) {
     });
 }
 
-/** GET /api/wfm/models/files?type= → sorted relative paths (`/`-separated). */
+/**
+ * GET /api/wfm/models/files?type= → sorted relative paths (`/`-separated).
+ * Already includes the roots added by the `models_dir` setting (`_get_model_dirs` merges them), so
+ * a caller of this route needs no second `extra_only=1` request. That variant exists for the
+ * object_info-based listings, which do not see extra roots.
+ */
 export function listModelFiles(type) {
     return request("/api/wfm/models/files", { query: { type } });
 }
