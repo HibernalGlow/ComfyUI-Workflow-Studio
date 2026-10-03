@@ -117,6 +117,8 @@ UI-side changes must be hand-ported.
 |---|---|---|---|---|
 | — | baseline: no upstream commit merged since the fork point | — | — | open this ledger at the first upstream release after the switch |
 | 2026-09-25 | not a merge — a fork-side edit to upstream's file | `static/js/comfyui-workflow.js` (+46/−23) | same file | `convertUiToApi` legacy `widgets_values` normalisation extended to parent-graph nodes (§5.1). Expect a conflict here if upstream touches `_stripLegacyLinkedWidgetValues`, `_simulateWidgetValues` or that loop: keep upstream's loop body, keep the `_withoutLegacyLinkedWidgetEntries` call, then re-run `node --test tools/core-tests/workflow-convert.test.mjs` and `node tools/audit-workflow-conversion.mjs` |
+| 2026-10-03 | **v0.7.4 → v0.7.11**, 36 commits, merge `e28e4c6` | 37 files, +5199/−349 (Video Edit multi-track, Ming Image, Decision Model, CivitAI auto badges + extra models folder + two security fixes, Windows selector loop) | the merge itself: old UI + backend, no `frontend/src` change | Only 7 files overlapped and 2 conflicted, both because the fork and upstream fixed the same widget-slot shift (§5.1). Fused by taking upstream's helper and keeping the fork's sanitised `find_preview_image` join plus its disabled-file preview rule. Evidence: 109/109 core tests then, and a line-level check that every line either side added since `6b262a9` survived — 1 upstream line replaced on purpose, 29 fork lines dropped as the duplicate helper, 0 lost anywhere else; `main..HEAD` numstat per shared file equals `6b262a9..upstream/main` exactly. Baseline re-recorded 185→192 |
+| 2026-10-03 | same range, the client features that land in tabs the new UI ships | `static/js/models/auto-badge.js`, `py/routes/settings_routes.py`, `static/js/settings-tab.js`, `static/js/models/detail-panel.js`, `py/services/civitai_service.py`, `static/js/util.js` | `core/models.js`, `core/api.js`, `frontend/src/AutoBadges.tsx`, `views/Models.tsx`, `views/Settings.tsx` | CivitAI auto badges (rule table parsed out of upstream's own file in a drift test), `settings/models-dir`, the Windows selector-loop switch, the `previews`/`needs_hash` batch states, and `safeRemoteUrl` for upstream v0.7.11's URL filter. **Not ported:** Decision Model settings (localStorage-only, no consumer in the new UI) and everything in Video Edit / Nodes / Image Edit / Tagger / AI TOOL / Feeder / Help / Lab / Metadata (brief §5 scope). 115/115 core tests, tsc + build clean, nothing opened in a browser |
 
 ---
 
@@ -524,16 +526,24 @@ gone unchecked. A1 now fails on that too, and the ownership pattern moved into
 refactor owns. Both new branches were armed by temporarily deleting the pinned entry and appending
 one line to the file; each went red, and both files were then restored byte-identically (`cmp`).
 
-**Merging a future upstream change to this file is now a known conflict point.** Take upstream's
-version of the loop, keep the `_withoutLegacyLinkedWidgetEntries` call, re-run
-`node --test tools/core-tests/workflow-convert.test.mjs` and then the audit tool — the test fails
-loudly if the call was dropped, and the audit names any workflow whose conversion regressed.
+**Merging a future upstream change to this file was a known conflict point — and it did conflict
+(v0.7.5, `cee7ef1`).** Upstream fixed the same defect independently in the same cycle: it extracted
+the detection as `_normalizeLinkedWidgetValues()` and called it from the parent-graph loop, which is
+what the fork had done with `_withoutLegacyLinkedWidgetEntries()`. The two bodies are the same
+algorithm line for line. The merge kept **upstream's function and both of its call sites** and
+deleted the fork's copy, so this region is now identical to upstream and the file is purely additive
+(+24/−0: CR LoRA Stack and OTUNetLoader* node extraction). Rule for next time: when upstream grows a
+second copy of logic the fork already extracted, take upstream's and delete the fork's — do not keep
+both. What makes that safe is `tools/core-tests/workflow-convert.test.mjs`: its five tests were
+written against the fork's version and passed unchanged on upstream's. Re-run them, then
+`node tools/audit-workflow-conversion.mjs` (box-gated: it needs a live `/object_info`), after any
+merge touching this loop — the tests fail loudly if the normalisation was dropped.
 
 
 
 ### 5.2 Parity ledger — brief §6's 12 rows
 
-"unit" = asserted by `node --test tools/core-tests/` (107 tests); "live" = observed in the
+"unit" = asserted by `node --test tools/core-tests/` (115 tests as of the v0.7.11 sync); "live" = observed in the
 browser against the built bundle; "A1" = the upstream-hash baseline gate proving the named
 upstream file still matches the hash recorded in `tools/upstream-baseline.txt` — byte-identity to
 *upstream* holds for every such file except the ones listed in `tools/upstream-deviations.txt`
@@ -662,6 +672,14 @@ upstream-owned files already dirty in the working tree (`docs/BATCH-DISPATCH.md`
 the gate working as designed — that is the deviation-record-plus-re-baseline decision §5.3 and the
 footer describe, and it is the user's to make; `tools/gen-upstream-baseline.sh` was deliberately
 **not** re-run here.
+
+Superseded on 2026-10-03: the first real upstream merge landed (`e28e4c6`, v0.7.4 → v0.7.11), and
+`tools/gen-upstream-baseline.sh` **was** re-run as part of it (185 → 192 entries, the three new
+upstream files included). A1 is green again, `check-newui` is **27 passed, 1 failed** — only **A5a**
+on the same `Artists.tsx:1051` literal — and the seven files listed above are no longer dirty drift:
+six of them are upstream's own changes applied, and `docs/BATCH-DISPATCH.md` plus the fork-original
+`py/*` / `static/*` files are simply pinned at their current hash. `node --test tools/core-tests/` is
+115/115. The `package.json` pin mismatch below is untouched and still true.
 
 Also noticed, deliberately not changed: the working tree's `package.json` pins `yarn@1.22.22`
 where the committed value is `pnpm@12.4.2`, while `a034545` deleted `yarn.lock` because pnpm owns
@@ -866,7 +884,7 @@ pnpm build:watch             # rebuild into static/ on change
 pnpm dev                     # serve static/ + reverse-proxy ComfyUI (default http://127.0.0.1:8188)
                              # then open http://localhost:8000/wfm_static/newui.html
 pnpm test:core               # node --test tools/core-tests/
-bash tools/check-newui.sh    # every mechanical gate (A1 prints "1 approved fork edit(s)")
+bash tools/check-newui.sh    # every mechanical gate (A1 prints "2 approved fork edit(s)")
 bash tools/gate-selftest.sh  # proof the gates can still go red
 bash tools/live-verify.sh    # read-only link ladder + the exact commands for what gates cannot
                              #   reach (browser sweeps, the GPU rows, the Civitai/move writes);
