@@ -20,6 +20,22 @@
    still wins. Only the roles we do not define (emphasized-*, *-axes) come in. */
 @import "@material/web/labs/gb/styles/typography/md-typography-tokens.css";
 
+/* Self-hosted variable face, latin subset only (326 kB woff2), so the ROND axis
+   that the emphasised roles ask for actually exists. The package ships an
+   all-subsets full.css; importing it would have emitted nine multilingual faces
+   for a UI that renders in three languages, hence the single local @font-face.
+   The path is relative rather than a bare specifier because this is a url(),
+   and the fork ships no CDN dependency for fonts. */
+@font-face {
+  font-family: "Roboto Flex";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 1000;
+  font-stretch: 25% 151%;
+  src: url("../../node_modules/@fontsource-variable/roboto-flex/files/roboto-flex-latin-full-normal.woff2")
+    format("woff2-variations");
+}
+
 
 :root {
   --nu-top-bar-height: 64px;
@@ -39,7 +55,10 @@ body {
   background: var(--md-sys-color-background);
   color: var(--md-sys-color-on-background);
   font: var(--md-sys-typescale-body-medium);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", sans-serif;
+  /* "Roboto Flex" leads so the latin text picks up the ROND axis; it carries no
+     CJK glyphs, so "Noto Sans CJK SC" stays in the same position it had before
+     and Chinese UI text is unaffected. */
+  font-family: "Roboto Flex", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", sans-serif;
 }
 
 /* --- app grid ------------------------------------------------------------ */
@@ -1009,12 +1028,11 @@ md-filled-button.nu-btn--danger {
    here is a duration + easing approximation, not a spring. Stated here so
    nobody later reads "Expressive" as "we shipped springs".
 
-   INERT TODAY: font-variation-settings: "ROND" 100 does nothing until a
-   ROND-capable face is loaded. This app ships no @font-face at all and its
-   --md-ref-typeface-* refs resolve to system-ui (static/css/newui/m3-tokens.css
-   :175-176), so the round-axis half of Expressive typography is a hook, not a
-   result. The weight and size half of the emphasised roles IS live, because the
-   composites resolve to numbers any font honours.
+   ROND is live only because the latin subset of Roboto Flex is self-hosted right
+   above (the axes come from @fontsource-variable/roboto-flex, MIT) and
+   --md-ref-typeface-* lists it ahead of system-ui. Drop either half and
+   font-variation-settings: "ROND" 100 goes inert again - the emphasised roles
+   then deliver only their weight and size, which is a different look.
 
    Values come from @material/web@2.5.0/labs/gb/styles/* (Apache-2.0) and
    static/css/newui/m3-tokens.css; nothing below repeats a literal.

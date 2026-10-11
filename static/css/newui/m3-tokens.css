@@ -172,8 +172,8 @@
   /* typeface — nothing is fetched (offline plugin UI, no @import). Brand and
      plain resolve to the same system stack; the seam exists for a future
      display face. Layer 3 may only read layer 2, hence the re-export below. */
-  --md-ref-typeface-brand: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --md-ref-typeface-plain: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --md-ref-typeface-brand: "Roboto Flex", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --md-ref-typeface-plain: "Roboto Flex", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* ---------------------------------------------------------------------------
