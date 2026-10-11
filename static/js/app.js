@@ -5,9 +5,14 @@
 
 import { initI18n, t } from "./i18n.js";
 import { getSettings } from "./util.js";
+import { setVramToastSink } from "./vram-prepare.js";
 
 // Initialize i18n before anything else
 initI18n();
+
+// vram-prepare.js reports through an injected sink so it never has to import this module (see its
+// header). This shell is the old UI's, so it hands over its own toast helper.
+setVramToastSink((message, type, duration) => showToast(message, type, duration));
 
 // ============================================
 // Toast Notification

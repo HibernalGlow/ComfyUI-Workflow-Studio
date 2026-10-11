@@ -4,10 +4,13 @@
  * Boundary rules (FRONTEND-OPTIMIZATION-BRIEF.md §2.2):
  *   1. Everything under static/js/core/ is DOM-free. The DOM contract between
  *      core and newui is *zero element ids* — newui owns every node it renders.
- *   2. core/ may only depend on these five upstream modules, always through the
+ *   2. core/ may only depend on these upstream modules, always through the
  *      facades re-exported below:
  *          ../comfyui-client.js  ../comfyui-workflow.js  ../i18n.js
- *          ../util.js            ../json-highlight.js
+ *          ../util.js            ../json-highlight.js    ../vram-prepare.js
+ *      comfyui-client.js pulls in vram-prepare.js and decision-client.js on its own; check 7 of
+ *      tools/core-tests/import-check.mjs walks the whole transitive graph and keeps the old UI's
+ *      entry module (app.js and every *-tab.js) out of it.
  *   3. Callers keep state; core stays stateless. Functions take what they need
  *      and return what happened — no module-level mutable singletons.
  *   4. Every backend call goes through `api`. New code must never write a bare
@@ -38,7 +41,7 @@ export * as presets from "./presets.js";
 export * as widgets from "./widgets.js";
 
 // --- the few helpers every view needs, flattened for convenience ------------
-export { comfyUI } from "./client.js";
+export { comfyUI, setVramToastSink } from "./client.js";
 export { comfyWorkflow } from "./workflow.js";
 export { t, tr, initI18n, getLang, setLang } from "./i18n.js";
 export {

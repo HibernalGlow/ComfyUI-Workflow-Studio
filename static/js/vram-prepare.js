@@ -12,12 +12,20 @@
  */
 
 import { t } from "./i18n.js";
-// app.js is the old UI's entry module: it and the tab graph behind it touch `window` at load
-// time, so a static import would drag every tab into any consumer that only wants the client —
-// and the framework-free core layer does import this file (via comfyui-client.js). Toasts are
-// cosmetic, so resolve them lazily and never block on the result.
+// The toast lives in app.js (it needs `#wfm-toast`). Importing app.js here — even lazily — makes
+// every consumer of this module pull in the old UI's whole tab graph: the framework-free core layer
+// reaches this file through comfyui-client.js, and the bundler then emits the old UI as a chunk the
+// new UI would fetch in the middle of a generation. So the sink is injected instead: app.js
+// registers showToast at startup, the new UI registers its snackbar, and an unregistered caller
+// loses only the notification, never the work.
+let _toastSink = null;
+
+export function setVramToastSink(sink) {
+    _toastSink = typeof sink === "function" ? sink : null;
+}
+
 function toast(message, tone, ms) {
-    import("./app.js").then(({ showToast }) => showToast(message, tone, ms)).catch(() => {});
+    if (_toastSink) _toastSink(message, tone, ms);
 }
 import { readJsonStorage, getAiBackendDefaultUrl } from "./util.js";
 import { getDecisionSettings } from "./decision-client.js";

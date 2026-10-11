@@ -105,7 +105,7 @@ try {
     const index = await import(join(CORE, "index.js"));
     const required = [
         "comfyUI", "comfyWorkflow", "t", "initI18n", "getSettings", "escapeHtml",
-        "readPref", "writePref", "highlightJSON", "runGeneration",
+        "readPref", "writePref", "highlightJSON", "runGeneration", "setVramToastSink",
         "TYPE_LABELS", "MODEL_TYPES", "FETCH_MAP", "GENUI_TYPE_MAP", "SORT_COLUMNS",
         "api", "batch", "pipeline", "style", "wildcard", "lora", "models", "image",
         "client", "workflow", "i18n", "settings", "json", "modelConstants",
@@ -174,8 +174,11 @@ if (srcFiles.length && banned === 0) ok("no React module imports an upstream UI 
 // the old UI's entry module, whose tab graph touches `window` at load time. The poison arrived
 // two hops away, so the only thing that noticed was the runtime import in check 1, as a bare
 // `ReferenceError: window is not defined`. Walk the graph instead.
-// Only static `from "…"` specifiers are walked on purpose: a lazy `import("./app.js")` inside a
-// function is exactly the sanctioned way to reach a cosmetic UI helper from this layer.
+// Both `from "…"` and `import("…")` specifiers are walked: a lazy edge is just as real to the
+// bundler — measured here, replacing the static import with `import("./app.js")` still emitted the
+// whole old UI as a 990 kB chunk that the React page would fetch mid-generation. The layer needs
+// no edge at all, so cosmetic UI reachers come in through an injected sink (see
+// vram-prepare.js setVramToastSink, wired to the snackbar in App.tsx).
 const REPO = resolve(here, "../..");
 const UI_ENTRY = /^static\/js\/(app|main)\.js$|^static\/js\/[a-z0-9-]+-tab\.js$/;
 const walked = new Set();
@@ -189,7 +192,7 @@ while (pending.length) {
     if (UI_ENTRY.test(rel)) { reachedUi.push(rel); continue; }
     let src = "";
     try { src = readFileSync(file, "utf8"); } catch { continue; }
-    for (const m of src.matchAll(/from\s+["'](\.[^"']+)["']/g)) {
+    for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*)["'](\.[^"']+)["']/g)) {
         pending.push(resolve(dirname(file), m[1]));
     }
 }

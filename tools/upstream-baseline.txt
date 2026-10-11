@@ -100,7 +100,7 @@ e3a6913eec96f299eb50a7e5db8dc2bc67a2be25	static/css/tagger-tab.css
 b3701ad798aefb059677047227185f7f5336de6b	static/favicon.svg
 16ecbe1e79740729df4eb11aa5f34766b7a63fdb	static/js/ai-settings-modal.js
 0cf62ffc7380c3735d076c089a6dbe37bf38e056	static/js/ai-tab.js
-607f5d2c06b5274c49768ac89ba9319b47d0b4dd	static/js/app.js
+af384077ccd4721bc706b01267efc34f561376fa	static/js/app.js
 b4c17c5060c269af03ada0c34301722b937d4f01	static/js/artists-tab.js
 b5336ca8250ae1b36f35360abd21d7eaa7222555	static/js/comfyui-client.js
 5624fe37d53027a31457fd1e5e93a21bc51be053	static/js/comfyui-editor.js
@@ -160,7 +160,7 @@ ff21b0782e0d3a379d44d22213d9665cf68a5ebf	static/js/video-plan-tab.js
 5d77a1560d040665565f5e6f199842131df2ab85	static/js/video-tab.js
 2f8ddfd7f6c0875376a0e8233a9d2ad4feb138e6	static/js/video-utils.js
 e9751b1d353b2af708db66181ff4df6090943d4f	static/js/video-workflow.js
-752b2ae8ed24a8a751dd7be98c6650fb956274df	static/js/vram-prepare.js
+f94368a3ff897cc44341f2cf36f10dca4ca2aa9d	static/js/vram-prepare.js
 eff3de9a31ed4f79fd4a8f767ea3f4b60058890d	static/js/workflow-compat-check.js
 c63eaa751524bad0a97c2449464f5018608bb6fd	static/js/workflow-tab.js
 b02db8db1e95c8a83781a436ad7d61aa9ec18b6f	templates/index.html

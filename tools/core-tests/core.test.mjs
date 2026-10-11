@@ -1054,6 +1054,38 @@ test("batch: a sampler run on a composite sampler writes into the KSamplerSelect
 // gen presets (parity item 7)
 // ===========================================================================
 // ===========================================================================
+// vram-prepare.js — the toast seam the new UI needs (upstream v0.7.13).
+// Without a registered sink this module has no way to report at all: the old UI's helper lives in
+// app.js, and any edge to it (static *or* lazy) pulls the whole tab graph in. See import-check #7.
+// ===========================================================================
+test("vram prepare: the report goes to the injected sink with the right tone", async () => {
+    const vram = await import("../../static/js/vram-prepare.js");
+    const seen = [];
+    vram.setVramToastSink((message, tone) => seen.push(`${tone}: ${message}`));
+    try {
+        routes.set("/api/wfm/vram/prepare", () => json({
+            status: "ok", mode: "all",
+            unloaded: [{ name: "qwen2.5:7b" }], failed: [], unreachable: [],
+            free_before_mb: 1024, free_after_mb: 9216,
+        }));
+        await vram.unloadAllOllamaModels("http://127.0.0.1:11434");
+        assert.equal(seen.length, 1, "one report per call, through the sink only");
+        assert.match(seen[0], /^success: /, "a clean unload is not an error toast");
+
+        seen.length = 0;
+        routes.set("/api/wfm/vram/prepare", () => json({ message: "nvidia-smi missing" }, 500));
+        await vram.unloadAllOllamaModels("http://127.0.0.1:11434");
+        assert.match(seen[0], /^error: .*nvidia-smi missing/, "the server's own failure text is forwarded");
+    } finally {
+        vram.setVramToastSink(null);
+    }
+    seen.length = 0;
+    routes.set("/api/wfm/vram/prepare", () => json({ status: "ok", unloaded: [], failed: [], free_before_mb: 0, free_after_mb: 0 }));
+    await vram.unloadAllOllamaModels("http://127.0.0.1:11434");
+    assert.deepEqual(seen, [], "an unregistered caller stays quiet instead of loading a UI module");
+});
+
+// ===========================================================================
 // pipeline.js — the generation orchestrator (parity item 3's submission half).
 // `comfyUI` is a plain object literal upstream, so generate/interrupt are
 // replaceable here; nothing in these tests touches a real ComfyUI.

@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState, type ReactElement } f
 import { MdIconButton, MdIcon, MdLinearProgress } from "./md.js";
 import { useHashRoute, VIEWS, FIRST_VIEW, type ViewDef, type ViewId } from "./useHashRoute.js";
 import { SnackbarProvider, useSnackbar } from "./snackbar.js";
-import { comfyUI, initI18n, readPref, writePref, tr } from "core";
+import { comfyUI, initI18n, readPref, setVramToastSink, writePref, tr } from "core";
 
 /**
  * Views are code-split so that opening the page on a remote ComfyUI box does not
@@ -57,6 +57,17 @@ function Shell(): ReactElement {
 
     const active: ViewDef = VIEWS.find((v) => v.id === view) ?? FIRST_VIEW;
     const [visitedViews, setVisitedViews] = useState<Set<ViewId>>(() => new Set([active.id]));
+
+    /*
+     * Upstream v0.7.13's pre-generation VRAM unload reports through an injected sink
+     * (static/js/vram-prepare.js). Registering it here is what keeps the old UI's app.js out of
+     * this bundle: without a sink the unload still runs, it just stays quiet.
+     */
+    useEffect(() => {
+        setVramToastSink((message: string, tone?: string) =>
+            snackbar.show({ label: String(message), tone: tone === "error" ? "error" : "neutral" }));
+        return () => setVramToastSink(null);
+    }, [snackbar]);
 
     useEffect(() => {
         setVisitedViews((prev) => {
