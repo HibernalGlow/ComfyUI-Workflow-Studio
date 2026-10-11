@@ -14,6 +14,12 @@
 
 @import "../../static/css/newui/m3-tokens.css";
 @import "../../static/css/newui/theme-m3.css";
+/* The emphasised roles are not in the hand-rolled token layer; Vite resolves
+   this bare specifier, and because the library declares them inside
+   @layer md.sys.typescale, every --md-sys-typescale-* this file already owns
+   still wins. Only the roles we do not define (emphasized-*, *-axes) come in. */
+@import "@material/web/labs/gb/styles/typography/md-typography-tokens.css";
+
 
 :root {
   --nu-top-bar-height: 64px;
@@ -980,3 +986,145 @@ md-filled-button.nu-btn--danger {
   font-weight: 500;
 }
 
+
+/* ============================================================================
+   Material 3 Expressive
+   ============================================================================
+   Classic M3 gives every component one radius, one control height and a 200 ms
+   standard ease. Expressive changes four things that are actually shippable on
+   the web, and this section is where the fork commits to them:
+
+     1. shape families - containers carry a larger, deliberately ASYMMETRIC pair
+        of radii while their contents stay pill-shaped (this is the single most
+        recognisable difference from classic M3);
+     2. emphasised type roles that drive the ROND variable axis, so headings read
+        rounder/heavier instead of just bigger;
+     3. spatial motion - shape and scale animate together over the extra-long
+        tiers on the emphasised curve;
+     4. the labs/gb components that classic M3 does not have at all
+        (md-gb-button's five-step scale, split button, badge).
+
+   Springs are NOT expressible in CSS - no browser ships a spring() easing and
+   labs/gb keeps its $spring-* tokens on the JS/WAAPI side - so the spatial feel
+   here is a duration + easing approximation, not a spring. Stated here so
+   nobody later reads "Expressive" as "we shipped springs".
+
+   INERT TODAY: font-variation-settings: "ROND" 100 does nothing until a
+   ROND-capable face is loaded. This app ships no @font-face at all and its
+   --md-ref-typeface-* refs resolve to system-ui (static/css/newui/m3-tokens.css
+   :175-176), so the round-axis half of Expressive typography is a hook, not a
+   result. The weight and size half of the emphasised roles IS live, because the
+   composites resolve to numbers any font honours.
+
+   Values come from @material/web@2.5.0/labs/gb/styles/* (Apache-2.0) and
+   static/css/newui/m3-tokens.css; nothing below repeats a literal.
+   ========================================================================== */
+
+:root {
+  /* 1. pill controls. Classic M3 uses a 20px rounded rectangle here. */
+  --md-filled-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-outlined-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-text-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-filled-tonal-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-elevated-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-icon-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-filled-icon-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-outlined-icon-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-icon-button-state-layer-shape: var(--md-sys-shape-corner-full);
+  --md-fab-container-shape: var(--md-sys-shape-corner-xxl);
+  --md-fab-small-container-shape: var(--md-sys-shape-corner-xl);
+  --md-fab-large-container-shape: var(--md-sys-shape-corner-xxl);
+
+  /* Outlined fields go pill too; the notch keeps its own smaller radius so the
+     floating label does not sit on the curve (container vs contents pairing). */
+  --md-outlined-text-field-container-shape: var(--md-sys-shape-corner-xl);
+  --md-outlined-select-container-shape: var(--md-sys-shape-corner-xl);
+  --md-switch-track-shape: var(--md-sys-shape-corner-full);
+  --md-switch-handle-shape: var(--md-sys-shape-corner-full);
+
+  /* 3. spatial motion defaults for anything that reads these instead of a
+     literal cubic-bezier. */
+  --nu-motion-spatial: var(--md-sys-motion-duration-extra-long1);
+  --nu-motion-easing: var(--md-sys-motion-easing-emphasized);
+}
+
+/* 1. asymmetric container family on the app's own surfaces. The rule the fork
+   uses: a surface rounds fully at its top edge and keeps a smaller, same-family
+   radius where content leaves it, so nested radii stay concentric instead of
+   stacking two identical curves. */
+.nu-card,
+.nu-panel {
+  border-radius: var(--md-sys-shape-corner-xxl) var(--md-sys-shape-corner-xxl)
+    var(--md-sys-shape-corner-xl) var(--md-sys-shape-corner-xl);
+}
+
+.nu-shot {
+  border-radius: var(--md-sys-shape-corner-xl);
+}
+
+.nu-shot__hit img,
+.nu-shot__full {
+  border-radius: var(--md-sys-shape-corner-lg-increased) var(--md-sys-shape-corner-lg-increased)
+    var(--md-sys-shape-corner-xs) var(--md-sys-shape-corner-xs);
+}
+
+/* 2. emphasised type on the roles that carry hierarchy - card heads, the view
+   title and the empty/error statements. Everything else keeps the classic
+   roles, because Expressive's own guidance is emphasis by contrast, not by
+   making all text heavy. */
+.nu-card__title {
+  font: var(--md-sys-typescale-emphasized-title-lg);
+  font-variation-settings: var(--md-sys-typescale-emphasized-title-lg-axes);
+}
+
+.nu-top-bar__title {
+  font: var(--md-sys-typescale-emphasized-headline-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-headline-sm-axes);
+}
+
+.nu-muted,
+.nu-empty,
+.nu-error {
+  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
+}
+
+/* 3. shape morph + scale on press. Only under no-preference, and the
+   reduced-motion block at the top of this file already kills transitions. */
+@media (prefers-reduced-motion: no-preference) {
+  md-filled-button,
+  md-outlined-button,
+  md-text-button,
+  md-filled-tonal-button,
+  md-elevated-button,
+  .nu-card,
+  .nu-shot__hit {
+    transition:
+      transform var(--nu-motion-spatial) var(--nu-motion-easing),
+      border-radius var(--nu-motion-spatial) var(--nu-motion-easing),
+      box-shadow var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+  }
+
+  md-filled-button:active,
+  md-outlined-button:active,
+  md-text-button:active,
+  md-filled-tonal-button:active,
+  md-elevated-button:active,
+  .nu-shot__hit:active {
+    transform: scale(0.96);
+  }
+
+  /* Expressive's "grow into focus" gesture: the pressed control takes one step
+     more rounding than it rests at, which is what a spring would have done. */
+  md-filled-button:active,
+  md-outlined-button:active,
+  md-elevated-button:active {
+    --md-filled-button-container-shape: var(--md-sys-shape-corner-lg-increased);
+    --md-outlined-button-container-shape: var(--md-sys-shape-corner-lg-increased);
+    --md-elevated-button-container-shape: var(--md-sys-shape-corner-lg-increased);
+  }
+
+  .nu-card:hover {
+    border-radius: var(--md-sys-shape-corner-xxl) var(--md-sys-shape-corner-xxl)
+      var(--md-sys-shape-corner-xl-increased) var(--md-sys-shape-corner-xl-increased);
+  }
+}
