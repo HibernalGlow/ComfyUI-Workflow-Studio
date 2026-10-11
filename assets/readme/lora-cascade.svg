@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660"
+     role="img" aria-labelledby="cas-title cas-desc">
+  <title id="cas-title">CR LoRA Stack cascade: measured weights survive the chunking</title>
+  <desc id="cas-desc">The fork's lora_trigger_service chunks the matched LoRA list into groups of three, because one ComfyUI CR LoRA Stack node holds only three slots. Each chunk becomes its own stack node with an id of max_existing_id + 1, the stacks are chained through their lora_stack sockets, and the final chain is applied by CR Apply LoRA Stack next to the model and CLIP inputs. Per-LoRA model weights are preserved slot by slot; in API format the service creates the extra stacks, in UI format it fills existing stacks and warns when they overflow.</desc>
+
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1200" y2="660" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#131a2e"/>
+      <stop offset="60%" stop-color="#18223c"/>
+      <stop offset="100%" stop-color="#131a2e"/>
+    </linearGradient>
+    <linearGradient id="wave3" x1="0" y1="0" x2="600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4a9eff"/>
+      <stop offset="100%" stop-color="#7b68ee"/>
+    </linearGradient>
+    <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7fb8ff"/>
+    </marker>
+    <marker id="ar3v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#a99cf5"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="660" rx="26" fill="url(#bg3)"/>
+  <path d="M0 628 C 170 592, 320 652, 480 622 C 640 592, 790 646, 940 618 C 1060 596, 1140 632, 1200 614"
+        fill="none" stroke="url(#wave3)" stroke-width="2" stroke-opacity="0.3"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif">
+    <text x="56" y="74" fill="#eef2ff" font-size="40" font-weight="700">CR LoRA Stack cascade</text>
+    <text x="56" y="108" fill="#b6c1e4" font-size="22">一个 Stack 节点只有 3 个槽位 · 匹配出的 N 个 LoRA 自动分成 ⌈N/3⌉ 级串联，逐槽保留实测权重</text>
+  </g>
+
+  <!-- matched list -->
+  <g id="matched">
+    <text x="56" y="150" fill="#7fb8ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20">matched · 7 LoRA</text>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">
+      <rect x="56" y="166" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="194" fill="#dfe6ff">anima-turbo-lora</text><text x="324" y="194" fill="#8ee0b8" text-anchor="end">0.80</text>
+      <rect x="56" y="224" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="252" fill="#dfe6ff">lino_v2</text><text x="324" y="252" fill="#8ee0b8" text-anchor="end">1.10</text>
+      <rect x="56" y="282" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="310" fill="#dfe6ff">footRepair_v2</text><text x="324" y="310" fill="#8ee0b8" text-anchor="end">0.88</text>
+      <rect x="56" y="340" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="368" fill="#dfe6ff">ustirrup-step1500</text><text x="324" y="368" fill="#8ee0b8" text-anchor="end">1.20</text>
+      <rect x="56" y="398" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="426" fill="#dfe6ff">stirrupjob-000050</text><text x="324" y="426" fill="#8ee0b8" text-anchor="end">1.10</text>
+      <rect x="56" y="456" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="484" fill="#dfe6ff">ustirrup-step2000</text><text x="324" y="484" fill="#8ee0b8" text-anchor="end">0.88</text>
+      <rect x="56" y="514" width="286" height="44" rx="12" fill="#1f2b4d" stroke="#2f4270"/>
+      <text x="74" y="542" fill="#dfe6ff">stirrup3-1</text><text x="324" y="542" fill="#8ee0b8" text-anchor="end">0.63</text>
+    </g>
+  </g>
+
+  <!-- stacks -->
+  <g id="stacks">
+    <g>
+      <rect x="400" y="166" width="380" height="124" rx="16" fill="#1a2440" stroke="#7b68ee" stroke-opacity="0.55"/>
+      <text x="422" y="194" fill="#a99cf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-size="18">CR LoRA Stack · node 1036</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">
+        <text x="422" y="224" fill="#dfe6ff">1  anima-turbo-lora</text><text x="756" y="224" fill="#8ee0b8" text-anchor="end">0.80</text>
+        <text x="422" y="252" fill="#dfe6ff">2  lino_v2</text><text x="756" y="252" fill="#8ee0b8" text-anchor="end">1.10</text>
+        <text x="422" y="280" fill="#dfe6ff">3  footRepair_v2</text><text x="756" y="280" fill="#8ee0b8" text-anchor="end">0.88</text>
+      </g>
+    </g>
+    <g>
+      <rect x="400" y="316" width="380" height="124" rx="16" fill="#1a2440" stroke="#7b68ee" stroke-opacity="0.55"/>
+      <text x="422" y="344" fill="#a99cf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-size="18">CR LoRA Stack · node 1070</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">
+        <text x="422" y="374" fill="#dfe6ff">1  ustirrup-step1500</text><text x="756" y="374" fill="#8ee0b8" text-anchor="end">1.20</text>
+        <text x="422" y="402" fill="#dfe6ff">2  stirrupjob-000050</text><text x="756" y="402" fill="#8ee0b8" text-anchor="end">1.10</text>
+        <text x="422" y="430" fill="#dfe6ff">3  ustirrup-step2000</text><text x="756" y="430" fill="#8ee0b8" text-anchor="end">0.88</text>
+      </g>
+    </g>
+    <g>
+      <rect x="400" y="466" width="380" height="124" rx="16" fill="#1a2440" stroke="#7b68ee" stroke-opacity="0.55"/>
+      <text x="422" y="494" fill="#a99cf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-size="18">CR LoRA Stack · node 1071 (new)</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">
+        <text x="422" y="524" fill="#dfe6ff">1  stirrup3-1</text><text x="756" y="524" fill="#8ee0b8" text-anchor="end">0.63</text>
+        <text x="422" y="552" fill="#5f6c92">2  None</text>
+        <text x="422" y="580" fill="#5f6c92">3  None</text>
+      </g>
+    </g>
+    <line x1="342" y1="194" x2="400" y2="194" stroke="#7fb8ff" stroke-width="2" marker-end="url(#ar3)"/>
+    <line x1="342" y1="370" x2="400" y2="370" stroke="#7fb8ff" stroke-width="2" marker-end="url(#ar3)"/>
+    <line x1="342" y1="536" x2="400" y2="536" stroke="#7fb8ff" stroke-width="2" marker-end="url(#ar3)"/>
+    <line x1="590" y1="290" x2="590" y2="316" stroke="#a99cf5" stroke-width="2.5" marker-end="url(#ar3v)"/>
+    <line x1="590" y1="440" x2="590" y2="466" stroke="#a99cf5" stroke-width="2.5" marker-end="url(#ar3v)"/>
+    <text x="604" y="312" fill="#7f8bb2" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">lora_stack</text>
+    <text x="604" y="462" fill="#7f8bb2" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">lora_stack</text>
+  </g>
+
+  <!-- apply + sampler -->
+  <g id="apply">
+    <rect x="826" y="176" width="150" height="56" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="901" y="200" fill="#98a3c8" font-size="20" text-anchor="middle">MODEL</text>
+    <text x="901" y="222" fill="#dfe6ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" text-anchor="middle">node 848</text>
+    <rect x="994" y="176" width="150" height="56" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="1069" y="200" fill="#98a3c8" font-size="20" text-anchor="middle">CLIP</text>
+    <text x="1069" y="222" fill="#dfe6ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" text-anchor="middle">node 786</text>
+
+    <rect x="826" y="300" width="318" height="96" rx="16" fill="#1f2b4d" stroke="#4a9eff" stroke-opacity="0.7"/>
+    <text x="850" y="336" fill="#e6ebff" font-size="22">CR Apply LoRA Stack</text>
+    <text x="850" y="366" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">node 1037 · one apply pass</text>
+
+    <rect x="826" y="466" width="318" height="86" rx="16" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="850" y="502" fill="#e6ebff" font-size="22">KSampler / downstream</text>
+    <text x="850" y="530" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">Anima INT8 UNet</text>
+
+    <line x1="901" y1="232" x2="901" y2="300" stroke="#7fb8ff" stroke-width="2" marker-end="url(#ar3)"/>
+    <line x1="1069" y1="232" x2="1069" y2="300" stroke="#7fb8ff" stroke-width="2" marker-end="url(#ar3)"/>
+    <line x1="780" y1="348" x2="826" y2="348" stroke="#a99cf5" stroke-width="2.5" marker-end="url(#ar3v)"/>
+    <line x1="985" y1="396" x2="985" y2="466" stroke="#7fb8ff" stroke-width="2.5" marker-end="url(#ar3)"/>
+  </g>
+
+  <!-- rules band -->
+  <g id="rules">
+    <rect x="56" y="600" width="1088" height="40" rx="12" fill="#1b2540" stroke="#2b3a63"/>
+    <text x="74" y="627" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">(n+2)//3 stacks · ids = max_existing_id + 1 · UI format: fills existing stacks, warns on overflow</text>
+  </g>
+</svg>

@@ -1,11 +1,12 @@
 """Regenerate README.index.md / DEVLOG.index.md from README.md / DEVLOG.md.
 
 README.md and DEVLOG.md are excluded from graphify's semantic extraction
-(.graphifyignore) because they are too large for reliable local-Ollama
-extraction: big chunks make the model summarize in prose instead of emitting
-JSON, and time out on slower models/hardware. These condensed index files are
-extracted instead. Run this whenever README.md or DEVLOG.md changes, then
-`graphify --update` to refresh the graph.
+(.graphifyignore) and these condensed index files are extracted instead. DEVLOG.md
+is excluded because it is too large for reliable local-Ollama extraction: big chunks
+make the model summarize in prose instead of emitting JSON, and time out on slower
+models/hardware. README.md is excluded so the graph gets the fork's intro block plus
+one stable entry per section rather than the markup-heavy homepage. Run this whenever
+README.md or DEVLOG.md changes, then `graphify --update` to refresh the graph.
 
 Usage:
     python tools/generate_doc_index.py [readme|devlog|all]
@@ -24,42 +25,24 @@ ROOT = Path(__file__).resolve().parent.parent
 def generate_readme_index() -> Path:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    details_re = re.compile(
-        r"<details>\s*<summary><h3>(.*?)</h3></summary>\s*(.*?)</details>",
-        re.S,
-    )
-    bullet_re = re.compile(r"^- \*\*(.+?)\*\*", re.M)
-
-    feature_lines: list[str] = []
-    for title, body in details_re.findall(text):
-        names = bullet_re.findall(body)
-        feature_lines.append(f"### {title.strip()}")
-        if names:
-            feature_lines.append(", ".join(names))
-        feature_lines.append("")
-
-    tail_start = text.find("## Installation")
-    tail = text[tail_start:] if tail_start != -1 else ""
-
-    intro_end = text.find("## Screenshots")
-    intro = text[:intro_end].strip() if intro_end != -1 else ""
+    intro = text.split("\n## ", 1)[0].strip()
+    headings = [h.strip() for h in re.findall(r"^## (.+)$", text, re.M)]
 
     out = [
-        "# README Index — ComfyUI-Workflow-Studio",
+        "# README Index — ComfyUI-Workflow-Studio (fork)",
         "",
-        "Condensed index of README.md: intro summary, feature names per tab (full "
-        "descriptions live in the excluded README.md), and the installation/usage/"
-        "requirements/project-structure sections verbatim. Exists so graphify can "
-        "extract this without feeding the full README (with its screenshot table) to "
-        "the local Ollama model. Regenerate with "
+        "Condensed index of README.md: the fork's intro summary verbatim, then one "
+        "line per section (the full prose, tables, code blocks and SVG embeds live in "
+        "the excluded README.md). Exists so graphify can extract this without feeding "
+        "the homepage markup to the local Ollama model. Regenerate with "
         "`python tools/generate_doc_index.py readme` whenever README.md changes.",
         "",
         intro,
         "",
-        "## Features (tab -> feature names)",
+        "## Sections",
         "",
-        *feature_lines,
-        tail,
+        *[f"- {h}" for h in headings],
+        "",
     ]
 
     content = "\n".join(out)

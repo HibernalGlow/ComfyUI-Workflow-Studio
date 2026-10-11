@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"
+     role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">Decoupled development: local Studio UI, remote ComfyUI GPU</title>
+  <desc id="arch-desc">A Node.js reverse proxy (tools/dev-server.js, started with yarn dev) serves the Studio SPA on localhost:8000 and passes every ComfyUI engine route through to port 8188 on a Windows machine over an SSH tunnel. Static files are read from the local working copy, so front-end edits land on Cmd+R with no ComfyUI restart; model loading, sampling and image writing stay on the remote GPU.</desc>
+
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1200" y2="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#131a2e"/>
+      <stop offset="60%" stop-color="#18223c"/>
+      <stop offset="100%" stop-color="#131a2e"/>
+    </linearGradient>
+    <linearGradient id="wave2" x1="0" y1="0" x2="600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4a9eff"/>
+      <stop offset="100%" stop-color="#7b68ee"/>
+    </linearGradient>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7fb8ff"/>
+    </marker>
+    <marker id="arv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#a99cf5"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="600" rx="26" fill="url(#bg2)"/>
+  <path d="M0 572 C 160 536, 300 596, 460 566 C 620 536, 760 590, 900 562 C 1020 540, 1120 578, 1200 560"
+        fill="none" stroke="url(#wave2)" stroke-width="2" stroke-opacity="0.35"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif">
+    <text x="56" y="76" fill="#eef2ff" font-size="40" font-weight="700">Local UI, remote GPU</text>
+    <text x="56" y="110" fill="#b6c1e4" font-size="22">前端在 Mac 上热改即时生效，模型加载与出图全部留在 Windows 算力机</text>
+  </g>
+
+  <!-- MAC -->
+  <g id="mac">
+    <rect x="56" y="140" width="430" height="330" rx="20" fill="#17203a" stroke="#2b3a63"/>
+    <text x="80" y="174" fill="#7fb8ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20">MAC · 开发/派发端</text>
+
+    <rect x="80" y="196" width="382" height="86" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="100" y="228" fill="#e6ebff" font-size="22">Browser · localhost:8000/wfm</text>
+    <text x="100" y="258" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">SPA served from local static/</text>
+
+    <rect x="80" y="300" width="382" height="86" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="100" y="332" fill="#e6ebff" font-size="22">yarn dev</text>
+    <text x="100" y="362" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">tools/dev-server.js · http-proxy</text>
+
+    <text x="80" y="424" fill="#b6c1e4" font-size="20">Edit static/js/*.js → Cmd+R</text>
+    <text x="80" y="450" fill="#98a3c8" font-size="20">no ComfyUI restart, no git push</text>
+  </g>
+
+  <!-- tunnel -->
+  <g id="tunnel">
+    <text x="506" y="206" fill="#a99cf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">ssh -N -L</text>
+    <text x="506" y="230" fill="#a99cf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">8188 → 8188</text>
+    <line x1="486" y1="262" x2="706" y2="262" stroke="#7fb8ff" stroke-width="2.5" marker-end="url(#ar)"/>
+    <text x="506" y="288" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">/prompt /view</text>
+    <text x="506" y="312" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">/object_info</text>
+    <text x="506" y="336" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">/api/wfm</text>
+    <line x1="706" y1="372" x2="486" y2="372" stroke="#a99cf5" stroke-width="2.5" marker-end="url(#arv)"/>
+    <text x="506" y="398" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">/ws progress</text>
+    <text x="506" y="422" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">image bytes</text>
+  </g>
+
+  <!-- WINDOWS -->
+  <g id="win">
+    <rect x="706" y="140" width="438" height="330" rx="20" fill="#17203a" stroke="#2b3a63"/>
+    <text x="730" y="174" fill="#a99cf5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="20">WINDOWS · win30902 · 算力端</text>
+
+    <rect x="730" y="196" width="390" height="76" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="750" y="226" fill="#e6ebff" font-size="22">ComfyUI · 127.0.0.1:8188</text>
+    <text x="750" y="252" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">prompt queue · custom nodes</text>
+
+    <rect x="730" y="286" width="390" height="76" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="750" y="316" fill="#e6ebff" font-size="22">RTX 3090 sampling</text>
+    <text x="750" y="342" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">OTUnetLoaderW8A8 · Anima INT8</text>
+
+    <rect x="730" y="376" width="390" height="76" rx="14" fill="#1f2b4d" stroke="#2f4270"/>
+    <text x="750" y="406" fill="#e6ebff" font-size="22">output/ + LoRA library</text>
+    <text x="750" y="432" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">mirrored back to Mac Outputs/</text>
+  </g>
+
+  <!-- two run modes -->
+  <g id="modes">
+    <rect x="56" y="494" width="1088" height="72" rx="16" fill="#1b2540" stroke="#2b3a63"/>
+    <text x="80" y="524" fill="#dfe6ff" font-size="20">Two ways to run the same tree —</text>
+    <text x="80" y="550" fill="#98a3c8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18">as a custom node: http://127.0.0.1:8188/wfm      ·      decoupled dev: yarn dev → http://localhost:8000/wfm</text>
+  </g>
+</svg>
