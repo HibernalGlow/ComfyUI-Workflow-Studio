@@ -106,6 +106,7 @@ try {
     const required = [
         "comfyUI", "comfyWorkflow", "t", "initI18n", "getSettings", "escapeHtml",
         "readPref", "writePref", "highlightJSON", "runGeneration", "setVramToastSink",
+        "getVramSettings", "saveVramSettings", "requestVramPrepare", "describeVramResult",
         "TYPE_LABELS", "MODEL_TYPES", "FETCH_MAP", "GENUI_TYPE_MAP", "SORT_COLUMNS",
         "api", "batch", "pipeline", "style", "wildcard", "lora", "models", "image",
         "client", "workflow", "i18n", "settings", "json", "modelConstants",

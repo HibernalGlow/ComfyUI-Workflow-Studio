@@ -42,6 +42,15 @@ export * as widgets from "./widgets.js";
 
 // --- the few helpers every view needs, flattened for convenience ------------
 export { comfyUI, setVramToastSink } from "./client.js";
+// The VRAM mode/target pair is shared with the old UI on purpose (same precedent as decision D3 for
+// wfm_settings): comfyUI.queuePrompt() reads it in both shells, so a newui-only key would make the
+// setting silently disagree. Views reach it through these names and never touch the storage key.
+export {
+    getVramSettings,
+    saveVramSettings,
+    requestVramPrepare,
+    describeVramResult,
+} from "./client.js";
 export { comfyWorkflow } from "./workflow.js";
 export { t, tr, initI18n, getLang, setLang } from "./i18n.js";
 export {

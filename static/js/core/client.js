@@ -12,4 +12,10 @@ export { comfyUI } from "../comfyui-client.js";
  * in app.js, which the new UI must never load, so the React shell injects its own sink. An
  * unregistered caller still does the work — it just stays quiet.
  */
-export { setVramToastSink } from "../vram-prepare.js";
+export {
+    setVramToastSink,
+    getVramSettings,
+    saveVramSettings,
+    requestVramPrepare,
+    describeVramResult,
+} from "../vram-prepare.js";

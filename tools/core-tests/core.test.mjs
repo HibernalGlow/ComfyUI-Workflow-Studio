@@ -1085,6 +1085,18 @@ test("vram prepare: the report goes to the injected sink with the right tone", a
     assert.deepEqual(seen, [], "an unregistered caller stays quiet instead of loading a UI module");
 });
 
+test("vram settings: mode and target are validated on read, and saved under upstream's shared key", async () => {
+    const vram = await import("../../static/js/vram-prepare.js");
+    assert.equal(vram.getVramSettings().mode, "off", "no VRAM work happens unless the user asks for it");
+    store.set("wfm_vram_settings", JSON.stringify({ mode: "nonsense", targetGb: 999 }));
+    const clamped = vram.getVramSettings();
+    assert.equal(clamped.mode, "off", "an unknown mode falls back to the default");
+    assert.equal(clamped.targetGb, 8, "an out-of-range target falls back to 8 GB");
+    assert.equal(vram.saveVramSettings({ mode: "auto", targetGb: 12 }).targetGb, 12);
+    assert.equal(JSON.parse(store.get("wfm_vram_settings")).mode, "auto",
+        "the React Settings card writes the same key comfyUI.queuePrompt() reads");
+});
+
 // ===========================================================================
 // pipeline.js — the generation orchestrator (parity item 3's submission half).
 // `comfyUI` is a plain object literal upstream, so generate/interrupt are
