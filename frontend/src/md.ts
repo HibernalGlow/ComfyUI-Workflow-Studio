@@ -211,3 +211,53 @@ export const MdFilledCard = define<FilledCardEl, NoEvents>("md-filled-card");
 export const MdOutlinedCard = define<OutlinedCardEl, NoEvents>("md-outlined-card");
 export const MdElevatedCard = define<ElevatedCardEl, NoEvents>("md-elevated-card");
 export const MdItem = define<ItemEl, NoEvents>("md-item");
+
+// --- Material 3 Expressive (labs/gb) ---------------------------------------
+/*
+ * Google's own expressive implementation, shipped inside @material/web 2.5.0 at
+ * labs/gb (Apache-2.0). These are the components whose geometry is the visible
+ * difference from classic M3: a five-step size scale (xs…xl) instead of one
+ * height, the pill/rounded shape families that morph on press, `square`
+ * variants, badges, split buttons and expressive list/menu rows.
+ *
+ * Element types come from HTMLElementTagNameMap, which each lab module fills in
+ * - so a library rename is a type error here rather than a silently `any` prop.
+ *
+ * The side-effect imports below are hoisted, so the elements are registered
+ * before these define() calls run.
+ */
+import "@material/web/labs/gb/components/button/md-gb-button.js";
+import "@material/web/labs/gb/components/fab/md-gb-fab.js";
+import "@material/web/labs/gb/components/card/md-gb-card.js";
+import "@material/web/labs/gb/components/badge/md-gb-badge.js";
+import "@material/web/labs/gb/components/iconbutton/md-gb-icon-button.js";
+import "@material/web/labs/gb/components/splitbutton/md-gb-split-button.js";
+import "@material/web/labs/gb/components/list/md-gb-list.js";
+import "@material/web/labs/gb/components/list/md-gb-list-item.js";
+import "@material/web/labs/gb/components/menu/md-gb-menu.js";
+import "@material/web/labs/gb/components/menu/md-gb-menu-item.js";
+import "@material/web/labs/gb/components/menu/md-gb-menu-group.js";
+import "@material/web/labs/gb/components/divider/md-gb-divider.js";
+
+export const MdGbButton = define<HTMLElementTagNameMap["md-gb-button"], NoEvents>("md-gb-button");
+export const MdGbFab = define<HTMLElementTagNameMap["md-gb-fab"], NoEvents>("md-gb-fab");
+export const MdGbCard = define<HTMLElementTagNameMap["md-gb-card"], NoEvents>("md-gb-card");
+export const MdGbBadge = define<HTMLElementTagNameMap["md-gb-badge"], NoEvents>("md-gb-badge");
+export const MdGbIconButton = define<HTMLElementTagNameMap["md-gb-icon-button"], NoEvents>("md-gb-icon-button");
+export const MdGbSplitButton = define<HTMLElementTagNameMap["md-gb-split-button"], typeof FORM>("md-gb-split-button", FORM);
+export const MdGbList = define<HTMLElementTagNameMap["md-gb-list"], NoEvents>("md-gb-list");
+export const MdGbListItem = define<HTMLElementTagNameMap["md-gb-list-item"], typeof FORM>("md-gb-list-item", FORM);
+export const MdGbMenu = define<HTMLElementTagNameMap["md-gb-menu"], {
+    onOpening: "opening";
+    onOpened: "opened";
+    onClosing: "closing";
+    onClosed: "closed";
+}>("md-gb-menu", {
+    onOpening: "opening",
+    onOpened: "opened",
+    onClosing: "closing",
+    onClosed: "closed",
+});
+export const MdGbMenuItem = define<HTMLElementTagNameMap["md-gb-menu-item"], NoEvents>("md-gb-menu-item");
+export const MdGbMenuGroup = define<HTMLElementTagNameMap["md-gb-menu-group"], NoEvents>("md-gb-menu-group");
+export const MdGbDivider = define<HTMLElementTagNameMap["md-gb-divider"], NoEvents>("md-gb-divider");

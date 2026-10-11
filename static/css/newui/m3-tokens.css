@@ -235,6 +235,14 @@
   --md-sys-shape-corner-lg: 16px;
   --md-sys-shape-corner-xl: 28px;
   --md-sys-shape-corner-full: 9999px;
+  /* Material 3 Expressive additions - values copied from
+     node_modules/@material/web@2.5.0/labs/gb/styles/shape/md-shape-tokens.css (Apache-2.0), which
+     adds the *-increased steps and a 48px xxl. `corner-full` stays a plain pill radius here rather
+     than the library's 50cqmin: the fork uses it on fixed-size chips and rails where a container
+     relative radius would change shape with width. */
+  --md-sys-shape-corner-lg-increased: 20px;
+  --md-sys-shape-corner-xl-increased: 32px;
+  --md-sys-shape-corner-xxl: 48px;
 
   /* elevation — M3 key + ambient shadow pairs (rgb literals allowed here only) */
   --md-sys-elevation-level0: none;
@@ -313,6 +321,11 @@
   --md-sys-motion-duration-long2: 500ms;
   --md-sys-motion-duration-long3: 550ms;
   --md-sys-motion-duration-long4: 600ms;
+  /* Expressive adds a fourth tier; labs/gb md-motion-tokens.css, same 50ms cadence. */
+  --md-sys-motion-duration-extra-long1: 700ms;
+  --md-sys-motion-duration-extra-long2: 800ms;
+  --md-sys-motion-duration-extra-long3: 900ms;
+  --md-sys-motion-duration-extra-long4: 1000ms;
   /* motion — easings */
   --md-sys-motion-easing-linear: cubic-bezier(0, 0, 1, 1);
   --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -321,6 +334,16 @@
   --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
   --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  /* spacing scale - labs/gb/styles/space/md-space-tokens.css: one 8px unit, quarter steps. The
+     app uses the named tiers below instead of calc() everywhere so a change here is auditable. */
+  --md-sys-space-unit: 8px;
+  --md-sys-space-50: 4px;
+  --md-sys-space-100: 8px;
+  --md-sys-space-200: 16px;
+  --md-sys-space-300: 24px;
+  --md-sys-space-400: 32px;
+  --md-sys-space-600: 48px;
+
   /* state layer opacities */
   --md-sys-state-hover-opacity: 0.08;
   --md-sys-state-focus-opacity: 0.12;
