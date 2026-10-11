@@ -5,7 +5,7 @@
 
 import { showToast } from "./app.js";
 import { t } from "./i18n.js";
-import { loadFileIntoMetadataTab, extractPrompts, buildPromptItem } from "./metadata-tab.js";
+import { loadFileIntoMetadataTab, extractPrompts, extractPromptsFromParameters, buildPromptItem } from "./metadata-tab.js";
 import { loadWorkflowIntoEditor } from "./generate-tab.js";
 import { escapeHtml, setupSearchClearBtn, getAiBackendDefaultUrl } from "./util.js";
 import { comfyWorkflow } from "./comfyui-workflow.js";
@@ -24,9 +24,11 @@ const API = {
     imageMeta:      (path)     => `/wfm/gallery/image/meta?path=${encodeURIComponent(path)}`,
     imageWorkflow:  (path)     => `/wfm/gallery/image/workflow?path=${encodeURIComponent(path)}`,
     serveImage:     (path)     => `/wfm/gallery/image/serve?path=${encodeURIComponent(path)}`,
-    thumb:          (path, w = 256) => `/wfm/gallery/image/thumb?path=${encodeURIComponent(path)}&w=${w}`,
+    // 音声の波形サムネイルは描画仕様を変えた際にブラウザのHTTPキャッシュ(24h)を回避するため版数を付ける
+    thumb:          (path, w = 256) => `/wfm/gallery/image/thumb?path=${encodeURIComponent(path)}&w=${w}${isAudioFile({ path }) ? `&v=${WAVE_THUMB_VERSION}` : ""}`,
     bulkFavorite:   "/wfm/gallery/bulk/favorite",
     bulkGroup:      "/wfm/gallery/bulk/group",
+    convert:        "/wfm/gallery/convert",
     saveImageMeta:              `/wfm/gallery/image/meta`,
     toggleFavorite:             `/wfm/gallery/image/favorite`,
     groups:                     `/wfm/gallery/groups`,
@@ -58,11 +60,36 @@ function _isReservedGroup(name) {
     return _RESERVED_GROUPS.includes(name);
 }
 
-// 拡張子から動画ファイル（mp4）かどうかを判定する。
+// 拡張子から動画ファイル（mp4/webm）かどうかを判定する。
 // 一覧アイテムは path/filename、詳細メタ(get_image_metadata)は ext フィールドを持つため両対応。
+const VIDEO_EXTENSIONS = [".mp4", ".webm"];
 export function isVideoFile(img) {
-    const source = img?.ext || img?.filename || img?.path || "";
-    return source.toLowerCase().endsWith(".mp4");
+    const source = (img?.ext || img?.filename || img?.path || "").toLowerCase();
+    return VIDEO_EXTENSIONS.some(ext => source.endsWith(ext));
+}
+
+// 音声の波形サムネイルの版数。py/services/gallery_service.py の WAVE_THUMB_VERSION と同じ値にすること。
+const WAVE_THUMB_VERSION = "wave2";
+
+// 音声ファイル（ComfyUIの音楽生成出力）。サムネイルはサーバー生成の波形画像、再生は<audio>。
+const AUDIO_EXTENSIONS = [".wav", ".mp3", ".ogg", ".m4a", ".flac", ".opus"];
+export function isAudioFile(img) {
+    const source = (img?.ext || img?.filename || img?.path || "").toLowerCase();
+    return AUDIO_EXTENSIONS.some(ext => source.endsWith(ext));
+}
+
+// プレビュー/ライトボックス/比較用のメディア要素HTML。音声は波形画像＋<audio controls>。
+function mediaElementHtml(img, { imgClass, videoAttrs = "controls", audioAttrs = "controls", title = "" }) {
+    const src = API.serveImage(img.path);
+    const titleAttr = title ? ` title="${title}"` : "";
+    if (isVideoFile(img)) return `<video src="${src}" class="${imgClass}" ${videoAttrs}${titleAttr}></video>`;
+    if (isAudioFile(img)) {
+        return `<div class="wfm-gallery-audio-box">
+            <img src="${API.thumb(img.path, 512)}" class="${imgClass} wfm-gallery-audio-wave" alt="${escapeHtml(img.filename)}"${titleAttr}>
+            <audio src="${src}" class="wfm-gallery-audio-player" ${audioAttrs}></audio>
+        </div>`;
+    }
+    return `<img src="${src}" class="${imgClass}" alt="${escapeHtml(img.filename)}"${titleAttr}>`;
 }
 
 // ComfyUI Comic Creater からiframe越しに画像を受け取り、Generate UIのImage入力スロットへ直接セットする（I2I連携）。
@@ -275,6 +302,14 @@ function formatDate(mtime) {
     return new Date(mtime * 1000).toLocaleString();
 }
 
+// cc_nanobananaフォルダの画像はComfyUIワークフローを埋め込んでいないため、Promptタブに
+// 表示する情報が無い(Nanobananaタブのprompt欄と役割が重複する)。フォルダ名そのもので判定する
+// (history.jsonlに対応エントリが無い古い画像でも、フォルダが同じなら同様に隠す)。
+function isNanobananaFolderImage(img) {
+    const parts = (img.path || "").split(/[\\/]/);
+    return parts[parts.length - 2] === "cc_nanobanana";
+}
+
 function formatDuration(seconds) {
     const total = Math.round(seconds);
     const m = Math.floor(total / 60);
@@ -288,7 +323,7 @@ async function openImageInMetadataTab(img) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
         const file = new File([blob], img.filename, { type: blob.type || "image/png" });
-        await loadFileIntoMetadataTab(file);
+        await loadFileIntoMetadataTab(file, img.path);
     } catch (e) {
         showToast(t("errorWithMsg", e.message), "error");
     }
@@ -663,10 +698,10 @@ function createThumbCard(img) {
     card.appendChild(imgEl);
 
     // 動画ファイルは再生アイコンバッジを重ねて表示（サムネイル自体は先頭フレームのJPEG）
-    if (isVideoFile(img)) {
+    if (isVideoFile(img) || isAudioFile(img)) {
         const playBadge = document.createElement("div");
         playBadge.className = "wfm-gallery-thumb-video-badge";
-        playBadge.textContent = "▶";
+        playBadge.textContent = isAudioFile(img) ? "♪" : "▶";
         card.appendChild(playBadge);
     }
 
@@ -870,6 +905,12 @@ function updateBulkBar() {
     } else {
         bar.style.display = "none";
     }
+    // Convert ボタンは音声/動画を含む選択時のみ表示
+    const convertBtn = document.getElementById("wfm-gallery-bulk-convert");
+    if (convertBtn) {
+        convertBtn.style.display = count > 0 && [...state.selectedImages].some(p => isConvertible(imageByPath(p))) ? "" : "none";
+        convertBtn.textContent = t("galleryBulkConvert");
+    }
     // Compare ボタンは 2〜4 枚選択時のみ表示
     const compareBtn = document.getElementById("wfm-gallery-bulk-compare");
     if (compareBtn) {
@@ -972,17 +1013,18 @@ async function loadImageDetail(img) {
     // プレビュー（mp4は<video controls>、それ以外は<img>）
     const preview = document.getElementById("wfm-gallery-detail-preview");
     const isVideo = isVideoFile(img);
-    const mediaHtml = isVideo
-        ? `<video src="${API.serveImage(img.path)}" class="wfm-gallery-detail-img" controls title="Double-click to enlarge"></video>`
-        : `<img src="${API.serveImage(img.path)}" class="wfm-gallery-detail-img" alt="${escapeHtml(img.filename)}" title="Double-click to enlarge">`;
+    const isAudio = isAudioFile(img);
+    // 音声は波形の下にプレイヤーが要るため、固定高さの枠をやめて内容なりの高さにする
+    preview.classList.toggle("wfm-gallery-detail-preview--audio", isAudio);
     preview.innerHTML = `
         <div class="wfm-gallery-preview-wrapper">
-            ${mediaHtml}
+            ${mediaElementHtml(img, { imgClass: "wfm-gallery-detail-img", title: "Double-click to enlarge" })}
         </div>
     `;
     const previewMediaEl = preview.querySelector(isVideo ? "video" : "img");
     previewMediaEl.addEventListener("dblclick", () => openLightbox(img));
     if (isVideo) applyStoredVideoVolume(previewMediaEl);
+    if (isAudio) applyStoredVideoVolume(preview.querySelector("audio"));
 
     // ファイル名
     document.getElementById("wfm-gallery-detail-filename").textContent = img.filename;
@@ -998,6 +1040,8 @@ async function loadImageDetail(img) {
     // メモ
     document.getElementById("wfm-gallery-memo").value = img.memo || "";
 
+    updatePromptTabVisibility(isNanobananaFolderImage(img));
+
     // 埋め込みメタデータとworkflow取得
     try {
         const [metaRes, wfRes] = await Promise.all([
@@ -1009,15 +1053,17 @@ async function loadImageDetail(img) {
         _updateCopyCanvasBtn();
         renderImagePromptSection(metaRes.image_prompt);
         renderDimensionInfo(metaRes);
+        renderNanobananaTab(metaRes.nanobanana);
         // Promptタブは prompt_workflow (API形式優先) を使う。トップレベルとサブグラフに
         // 独立した複数系統を持つワークフローでは workflow (UI形式) からの抽出だと
         // トップレベル系統しか拾えないことがあるため（Metadataタブと同じ優先順位に揃える）。
-        renderPromptTab(wfRes.prompt_workflow ?? state.embeddedWorkflow);
+        renderPromptTab(wfRes.prompt_workflow ?? state.embeddedWorkflow, metaRes.embedded);
     } catch (e) {
         renderWorkflowJson(null);
         _updateCopyCanvasBtn();
         renderImagePromptSection(null);
         renderDimensionInfo(null);
+        renderNanobananaTab(null);
         renderPromptTab(null);
     }
 
@@ -1032,6 +1078,53 @@ function renderDimensionInfo(metaRes) {
     if (metaRes?.width && metaRes?.height) parts.push(`${metaRes.width}×${metaRes.height}`);
     if (metaRes?.duration) parts.push(formatDuration(metaRes.duration));
     el.textContent = parts.length ? parts.join(" · ") : "";
+}
+
+// cc_nanobananaフォルダの画像はComfyUIワークフローを埋め込んでいないためPromptタブに
+// 表示する情報が無い。隠す際、Promptタブが選択中だったらInfoタブに切り替える。
+function updatePromptTabVisibility(hide) {
+    const promptTabBtn = document.querySelector('.wfm-gallery-detail-tab-btn[data-detail-tab="prompt"]');
+    if (!promptTabBtn) return;
+    promptTabBtn.style.display = hide ? "none" : "";
+    if (hide && promptTabBtn.classList.contains("active")) {
+        promptTabBtn.classList.remove("active");
+        document.querySelector('.wfm-gallery-detail-tab-btn[data-detail-tab="info"]')?.click();
+    }
+}
+
+// cc_nanobananaフォルダの画像のみ、history.jsonlから対応エントリ(server側で検索済み)を
+// タブ内容に反映する。対応エントリが無ければタブ自体を隠す(他フォルダの画像を見た時も同様)。
+function renderNanobananaTab(entry) {
+    const tabBtn = document.getElementById("wfm-gallery-detail-tab-nanobanana");
+    if (!tabBtn) return;
+    if (!entry) {
+        tabBtn.style.display = "none";
+        if (tabBtn.classList.contains("active")) {
+            tabBtn.classList.remove("active");
+            // Promptタブはcc_nanobananaフォルダでは非表示にしているため、代わりにInfoへ戻す
+            document.querySelector('.wfm-gallery-detail-tab-btn[data-detail-tab="info"]')?.click();
+        }
+        return;
+    }
+    tabBtn.style.display = "";
+    const set = (id, label, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value ? `${label}: ${value}` : "";
+    };
+    set("wfm-gallery-nb-engine", "Engine", entry.engine);
+    set("wfm-gallery-nb-model", "Model", entry.model);
+    const size = entry.image_size || (entry.width && entry.height ? `${entry.width}×${entry.height}` : "");
+    set("wfm-gallery-nb-size", "Size", size);
+    set("wfm-gallery-nb-seed", "Seed", entry.seed != null ? String(entry.seed) : "");
+    set("wfm-gallery-nb-timestamp", "Date", entry.timestamp);
+    const promptEl = document.getElementById("wfm-gallery-nb-prompt");
+    if (promptEl) promptEl.value = entry.prompt || "";
+    const negSection = document.getElementById("wfm-gallery-nb-negative-section");
+    const negEl = document.getElementById("wfm-gallery-nb-negative");
+    if (negSection && negEl) {
+        if (entry.negative_prompt) { negEl.value = entry.negative_prompt; negSection.style.display = ""; }
+        else { negEl.value = ""; negSection.style.display = "none"; }
+    }
 }
 
 function renderImagePromptSection(imagePrompt) {
@@ -1078,7 +1171,7 @@ function renderWorkflowJson(workflow) {
 // 複数候補があるケース(PromptStyler等で正負が複数生成される場合)に対応するため、
 // Metadataタブと同じ POS/NEGリスト → クリックで全文表示のUI(buildPromptItem)をそのまま
 // 再利用する。選択画像を切り替えるたびにマウス操作無しで読めるよう、先頭項目を自動選択する。
-function renderPromptTab(workflow) {
+function renderPromptTab(workflow, embedded = null) {
     const listEl = document.getElementById("wfm-gallery-prompt-list");
     const fullArea = document.getElementById("wfm-gallery-prompt-full");
     const fullLabel = document.getElementById("wfm-gallery-prompt-full-label");
@@ -1088,12 +1181,14 @@ function renderPromptTab(workflow) {
     fullArea.value = "";
     fullLabel.textContent = "";
 
-    if (!workflow) {
+    // ワークフローが無い画像はA1111/Forge/Fooocusの parameters テキストから抽出する
+    const extracted = workflow ? extractPrompts(workflow) : extractPromptsFromParameters(embedded);
+    if (!extracted) {
         listEl.innerHTML = `<div class="wfm-meta-item" style="opacity:0.6;">No workflow embedded in this image.</div>`;
         return;
     }
 
-    const { positives, negatives, texts } = extractPrompts(workflow);
+    const { positives, negatives, texts } = extracted;
     const allPrompts = [
         ...positives.map(p => ({ type: "positive", text: p })),
         ...negatives.map(p => ({ type: "negative", text: p })),
@@ -1641,16 +1736,40 @@ function openMoveModal(paths) {
     overlay.className = "wfm-gallery-lightbox";
     overlay.innerHTML = `
         <div class="wfm-gallery-move-modal">
-            <div class="wfm-gallery-move-modal-title">Move ${paths.length} image(s) to folder:</div>
-            <select id="wfm-gallery-move-dest-sel" class="wfm-select wfm-gallery-move-dest-sel">
-                ${destinations.map(f => `<option value="${escapeHtml(f.abs_path)}">${escapeHtml(f.name)}</option>`).join("")}
-            </select>
+            <div class="wfm-gallery-move-modal-title">${escapeHtml(t("moveToFolderTitle", paths.length))}</div>
+            <input type="text" id="wfm-gallery-move-filter" class="wfm-input wfm-gallery-move-filter" placeholder="${escapeHtml(t("galleryMoveFilterPlaceholder"))}" autocomplete="off">
+            <select id="wfm-gallery-move-dest-sel" class="wfm-select wfm-gallery-move-dest-sel" size="8"></select>
             <div class="wfm-gallery-move-modal-footer">
                 <button id="wfm-gallery-move-confirm" class="wfm-btn wfm-btn-primary">Move</button>
                 <button id="wfm-gallery-move-cancel" class="wfm-btn">Cancel</button>
             </div>
         </div>
     `;
+
+    const destSel = overlay.querySelector("#wfm-gallery-move-dest-sel");
+    const filterInput = overlay.querySelector("#wfm-gallery-move-filter");
+    const confirmBtn = overlay.querySelector("#wfm-gallery-move-confirm");
+    // フォルダ名・パスの部分一致（大文字小文字無視、空白区切りはAND）で絞り込む
+    const renderDestinations = () => {
+        const words = filterInput.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const matched = destinations.filter(f => {
+            const hay = `${f.name} ${f.abs_path}`.toLowerCase();
+            return words.every(w => hay.includes(w));
+        });
+        destSel.innerHTML = matched
+            .map(f => `<option value="${escapeHtml(f.abs_path)}" title="${escapeHtml(f.abs_path)}">${escapeHtml(f.name)}</option>`)
+            .join("");
+        if (matched.length > 0) destSel.selectedIndex = 0;
+        confirmBtn.disabled = matched.length === 0;
+    };
+    filterInput.addEventListener("input", renderDestinations);
+    filterInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); if (!confirmBtn.disabled) confirmBtn.click(); }
+        else if (e.key === "ArrowDown") { e.preventDefault(); destSel.focus(); }
+    });
+    destSel.addEventListener("dblclick", () => { if (!confirmBtn.disabled) confirmBtn.click(); });
+    renderDestinations();
+    setTimeout(() => filterInput.focus(), 0);  // 開いたらすぐ入力できるように
 
     overlay.querySelector("#wfm-gallery-move-cancel").addEventListener("click", () => overlay.remove());
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
@@ -1659,6 +1778,146 @@ function openMoveModal(paths) {
         if (!dest) return;
         overlay.remove();
         await performMoveImages(paths, dest);
+    });
+
+    document.body.appendChild(overlay);
+}
+
+// ── 変換（音声変換 / 動画からの音声抽出） ───────────────────────
+
+const CONVERT_FORMATS = {
+    flac: { bitrate: false },
+    mp3: { bitrate: true, bitrates: [320, 256, 192, 128, 96], defaultBitrate: 192 },
+    opus: { bitrate: true, bitrates: [192, 128, 96, 64, 32], defaultBitrate: 128 },
+    m4a: { bitrate: true, bitrates: [256, 192, 160, 128, 96], defaultBitrate: 192 },
+    wav: { bitrate: false },
+};
+
+// パス→画像のMap。state.imagesは再代入/filterで新しい配列になるため、配列ごとにキャッシュする
+// （選択のたびに O(選択数 × 画像数) の線形探索をしないため）。
+const _imageByPathCache = new WeakMap();
+function imageByPath(path) {
+    let map = _imageByPathCache.get(state.images);
+    if (!map) {
+        map = new Map(state.images.map(i => [i.path, i]));
+        _imageByPathCache.set(state.images, map);
+    }
+    return map.get(path);
+}
+
+function isConvertible(img) {
+    return !!img && (isAudioFile(img) || isVideoFile(img));
+}
+
+function convertTargets(paths) {
+    return paths.map(imageByPath).filter(isConvertible);
+}
+
+function openConvertModal(paths) {
+    const targets = convertTargets(paths);
+    if (targets.length === 0) {
+        showToast(t("convertNoTarget"), "info");
+        return;
+    }
+    const hasVideo = targets.some(isVideoFile);
+
+    const overlay = document.createElement("div");
+    overlay.className = "wfm-gallery-lightbox";
+    overlay.innerHTML = `
+        <div class="wfm-gallery-move-modal wfm-gallery-convert-modal">
+            <div class="wfm-gallery-move-modal-title">${escapeHtml(t("convertTitle", targets.length))}</div>
+            ${hasVideo ? `<div class="wfm-gallery-convert-note">${escapeHtml(t("convertVideoNote"))}</div>` : ""}
+            <label class="wfm-gallery-convert-row">${escapeHtml(t("convertFormat"))}
+                <select id="wfm-convert-format" class="wfm-select">
+                    ${Object.keys(CONVERT_FORMATS).map(f => `<option value="${f}">${f.toUpperCase()}</option>`).join("")}
+                </select>
+            </label>
+            <label class="wfm-gallery-convert-row" id="wfm-convert-bitrate-row">${escapeHtml(t("convertBitrate"))}
+                <select id="wfm-convert-bitrate" class="wfm-select"></select>
+            </label>
+            <label class="wfm-gallery-convert-row">${escapeHtml(t("convertSampleRate"))}
+                <select id="wfm-convert-rate" class="wfm-select">
+                    <option value="0">${escapeHtml(t("convertKeep"))}</option>
+                    <option value="44100">44100 Hz</option>
+                    <option value="48000">48000 Hz</option>
+                </select>
+            </label>
+            <label class="wfm-gallery-convert-row">${escapeHtml(t("convertChannels"))}
+                <select id="wfm-convert-channels" class="wfm-select">
+                    <option value="keep">${escapeHtml(t("convertKeep"))}</option>
+                    <option value="mono">${escapeHtml(t("convertMono"))}</option>
+                    <option value="stereo">${escapeHtml(t("convertStereo"))}</option>
+                </select>
+            </label>
+            <label class="wfm-gallery-convert-check"><input type="checkbox" id="wfm-convert-inherit" checked> ${escapeHtml(t("convertInherit"))}</label>
+            <label class="wfm-gallery-convert-check"><input type="checkbox" id="wfm-convert-copymeta" checked> ${escapeHtml(t("convertCopyMeta"))}</label>
+            <label class="wfm-gallery-convert-check"><input type="checkbox" id="wfm-convert-delete"> ${escapeHtml(t("convertDeleteOriginal"))}</label>
+            <div class="wfm-gallery-convert-status" id="wfm-convert-status"></div>
+            <div class="wfm-gallery-move-modal-footer">
+                <button id="wfm-convert-run" class="wfm-btn wfm-btn-primary">${escapeHtml(t("convertRun"))}</button>
+                <button id="wfm-convert-cancel" class="wfm-btn">${escapeHtml(t("convertCancel"))}</button>
+            </div>
+        </div>
+    `;
+
+    const q = (id) => overlay.querySelector(id);
+    const fmtSel = q("#wfm-convert-format");
+    const brSel = q("#wfm-convert-bitrate");
+    const syncFormat = () => {
+        const cfg = CONVERT_FORMATS[fmtSel.value];
+        q("#wfm-convert-bitrate-row").style.display = cfg.bitrate ? "" : "none";
+        if (cfg.bitrate) {
+            brSel.innerHTML = cfg.bitrates
+                .map(b => `<option value="${b}"${b === cfg.defaultBitrate ? " selected" : ""}>${b} kbps</option>`).join("");
+        }
+        // タグを持てない形式ではタグ引き継ぎ指定が無効であることを見せる
+        q("#wfm-convert-inherit").disabled = fmtSel.value === "wav";
+    };
+    fmtSel.addEventListener("change", syncFormat);
+    syncFormat();
+
+    let running = false;
+    q("#wfm-convert-cancel").addEventListener("click", () => { if (!running) overlay.remove(); });
+    overlay.addEventListener("click", (e) => { if (e.target === overlay && !running) overlay.remove(); });
+    q("#wfm-convert-run").addEventListener("click", async () => {
+        const deleteOriginal = q("#wfm-convert-delete").checked;
+        if (deleteOriginal && !window.confirm(t("convertConfirmDelete", targets.length))) return;
+        running = true;
+        q("#wfm-convert-run").disabled = true;
+        q("#wfm-convert-cancel").disabled = true;
+        const opts = {
+            format: fmtSel.value,
+            bitrate: CONVERT_FORMATS[fmtSel.value].bitrate ? Number(brSel.value) : 0,
+            sample_rate: Number(q("#wfm-convert-rate").value),
+            channels: q("#wfm-convert-channels").value,
+            inherit_metadata: q("#wfm-convert-inherit").checked,
+            copy_gallery_meta: q("#wfm-convert-copymeta").checked,
+            delete_original: deleteOriginal,
+        };
+        let ok = 0, fail = 0, tagsSkipped = false;
+        for (let i = 0; i < targets.length; i++) {
+            q("#wfm-convert-status").textContent = t("convertProgress", i + 1, targets.length);
+            try {
+                const res = await fetch(API.convert, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: targets[i].path, ...opts }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                ok++;
+                if (data.tags_skipped) tagsSkipped = true;
+                if (data.deleted) state.selectedImages.delete(targets[i].path);
+            } catch (e) {
+                fail++;
+                console.warn("[Gallery] convert failed:", targets[i].filename, e);
+            }
+        }
+        overlay.remove();
+        showToast(t("convertDone", ok, fail), fail ? "error" : "success");
+        if (tagsSkipped && opts.inherit_metadata) showToast(t("convertTagsSkipped"), "info");
+        await loadImages();
+        updateBulkBar();
     });
 
     document.body.appendChild(overlay);
@@ -1747,9 +2006,9 @@ async function bulkSetFavorite(favoriteValue) {
 function openLightbox(img) {
     const overlay = document.createElement("div");
     overlay.className = "wfm-gallery-lightbox";
-    const mediaHtml = isVideoFile(img)
-        ? `<video src="${API.serveImage(img.path)}" class="wfm-gallery-lightbox-img" controls autoplay></video>`
-        : `<img src="${API.serveImage(img.path)}" class="wfm-gallery-lightbox-img" alt="${escapeHtml(img.filename)}">`;
+    const mediaHtml = mediaElementHtml(img, {
+        imgClass: "wfm-gallery-lightbox-img", videoAttrs: "controls autoplay", audioAttrs: "controls autoplay",
+    });
     overlay.innerHTML = `
         <div class="wfm-gallery-lightbox-inner">
             ${mediaHtml}
@@ -1764,6 +2023,7 @@ function openLightbox(img) {
     });
     document.body.appendChild(overlay);
     if (isVideoFile(img)) applyStoredVideoVolume(overlay.querySelector("video"));
+    if (isAudioFile(img)) applyStoredVideoVolume(overlay.querySelector("audio"));
 }
 
 // ── 画像比較ライトボックス ─────────────────────────────────────
@@ -1776,9 +2036,11 @@ function openCompare(paths) {
     overlay.className = "wfm-gallery-lightbox wfm-lightbox-compare";
 
     const itemsHtml = imgs.map(img => {
-        const mediaHtml = isVideoFile(img)
-            ? `<video src="${API.serveImage(img.path)}" class="wfm-lightbox-compare-img" controls></video>`
-            : `<img src="${API.serveImage(img.path)}" class="wfm-lightbox-compare-img" alt="${escapeHtml(img.filename)}" loading="lazy">`;
+        const mediaHtml = isAudioFile(img)
+            ? mediaElementHtml(img, { imgClass: "wfm-lightbox-compare-img" })
+            : isVideoFile(img)
+                ? `<video src="${API.serveImage(img.path)}" class="wfm-lightbox-compare-img" controls></video>`
+                : `<img src="${API.serveImage(img.path)}" class="wfm-lightbox-compare-img" alt="${escapeHtml(img.filename)}" loading="lazy">`;
         return `
         <div class="wfm-lightbox-compare-item">
             ${mediaHtml}
@@ -1799,7 +2061,7 @@ function openCompare(paths) {
         }
     });
     document.body.appendChild(overlay);
-    overlay.querySelectorAll("video").forEach(applyStoredVideoVolume);
+    overlay.querySelectorAll("video, audio").forEach(applyStoredVideoVolume);
 }
 
 // ── outputパス取得 ────────────────────────────────────────────
@@ -1963,6 +2225,37 @@ function bindEvents() {
             const filename = result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
             window.opener.wfmSendImageToSelectedNode(filename);
             showToast(t("sendToLiNodeSuccess", filename), "success");
+        } catch (e) {
+            showToast(t("errorWithMsg", e.message), "error");
+        }
+    });
+
+    // 選択動画をComfyUIキャンバス上で選択中のノード（ネイティブLoad Video）のfileウィジェットへ送信。
+    // Send to LI nodeの動画版(window.opener.wfmSendVideoToSelectedNode、node_sets_menu.js側で定義)。
+    // /upload/imageは拡張子を問わず任意バイナリをinputフォルダへ保存するエンドポイントなので、
+    // 動画ファイルもそのままアップロードできる。
+    document.getElementById("wfm-gallery-send-lv-node-btn")?.addEventListener("click", async () => {
+        if (!state.selectedImage) {
+            showToast(t("gallerySelectImageFirst"), "info");
+            return;
+        }
+        if (!isVideoFile(state.selectedImage)) {
+            showToast(t("sendToLvNodeNotVideo"), "info");
+            return;
+        }
+        if (!window.opener || typeof window.opener.wfmSendVideoToSelectedNode !== "function") {
+            showToast(t("sendToLiNodeNoOpener"), "error");
+            return;
+        }
+        try {
+            const res = await fetch(API.serveImage(state.selectedImage.path));
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const file = new File([blob], state.selectedImage.filename || "gallery-video.mp4", { type: blob.type || "video/mp4" });
+            const result = await comfyUI.uploadImage(file, file.name);
+            const filename = result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
+            window.opener.wfmSendVideoToSelectedNode(filename);
+            showToast(t("sendToLvNodeSuccess", filename), "success");
         } catch (e) {
             showToast(t("errorWithMsg", e.message), "error");
         }
@@ -2218,6 +2511,11 @@ function bindEvents() {
         exportSelectedImagesToZip([...state.selectedImages]);
     });
 
+    document.getElementById("wfm-gallery-bulk-convert")?.addEventListener("click", () => {
+        if (state.selectedImages.size === 0) return;
+        openConvertModal([...state.selectedImages]);
+    });
+
     document.getElementById("wfm-gallery-bulk-psd")?.addEventListener("click", () => {
         if (state.selectedImages.size === 0) return;
         exportSelectedImagesToPsd([...state.selectedImages]);
@@ -2228,7 +2526,7 @@ function bindEvents() {
         if (!window._wfmImageEditTab) return;
 
         const allPaths = [...state.selectedImages];
-        const paths    = allPaths.filter(p => !/\.mp4$/i.test(p));
+        const paths    = allPaths.filter(p => !isVideoFile({ path: p }) && !isAudioFile({ path: p }));
         if (paths.length === 0) {
             showToast(t("editLayersNoImages"), "error");
             return;

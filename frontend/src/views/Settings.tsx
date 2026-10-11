@@ -15,6 +15,8 @@ import {
     MdLinearProgress,
     MdSwitch,
     MdDivider,
+    MdOutlinedSelect,
+    MdSelectOption,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
 import { GenPresetsCard } from "../GenPresets.js";
@@ -27,6 +29,10 @@ import {
     getLang,
     setLang,
     tr,
+    getVramSettings,
+    saveVramSettings,
+    requestVramPrepare,
+    describeVramResult,
 } from "core";
 import type { ViewProps } from "../App.js";
 
@@ -108,6 +114,10 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
         workflows: "",
     });
     const [modelsDir, setModelsDir] = useState<{ saved?: string; roots?: string[]; effective?: Record<string, string[]> }>({});
+    // Shared with the old UI on purpose - comfyUI.queuePrompt() reads it in both shells (core/index.js).
+    const [vram, setVram] = useState<{ mode: string; targetGb: number }>(() => getVramSettings());
+    const [vramStatus, setVramStatus] = useState("");
+    const [vramBusy, setVramBusy] = useState(false);
     const [modelsDirDraft, setModelsDirDraft] = useState("");
     const [lang, setLangState] = useState<string>(() => getLang());
     const fileRef = useRef<HTMLInputElement | null>(null);
@@ -206,6 +216,29 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
             snackbar.show({ label: (err as Error).message, tone: "error" });
         } finally {
             setSaving(false);
+        }
+    };
+
+    const VRAM_MODES: Array<[string, string]> = [
+        ["off", tr("vramModeOff", "Do nothing")],
+        ["auto", tr("vramModeAuto", "Unload only as much as needed when free VRAM is below the target")],
+        ["all", tr("vramModeAll", "Unload everything every time")],
+    ];
+
+    const patchVram = (patch: { mode?: string; targetGb?: number }): void => {
+        setVram(saveVramSettings(patch) as { mode: string; targetGb: number });
+    };
+
+    const unloadNow = async (): Promise<void> => {
+        setVramBusy(true);
+        setVramStatus(tr("vramUnloading", "Unloading..."));
+        try {
+            setVramStatus(describeVramResult(await requestVramPrepare("all")));
+        } catch (err) {
+            const message = (err as Error).message;
+            setVramStatus(tr("vramPrepareFailed", `Failed: ${message}`, message));
+        } finally {
+            setVramBusy(false);
         }
     };
 
@@ -405,6 +438,39 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
                         onChange={(next) => void saveSelectorLoop(next)}
                     />
                     <p className="nu-muted">{tr("selectorLoopHint", "Turn this on if ComfyUI freezes (all tabs stop responding, even generation) after switching Models lists with many previews. Switches the Windows asyncio loop from Proactor to Selector. Takes effect after restarting ComfyUI; asyncio subprocess features are unavailable and the connection limit is about 512. Leave off if you have no problem.")}</p>
+                </div>
+            </SettingsCard>
+
+            {/* Upstream v0.7.13: unload Ollama's VRAM before every generation, shared with the old UI. */}
+            <SettingsCard
+                title={tr("vramSection", "VRAM Management (Ollama)")}
+                actions={
+                    <MdOutlinedButton disabled={vramBusy} onClick={() => void unloadNow()}>
+                        {tr("vramUnloadNow", "Unload all now")}
+                    </MdOutlinedButton>
+                }
+            >
+                <div className="nu-fields">
+                    <p className="nu-muted">{tr("vramHint", "Right before every image generation from Workflow Studio, unload the models Ollama has loaded to free VRAM. Free VRAM is measured with nvidia-smi.")}</p>
+                    <MdOutlinedSelect
+                        label={tr("vramModeLabel", "Before generating")}
+                        value={vram.mode}
+                        onChange={(e) => patchVram({ mode: (e.target as unknown as { value: string }).value })}
+                    >
+                        {VRAM_MODES.map(([value, label]) => (
+                            <MdSelectOption key={value} value={value}>
+                                {label}
+                            </MdSelectOption>
+                        ))}
+                    </MdOutlinedSelect>
+                    <MdOutlinedTextField
+                        label={tr("vramTargetLabel", "Target free VRAM (GB)")}
+                        value={String(vram.targetGb)}
+                        disabled={vram.mode !== "auto"}
+                        onInput={(e) => setVram((prev) => ({ ...prev, targetGb: Number((e.target as HTMLInputElement).value) }))}
+                        onBlur={() => patchVram({ targetGb: vram.targetGb })}
+                    />
+                    {vramStatus ? <p className="nu-muted">{vramStatus}</p> : null}
                 </div>
             </SettingsCard>
 

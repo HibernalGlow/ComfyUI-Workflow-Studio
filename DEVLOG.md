@@ -2,6 +2,164 @@
 
 ---
 
+## v0.8.1（2026-10-11）
+
+v0.8.0 のコードレビュー指摘（#1〜#10）への対応。
+
+### バグ修正
+- Nodes: 検索結果が0件のとき `renderToken` を進めておらず、描画途中のカードが「No nodes found」の下に追加され続けていた。
+- Metadata: `convertUiToApi()` に `{ readOnly: true }` を追加。表示用の変換ではCOMBO値の無警告差し替え（サンプラー名の誤表示）を行わず、Workflowタブの互換性チェックが参照する `_last*` 記録も更新しない。
+- Metadata: 画像を連続で開いたとき、先に始めた処理の結果が後から描画されて混ざる問題を、リクエストID（`_loadSeq`）で防止。
+- Metadata: サンプラー設定の抽出を改善。Flux/SD3系（RandomNoise / BasicScheduler / KSamplerSelect / CFGGuider）の設定を統合し、複数KSamplerでは設定が最も多いノード（同数なら後ろ）を採用。
+- Gallery: `history.jsonl` に dict でない行・`filenames` が list でない行があっても、フォルダ内の全画像でメタ取得が失敗しないようにした。
+- Gallery: 同じファイルを同時に変換すると出力名が衝突して上書きされる問題を、出力名の決定を `_convert_lock` 内に移して解消。
+- Gallery: PNGチャンクの読み取りを先勝ちに統一（`png_extractor` と同じ）。ワークフロー読み込みとの食い違いを防止。
+
+### パフォーマンス・保守性
+- Gallery: 一括選択の変換対象判定を O(選択数×画像数) から O(選択数) に（パス→画像Mapのキャッシュ + `some` で打ち切り）。12,780枚の全選択で約33ms。
+- Gallery: `history.jsonl` を `(mtime_ns, size)` キーの索引としてキャッシュ（`OrderedDict`、上限16件）。
+- 音声・動画の拡張子判定を `isAudioFile()` / `isVideoFile()` に統一し、波形サムネイルの版数を `WAVE_THUMB_VERSION` 定数に集約（JS/Python）。
+
+## v0.8.0（2026-10-11）
+
+### Gallery: 音声ファイル対応（wav / mp3 / ogg / m4a / flac / opus）
+
+ComfyUIの音楽生成の増加に合わせ、Galleryで音声ファイルを画像・動画と同じ一覧で扱えるようにした。
+
+- `gallery_service.py`: `AUDIO_EXTENSIONS` を追加し `IMAGE_EXTENSIONS` に合流。再生時間は`_read_media_dimensions()`（PyAV）、埋め込みタグは`_read_audio_metadata()`で取得（ストリーム側タグも統合し、`prompt`/`workflow`は小文字キーでも引ける）。`_extract_embedded_workflow()`も音声に対応し、Prompt/JSONタブが動く。
+- サムネイルは`_render_audio_waveform()`でPyAVデコード→8kHzモノラル→列ごとの最大振幅を描画してJPEGキャッシュ。拡張子ごとに波形色を変える（`AUDIO_WAVE_COLORS`）。キャッシュキーに版数（`wave2`）、サムネイルURLにも`&v=wave2`を付けブラウザの24hキャッシュを回避。
+- `gallery_routes.py`: Windowsで音声MIMEが返らない/不統一なため`mimetypes.add_type`で明示登録。`FileResponse`のRange対応でシークも可能。
+- `gallery-tab.js`: `isAudioFile()`、♪バッジ、詳細パネル/ライトボックス/Compareで「波形＋`<audio controls>`」を表示（音量は動画と共通設定）。詳細パネルは音声のとき固定高さをやめ、再生メニューが見切れないようにした。PSD書き出し・Edit as Layersでは音声を除外。
+
+### Video: Assetサブタブで音声を素材として利用
+
+- 先に音声を一覧から除外していたのを改め、種別フィルタに「Audio Only」を追加。音声はプレイヤー付きで、「BGMに設定」「サウンドとして追加（Audioトラックの選択クリップ先頭に配置）」ボタンが使える。`video-edit-tab.js`に`addSoundFromFile()`を追加。Editに送る/オーバーレイ/First・Last Imageと、Frame/GIFツールへのSourceプレビュー投入は音声では出さない。
+
+### Gallery: ファイル変換（音声変換 / 動画からの音声抽出）
+
+- 新規`py/services/convert_service.py`（PyAVのみ、システムffmpeg不要）。出力はFLAC / MP3 / Opus / M4A / WAV（Vorbisエンコーダが無いため`.ogg`は入力のみ）。ビットレート・サンプルレート・チャンネル指定可。
+- `GalleryService.convert_file()` + `POST /wfm/gallery/convert`（1ファイルずつ呼ぶ。`run_in_executor`＋同時1本のロック）。同じフォルダに`name.ext`（既存なら`name_converted.ext`、以降連番）で保存し上書きしない。
+- メタデータ: `prompt`/`workflow`と曲情報タグを、タグを持てる形式（FLAC/MP3/Opus/M4A）へ引き継ぐ。WAVは対象外（通知）。お気に入り/タグ/メモ/グループの引き継ぎ、変換成功後の元ファイル削除（確認ダイアログ付き）を選択可。
+- UI: 一括バーに「変換...」ボタン（音声/動画を含む選択時のみ表示）とダイアログ。i18n（en/ja/zh）対応。
+
+### Gallery: メタデータ読み取りの修正（メタデータ抽出 比較レポートA1〜A4）
+
+- A1: PNGの読み取りがIENDで止まっていたため、ComfyUI-Custom-ScriptsがIENDの後ろに追記する`workflow`チャンクを読めなかった（`_read_png_metadata()` / `extract_png_workflow()`）。
+- A2: WebPのEXIFから`workflow:`/`prompt:`を取り出す`_read_webp_metadata()`を追加。
+- A3: ワークフローが無い画像（A1111/Forge/Fooocus）は`parameters`からPromptタブを表示（`extractPromptsFromParameters()`）。
+- A4: API形式の`ImageMetadataLoRALoader`（`lora_N`/`strength_model_N`/`strength_clip_N`）をMetadataタブとサイドパネルIタブで検出。
+
+### Library/Nodes: 表示速度の改善とAlt+クリックお気に入り
+
+- LibraryのNタブ: Alt+クリックでお気に入りをON/OFF。`/object_info`（数MB）の取得を待たずに一覧表示し、Category/Packageは`LiteGraph.registered_node_types[..].nodeData`から取得（無い環境のみ裏で取得）。
+- SPAのNodesタブ: 数千件を一括でDOM生成していたのを分割描画に変更し、検索をデバウンス＋検索文字列の事前計算で軽量化。さらに`/api/wfm/nodes/light`（`INPUT_TYPES`を呼ばず約6ms）で一覧を先に表示し、入力定義を含む`/object_info`（実測で約14秒）は裏で取得して補完する方式にした。
+
+### Gallery: Move Toダイアログにフォルダ絞り込み
+
+- フォルダ名/パスの部分一致（空白区切りAND）で絞り込み、Enterで先頭候補へ移動。音声/動画も移動できるため、文言を「N件移動しました」に変更（`movedNImages`、`moveToFolderTitle`）。
+
+### その他
+
+- ヘルプ（en/ja/zh）とREADMEを更新。READMEのバージョンバッジが0.7.13のままだったのを修正。
+
+---
+
+## v0.7.14（2026-10-09）
+
+### Comic Creator連携: nanobananaタブの生成履歴をGallery/Metadataタブに表示
+
+Comic Creator（`eagle_comic_creator_spa`）のnanobananaタブが`cc_nanobanana`フォルダに書く生成履歴`history.jsonl`（1行=1生成リクエスト、`filenames`配列で画像ファイルと対応、prompt/negative_prompt/engine/model/image_size/seed/timestampを記録）を、WFS側のGallery/Metadataタブから閲覧できるようにした。
+
+- `gallery_service.py`に`_read_nanobanana_entry()`を追加。画像の親フォルダ名が`cc_nanobanana`の場合のみ同フォルダの`history.jsonl`を新しい行から探索し、自分のファイル名を含むエントリを返す（既存の`get_image_metadata()`レスポンスに`nanobanana`フィールドとして追加、新規エンドポイントは不要）。
+- Gallery詳細パネルに「Nanobanana」タブを新設。`cc_nanobanana`フォルダの画像のみタブボタンを表示し、engine/model/size/seed/timestamp/prompt/negative promptを表示。
+- Metadataタブ右ペインにも同内容の「Nanobanana」セクションを追加。Galleryの「Metadata」ボタンから開いた場合は画像パスも渡されるようになり（`loadFileIntoMetadataTab(file, path)`）、サーバーの`/wfm/gallery/image/meta`から画像サイズとnanobanana履歴を補完する。nanobanana画像はComfyUIワークフローを埋め込んでいないため、従来は「メタデータなし」エラーになっていたが、nanobanana履歴があればエラーにせずNanobananaセクションのみ表示するようにした。
+- `cc_nanobanana`フォルダの画像はComfyUIワークフローを埋め込んでおらずPromptタブに表示する情報が無いため、Gallery詳細パネルのPromptタブ自体を非表示化（フォルダ名で判定、history.jsonlに対応エントリが無い古い画像でも同様に隠れる）。
+
+### Metadataタブ: レイアウト再編（LoRA/Promptを中央へ、右ペインをSettings+Nanobananaに）
+
+- 中央ペイン（Col2）: Checkpoint / VAE / Diffusion Model / Text Encoder に加えて LoRA / Prompt もここへ移動。
+- 右ペイン（Col3）: 「Settings」（画像サイズ、Seed、Steps、CFG、Sampler、Scheduler、Denoise）と、上記「Nanobanana」セクション。
+- KSampler系ノードの設定値を抽出する`extractSamplerSettings()`を新規実装。API形式ワークフローの名前付き`inputs`（`seed`/`noise_seed`/`steps`/`cfg`/`sampler_name`/`scheduler`/`denoise`）から読む。UI形式ワークフローは`convertUiToApi()`を経由して同じ抽出を通す（サブグラフの有無に関わらず常に変換を試みるよう変更。既存のCheckpoint/LoRA/Prompt抽出ロジックには影響なし、変換結果はSettings抽出にのみ使う）。
+- 画像サイズは、Galleryから開いた場合はサーバー側の実測値（`/wfm/gallery/image/meta`のwidth/height）、ドラッグ&ドロップされた単体ファイルの場合はプレビュー画像の`naturalWidth`/`naturalHeight`を使う。
+- i18n（en/ja/zh）・ヘルプカードを更新。
+
+### バグ修正: LiveChatStreamなど複数出力テキストノードがAPI形式プロンプト抽出で解決できない不具合
+
+ComfyUI-LiveChatStreamの`response`（LLM応答全文）出力をCLIPTextEncodeに直結した場合にGallery/Metadataタブでプロンプトが表示されない、という報告を調査。
+
+- 原因: PNGの`prompt`（API形式）埋め込みからのプロンプト抽出は`prompt`チャンクを優先して使うが（Metadataタブ・Gallery Promptタブとも）、API形式の`resolveLinkedText()`は接続元ノードの値を決め打ちのキー名リスト（`text_positive`/`text`/`prompt`/`value`等）でしか探しておらず、LiveChatStreamの実際のウィジェット名（`prompt_text`/`negative_text`/`response_text`/`chat_p_text`/`chat_n_text`/`thinking_text`、`nodes.py`の`INPUT_TYPES`で確認）がどれとも一致しないため、**responseだけでなくpositive/negativeも含め、API形式経由では本来解決できていなかった**（UI形式の`workflow`埋め込みは`widgets_values`を出力スロット順でそのまま読むため、たまたま正しく解決できていた＝どちらの埋め込みがPNGにあるかで体感が変わっていたと推測）。
+- `metadata-tab.js`の`resolveLinkedText()`、およびサイドパネルIタブ（`node_sets_menu.js`）の複製ロジック`_resolveLinkedText()`の両方に、`class_type === "LiveChatStream"`の個別対応を追加（`LIVE_CHAT_STREAM_OUTPUT_KEYS`で出力スロット→ウィジェット名を対応付け）。
+- 実機（稼働中のComfyUI_5）の`/wfm_static/js/metadata-tab.js`に対し、約19,000〜40,000文字の長文応答を模したAPI形式ワークフローで検証し、全文正しく（0.4ms程度で）抽出されることを確認。文字数そのものは無関係だった。
+
+### Gallery: Send to LV node ボタン（ネイティブLoad Videoへの送信）
+
+既存の「Send to LI node」（選択画像をComfyUIキャンバス上の選択中ノードの`image`ウィジェットへ送る）の動画版。
+
+- `node_sets_menu.js`に`_wfmFindVideoWidget()`/`window.wfmSendVideoToSelectedNode()`を追加。ネイティブの`LoadVideo`ノード（`comfy_extras/nodes_video.py`、`file`ウィジェット）に絞って探す（`image`と違い`file`という名前は他ノードとも衝突しうるため`node.type === "LoadVideo"`で限定）。
+- Galleryツールバーに「Send to LV node」ボタンを追加。動画以外が選択されている場合はエラートースト。アップロードは既存の`/upload/image`エンドポイント（拡張子を問わず任意バイナリをinputフォルダへ保存できる汎用エンドポイント）をそのまま流用。
+- 実機でLoadVideoノードを作成→選択→送信し、`file`ウィジェットの値が正しく書き換わることを確認（`ComfyUI_00013_.mp4` → `test_video_12345.webm`）。
+
+### Gallery: WebM対応
+
+- `gallery_service.py`の`.mp4`限定だった5箇所（埋め込みメタデータ読み込み・寸法/再生時間取得・サムネイル抽出・PSDレイヤー除外判定・一覧フィルタ）を`VIDEO_EXTENSIONS = {".mp4", ".webm"}`ベースに統一。いずれもPyAV（`av`）経由でコンテナ形式を問わず同じコードパスのため、webm固有の実装追加は不要だった。
+- `gallery-tab.js`の`isVideoFile()`をwebm対応に拡張。一覧表示・プレビュー・ライトボックス・Comic Creator連携・一括レイヤー編集の動画除外フィルタなど、これを参照する全箇所が自動的にwebm対応。
+- ヘルプカード（Gallery/3言語）を更新。
+
+### 意思決定モデルクライアントにvision対応を追加（移植、消費する機能はまだ無い）
+
+Comic Creatorの`decision-client.js`が2026-10に追加したvision対応（Ollamaの`clef`等、画像入力可能な意思決定モデル向け）を、WFS本家の`static/js/decision-client.js`へ移植した。
+
+- `decide(state, questions, opts, images)`に第4引数`images`（base64配列、`data:`プレフィックス無し）を追加。
+- `imageToBase64(src)`（Blob/data URL/画像URL→base64）、`supportsDecisionVision(opts)`（設定中のモデルが画像入力に対応しているかをOllamaの`/api/show`で判定。`capabilities`に`vision`が無いビルドでは`projector_info`の有無でも判定するフォールバック込み）を新規追加。
+- `DECISION_BACKENDS.ollama.models`に`"clef"`を追加（27B・vision対応、Ollama 0.35.1以降が必要。`clef-flash`は2026-10時点でOllama側の不安定挙動があるため含めていない）。
+- 実機（稼働中のOllama、`clef`モデル）で`supportsDecisionVision`→`true`、`imageToBase64`→`decide(images=[...])`の一連の流れを実画像（canvas生成の赤い正方形）で検証し、`red: 0.99` / `blue: 0.009`と正しく判定されることを確認。
+- 既存の呼び出し箇所（`settings-tab.js`、`vram-prepare.js`）は`images`引数を使わないため後方互換。消費する機能（Gallery自動分類等）はまだWFS側に無く、クライアントライブラリの同期のみ。
+
+---
+
+## v0.7.13（2026-10-06）
+
+### VRAM調整（Ollama）— Comic Creatorから移植
+
+画像生成の直前にOllamaでロード中のモデルをアンロードし、ComfyUIの空きVRAMを確保する機能をComfyUI Comic Creator（`/api/ccc/vram/prepare`）から移植。
+
+- 設定タブに「VRAM調整（Ollama）」セクションを新設。生成前の動作は「何もしない」（既定）／「空きが目標未満のときだけ必要な分をアンロード」／「毎回すべてアンロード」、目標の空き（GB）、「今すぐすべてアンロード」ボタン。設定はブラウザの `wfm_vram_settings`。
+- フックは `comfyUI.queuePrompt()` の直前（`static/js/vram-prepare.js` の `prepareVramForGeneration()`）。GenerateUI・Lab・バッチ・Video・AI TOOLのChat生成など、Workflow Studio経由の生成すべてに効く。失敗しても生成は止めず、アンロード時・目標未達・失敗時のみトーストで通知（連続生成で同じ目標未達の警告は繰り返さない）。ComfyUIのキャンバスから直接実行する生成は対象外。
+- サーバー: 新規 `py/routes/vram_routes.py`（`POST /api/wfm/vram/prepare`、Content-Typeは `application/json` のみ＝他サイトからの単純リクエストでモデルを外されないため）。空きVRAMは **nvidia-smiの実測＋ComfyUI自身のtorch未使用キャッシュ**（ComfyUIの `get_free_memory` はOllamaのロード/アンロードに反応しないことがあるため）。取れなければComfyUIの値。autoは `size_vram` が実際に空く量より小さいため、大きいモデルから1台ずつアンロードしてそのつど実測で止める。アンロードは `keep_alive:0` の `/api/generate`、受け付けない意思決定モデルは `/api/chat` で再試行し、最後に `/api/ps` で確認。同時実行はロックで409。
+- 対象のOllama: 既定の `127.0.0.1:11434`（常に追加）＋OllamaのときのAI TOOL・Prompt・TaggerのAI設定と意思決定モデル。接続先は v0.7.12 の `url_guard`（loopback＋`WFS_ALLOWED_BACKEND_HOSTS`）を通し、許可外のURLはリクエスト全体を拒否せずそのURLだけ飛ばす。
+- 「モデルをアンロード」ボタン（AI TOOLタブ、Prompt/Taggerの⚙設定モーダル）は、Ollamaのとき意思決定モデルを含む全モデルをアンロードするよう変更（同じサーバー処理）。サイドパネルAタブの Settings にも「VRAM (Ollama) → Unload all now」を追加（サイドパネルからはSPAの `vram-prepare.js` を import できないため、同じlocalStorageキーから接続先を集める小関数を `node_sets_menu.js` に内蔵）。
+- 実機（ComfyUI_5、ポート8189、RTX 12GB）で確認: qwen3.5:9b＋tev1:0.8bをロードし空き1.5GBの状態から、auto（目標4GB）はqwen3.5:9bのみアンロードして空き1.7→9.1GB・tev1は残る、allはtev1も外す（各約1.1秒）。415/400の入力検証、許可外URLのスキップ、設定タブUI、`queuePrompt()` 経由のフック（`/prompt` 送信のみ差し止めて確認）、各アンロードボタンを確認。
+
+### Workflowタブ: GenerateUIチェック（変換・操作性バッジ）
+
+ワークフローをGenerateUIに読み込む前に、動くかどうかを確認できるようにした。
+
+- 詳細モーダル（ダブルクリック）のタイトル下に、形式バッジ（UI/API/App形式）・「GenerateUIチェック」ボタン・✅⚠❌ の結果バッジ2つ。サイドの詳細ペインにも名前の下に形式バッジと結果バッジ（選択時に自動チェック、結果のみ）。バッジにマウスを乗せると理由をCSSチップで表示（詳細ペインはペイン幅いっぱいに表示）。
+- **変換**: GenerateUIと同じ `convertUiToApi()` で変換。未対応形式・変換エラー・このComfyUIに無いノード型は ❌、この環境に無いCOMBO値（モデル・LoRA・画像など）は ⚠。UI形式は変換時に先頭の選択肢へ無警告で差し替わる（全COMBOの差し替えを記録する `getLastComboSubstitutions()` を追加。GenerateUIの挙動は不変）。API形式は変換しないため値を直接照合し、「そのまま送るとComfyUIの検証エラー（Value not in list）」と案内。
+- **操作性**: 設定を持つノードのうち、`analyzeWorkflow()` でGenerateUIに表示されるノードの割合（✅80%以上／⚠50%以上／❌それ未満）。チップにプロンプト欄・サンプラー数と、ノードグラフで変更が必要なノードを列挙。
+- 当初は意思決定モデル（Unsloth laya）のscoreで操作性を評価する設計だったが、実測で区別できなかった（全ノード非表示の状態2.54 > 全表示2.35、状態を単純化しても2.24対1.87、yes確率0.41対0.44、choiceはどちらも同じ選択肢）ためルール判定に変更。
+- 結果は保存せずセッション中のメモリのみ。チェックは約20ms。`/object_info` の初回取得（約10秒）を避けるため、モーダルを開いた時点で先読み。
+
+### ヘルプ
+
+設定タブ（VRAM調整）、Workflowタブ（サイドパネル・GenerateUIチェック）、Prompt/Taggerタブ（アンロード）、AI TOOLタブ、サイドパネルAタブの記述を3言語で更新。
+
+---
+
+## v0.7.12（2026-10-04）
+
+### セキュリティ: バックエンド接続先をブラウザから任意指定できた問題（SSRF）を修正
+
+ComfyUI-Manager登録PR（LiveChatStream、Comfy-Org/ComfyUI-Manager#3340）のレビューで指摘された「リクエストから接続先URLを受け取り、サーバーが接続する」問題が、WFSにも同じ構造で存在していたため修正。
+
+- 対象: `POST /api/wfm/ollama/chat`（bodyの `url`。従来は**検証なし**で、任意ホスト・クラウドメタデータ・`file://` に接続できた）、Tagger VLM（`/wfm/tagger/vlm/models`・`vlm/predict`・`batch/start` の `api_url`。Unslothのみ制限されていた）、Eagle（`/api/wfm/eagle/add`・`/test` の `eagleUrl`）、Unslothプロキシ（`baseUrl`）。
+- 新規 `py/services/url_guard.py` に共通化。許可は **loopback（localhost / 127.0.0.1 / ::1、ポート自由）** と、運用者が環境変数 `WFS_ALLOWED_BACKEND_HOSTS`（`host` または `host:port` のカンマ区切り）で指定したホストのみ。`http(s)` 以外（`file://` 等）、URL内の認証情報、`localhost.evil.com` のような偽装ホストは拒否。**リダイレクトは追従しない**（302は接続せずエラー）。
+- **挙動変更**: LAN上の別マシンのOllama/Eagle等を使っている場合は `WFS_ALLOWED_BACKEND_HOSTS` の設定が必要（拒否時のエラーメッセージに案内を表示）。
+- 実機（ComfyUI_5、ポート8189）で、メタデータIP・`file://`・公開IPの拒否、loopbackのOllama chat/Tagger一覧/Eagle test/Unsloth Decision APIの正常動作を確認。
+- 注意: ComfyUIを `--listen` で公開すると、到達できる相手は引き続きこれらのルートを使える（接続先を変えられないだけ）。信頼できるネットワークでのみ使うこと。
+
+---
+
 ## v0.7.11（2026-10-02）
 
 ### セキュリティ: CivitAI情報の説明文のHTML無害化（保存型XSS対策）

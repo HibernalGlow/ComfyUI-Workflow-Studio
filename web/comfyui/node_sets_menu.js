@@ -96,6 +96,26 @@ const fetchObjectInfo = async () => {
     } catch { return {}; }
 };
 
+const getNodeDef = (nodeType) => {
+    if (state.objectInfo[nodeType]) return state.objectInfo[nodeType];
+    return typeof LiteGraph !== "undefined" ? LiteGraph.registered_node_types[nodeType]?.nodeData : undefined;
+};
+
+let objectInfoPromise = null;
+const ensureObjectInfo = () => {
+    if (objectInfoPromise) return objectInfoPromise;
+    const registered = typeof LiteGraph !== "undefined" ? LiteGraph.registered_node_types : {};
+    if (Object.values(registered).some(d => d?.nodeData?.python_module)) {
+        return (objectInfoPromise = Promise.resolve());
+    }
+    objectInfoPromise = fetchObjectInfo().then((info) => {
+        state.objectInfo = info;
+        // Category/Packageを表示中なら取得完了後に描き直す
+        if (state.topTab === "nodes" && (state.activeTab2 === "category" || state.activeTab2 === "package")) renderContent();
+    });
+    return objectInfoPromise;
+};
+
 const extractPackageName = (pythonModule) => {
     if (!pythonModule || pythonModule === "nodes") return "ComfyUI (Built-in)";
     const parts = pythonModule.split(".");
@@ -104,13 +124,15 @@ const extractPackageName = (pythonModule) => {
 };
 
 const loadData = async () => {
-    const [metadata, nodeSets, groups, objectInfo] = await Promise.all([
-        fetchMetadata(), fetchNodeSets(), fetchGroups(), fetchObjectInfo(),
+    // /object_info は数MBになりNodesタブ表示を待たせるため、ここでは待たない。
+    // Category/Package は LiteGraph の登録済みノード定義(nodeData)から取れるので、
+    // それが無い環境でのみバックグラウンドで取得する（ensureObjectInfo）。
+    const [metadata, nodeSets, groups] = await Promise.all([
+        fetchMetadata(), fetchNodeSets(), fetchGroups(),
     ]);
     state.metadata = metadata;
     state.nodeSets = nodeSets;
     state.groups = groups;
-    state.objectInfo = objectInfo;
 
     // Extract favorites from metadata
     state.favorites = [];
@@ -121,6 +143,7 @@ const loadData = async () => {
         }
     }
     state.loaded = true;
+    ensureObjectInfo();
 };
 
 // ============================================
@@ -703,6 +726,44 @@ window.wfmSendImageToSelectedNode = (filename) => {
     const widget = _wfmFindImageWidget();
     if (!widget) {
         throw new Error("No image widget found (select a LoadImage-type node)");
+    }
+    if (widget.options?.values && !widget.options.values.includes(filename)) {
+        widget.options.values.unshift(filename);
+    }
+    widget.value = filename;
+    widget.callback?.(widget.value);
+    app.graph.setDirtyCanvas(true, true);
+    return true;
+};
+
+// 動画版「Send to LV node」。ネイティブの Load Video ノード(comfy_extras/nodes_video.py の
+// LoadVideo、node type "LoadVideo")の "file" ウィジェットへ書き込む。"image"ウィジェットと違い
+// "file"という名前は他ノードとも衝突しうるため、node.typeを"LoadVideo"に絞って探す。
+function _wfmFindVideoWidget() {
+    const graph = app.graph;
+    if (!graph) return null;
+
+    let selected = [];
+    try {
+        const sel = app.canvas?.selected_nodes;
+        if (sel) selected = Object.values(sel);
+    } catch { /* ignore */ }
+
+    const pools = [selected, graph._nodes || []];
+    for (const pool of pools) {
+        for (const node of pool) {
+            if (node?.type !== "LoadVideo") continue;
+            const widget = node?.widgets?.find((w) => w.name === "file");
+            if (widget) return widget;
+        }
+    }
+    return null;
+}
+
+window.wfmSendVideoToSelectedNode = (filename) => {
+    const widget = _wfmFindVideoWidget();
+    if (!widget) {
+        throw new Error("No video widget found (select a native Load Video node)");
     }
     if (widget.options?.values && !widget.options.values.includes(filename)) {
         widget.options.values.unshift(filename);
@@ -2224,7 +2285,7 @@ const renderGroups = (container) => {
 // ============================================
 
 const getNodeCategory = (nodeType) => {
-    const info = state.objectInfo[nodeType];
+    const info = getNodeDef(nodeType);
     if (info?.category) return info.category.split("/")[0] || "uncategorized";
     // Fallback: LiteGraph type string often contains category as prefix
     const def = typeof LiteGraph !== "undefined"
@@ -2235,7 +2296,7 @@ const getNodeCategory = (nodeType) => {
 };
 
 const getNodePackage = (nodeType) => {
-    const info = state.objectInfo[nodeType];
+    const info = getNodeDef(nodeType);
     if (!info) return "ComfyUI (Built-in)";
     return extractPackageName(info.python_module || "");
 };
@@ -2369,7 +2430,49 @@ const createDraggableItem = (label, type, data, subtitle) => {
         el.classList.remove("dragging");
     });
 
+    // Alt+クリックでお気に入りのON/OFF（Nodesサブタブの単体ノード項目のみ）
+    if (type === "single" && data?.classType) {
+        el.addEventListener("click", (e) => {
+            if (!e.altKey) return;
+            e.preventDefault();
+            toggleNodeFavorite(data.classType, el);
+        });
+    }
+
     return el;
+};
+
+const toggleNodeFavorite = async (name, el) => {
+    const prev = !!state.metadata[name]?.favorite;
+    const next = !prev;
+    try {
+        const res = await fetch("/api/wfm/nodes/metadata", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nodeName: name, favorite: next }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+        console.warn("[WFM] failed to toggle node favorite:", err);
+        return;
+    }
+    state.metadata[name] = { ...(state.metadata[name] || {}), favorite: next };
+    state.favorites = state.favorites.filter(n => n.name !== name);
+    if (next) state.favorites.push({ name, display_name: name });
+
+    if (state.topTab === "nodes" && !state.activeTab2 && state.activeTab === "favorites") {
+        renderContent();   // 解除した項目をFavorites一覧から外す
+        return;
+    }
+    // その他のタブはDOMだけ更新（パッケージ選択などの表示状態を保つ）
+    const label = el.querySelector(".wfm-nlp-item-label");
+    label?.querySelector(".wfm-nlp-fav-star")?.remove();
+    if (next && label) {
+        const star = document.createElement("span");
+        star.className = "wfm-nlp-fav-star";
+        star.textContent = "★";
+        label.prepend(star);
+    }
 };
 
 // ============================================
@@ -3159,6 +3262,7 @@ function _extractLoRAs(wf) {
             const ct = n.class_type ?? "";
             if (ct === "LoraLoader") add(n.inputs?.lora_name, n.inputs?.strength_model, n.inputs?.strength_clip);
             else if (ct === "LoraLoaderModelOnly") add(n.inputs?.lora_name, n.inputs?.strength, 1.0);
+            else if (ct === "ImageMetadataLoRALoader") { for (let i = 1; i <= 3; i++) add(n.inputs?.[`lora_${i}`], n.inputs?.[`strength_model_${i}`], n.inputs?.[`strength_clip_${i}`]); }
             else if (ct === "Lora Loader (LoraManager)") {
                 const lorasData = n.inputs?.loras;
                 const list = lorasData?.__value__ ?? (Array.isArray(lorasData) ? lorasData : null);
@@ -3172,6 +3276,9 @@ function _extractLoRAs(wf) {
 function _isTextEncoderNode(ct) { return ct === "CLIPTextEncode" || ct.includes("TextEncode") || ct.includes("TextEncoderSD"); }
 function _isSamplerNode(ct) { return ct === "KSampler" || ct === "KSamplerAdvanced" || ct.includes("KSampler") || ct.includes("Sampler"); }
 function _isPromptStylerNode(ct) { return ct.includes("PromptStyler"); }
+// LiveChatStream(ComfyUI-LiveChatStream)のRETURN_NAMES順 = INPUT_TYPESの対応ウィジェット名
+// (metadata-tab.jsのLIVE_CHAT_STREAM_OUTPUT_KEYSと同一。ported from metadata-tab.js)
+const _LIVE_CHAT_STREAM_OUTPUT_KEYS = ["prompt_text", "negative_text", "response_text", "chat_p_text", "chat_n_text", "thinking_text"];
 
 // CLIPTextEncodeEditPlus (model-and-prompt-from-metadata) の encode() と同じ結合ルール。
 // RAW: text1のみ。EDIT: text_editのみ。front/back: text2(未接続ならtext_edit)をtext1の前/後に結合。
@@ -3366,6 +3473,12 @@ function _resolveLinkedText(wf, srcId, slot, depth = 0) {
     if (!src || typeof src !== "object") return null;
     const ct = src.class_type ?? "";
     if (_isPromptStylerNode(ct)) { const v = slot === 0 ? src.inputs?.text_positive : src.inputs?.text_negative; return (v && typeof v === "string") ? v : null; }
+    // LiveChatStream — 出力は同名+"_text"の非表示ウィジェットの値をそのまま返すだけなので個別対応
+    if (ct === "LiveChatStream") {
+        const key = _LIVE_CHAT_STREAM_OUTPUT_KEYS[slot];
+        const v = key ? src.inputs?.[key] : undefined;
+        return (typeof v === "string" && v) ? v : null;
+    }
     // ComfySwitchNode ("If/Else Switch") — 片方(TextGenerateなどLLMノード)は静的解決不能なため
     // on_false/on_true の両方を試し、リテラルへ解決できた方を採用する。
     if (ct === "ComfySwitchNode") {
@@ -3923,6 +4036,44 @@ function isValidAiUrl(url) {
     }
 }
 
+// "Unload all now" (VRAM): same server step as Workflow Studio's Settings → VRAM Management
+// (/api/wfm/vram/prepare, py/routes/vram_routes.py). static/js/vram-prepare.js can't be imported
+// here (it pulls in the SPA's app.js), so the Ollama URLs are collected from the same localStorage
+// keys directly — the SPA is served from this origin. The server always adds 127.0.0.1:11434.
+function _aiVramOllamaUrls(extraUrl) {
+    const urls = [];
+    for (const key of ["wfm_ai_settings", "wfm_prompt_ai_settings", "wfm_tagger_ai_settings"]) {
+        try {
+            const s = JSON.parse(localStorage.getItem(key) || "{}");
+            if ((s.backend || "ollama") === "ollama") urls.push(s.backendUrl || getAiBackendDefaultUrl("ollama"));
+        } catch {}
+    }
+    try {
+        const d = JSON.parse(localStorage.getItem("wfm_decision_settings") || "{}");
+        if (d.backend === "ollama" && d.baseUrl) urls.push(d.baseUrl);
+    } catch {}
+    if (extraUrl) urls.push(extraUrl);
+    return [...new Set(urls)];
+}
+
+async function aiVramUnloadAll(extraUrl) {
+    const r = await fetch("/api/wfm/vram/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "all", urls: _aiVramOllamaUrls(extraUrl) }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.status !== "ok") throw new Error(d.message || `HTTP ${r.status}`);
+    const gb = (mb) => (mb / 1024).toFixed(1);
+    let text;
+    if (d.unloaded.length) text = `Unloaded ${d.unloaded.map((u) => u.name).join(", ")} — free ${gb(d.free_before_mb)} → ${gb(d.free_after_mb)} GB`;
+    else if (d.failed.length) text = "";
+    else if (d.unreachable?.length) text = `Cannot reach Ollama: ${d.unreachable.map((u) => u.url).join(", ")}`;
+    else text = `No Ollama models are loaded (free ${gb(d.free_after_mb)} GB)`;
+    if (d.failed.length) text += (text ? " / " : "") + `Could not unload: ${d.failed.join(", ")}`;
+    return { text, ok: !d.failed.length && !(d.unreachable?.length && !d.unloaded.length) };
+}
+
 function loadAiCfg() {
     try { return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}"); } catch { return {}; }
 }
@@ -4280,6 +4431,13 @@ const renderAiTab = (container) => {
                         </div>
                     </div>
                     <div class="wfm-nlp-ai-sec">
+                        <div class="wfm-nlp-ai-sec-title">VRAM (Ollama)</div>
+                        <div class="wfm-nlp-ai-row">
+                            <button id="wfm-nlp-ai-vram-unload" class="wfm-nlp-ai-btn" title="Unload every model loaded in Ollama on localhost (decision models included) — same as Settings → VRAM Management in Workflow Studio">Unload all now</button>
+                        </div>
+                        <span id="wfm-nlp-ai-vram-status" class="wfm-nlp-ai-status"></span>
+                    </div>
+                    <div class="wfm-nlp-ai-sec">
                         <button id="wfm-nlp-ai-save" class="wfm-nlp-ai-btn wfm-nlp-ai-btn-primary" style="width:100%;">Save</button>
                     </div>
                 </div>
@@ -4442,6 +4600,27 @@ const setupAiHandlers = (container) => {
             resultEl.className = "wfm-nlp-ai-status wfm-nlp-ai-err";
         } finally {
             testBtn.disabled = false;
+        }
+    });
+
+    // VRAM: unload every loaded Ollama model (includes the URL typed in Connection when backend is Ollama)
+    container.querySelector("#wfm-nlp-ai-vram-unload")?.addEventListener("click", async () => {
+        const btn = container.querySelector("#wfm-nlp-ai-vram-unload");
+        const statusEl = container.querySelector("#wfm-nlp-ai-vram-status");
+        const backend = container.querySelector("input[name='wfm-nlp-ai-backend']:checked")?.value || "ollama";
+        const url = container.querySelector("#wfm-nlp-ai-url")?.value?.trim() || "";
+        btn.disabled = true;
+        statusEl.textContent = "Unloading...";
+        statusEl.className = "wfm-nlp-ai-status wfm-nlp-ai-working";
+        try {
+            const res = await aiVramUnloadAll(backend === "ollama" && isValidAiUrl(url) ? url : "");
+            statusEl.textContent = res.text;
+            statusEl.className = "wfm-nlp-ai-status " + (res.ok ? "wfm-nlp-ai-ok" : "wfm-nlp-ai-err");
+        } catch (err) {
+            statusEl.textContent = `Failed: ${err.message}`;
+            statusEl.className = "wfm-nlp-ai-status wfm-nlp-ai-err";
+        } finally {
+            btn.disabled = false;
         }
     });
 

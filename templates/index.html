@@ -92,6 +92,10 @@
                     <div class="wfm-side-panel-header">
                         <span id="wfm-side-panel-title" class="wfm-side-panel-title"></span>
                     </div>
+                    <div class="wfm-side-compat-row">
+                        <span id="wfm-side-format-badge" class="wfm-format-badge"></span>
+                        <span id="wfm-side-compat-result" class="wfm-compat-result wfm-compat-result--right"></span>
+                    </div>
                     <div class="wfm-side-tab-nav">
                         <button class="wfm-side-tab-btn active" data-side-tab="thumb">Thumbnail</button>
                         <button class="wfm-side-tab-btn" data-side-tab="json">JSON</button>
@@ -1400,8 +1404,9 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-wf-card-panel-title">Side Panel &amp; Detail Modal</h3>
                             <ul>
-                                <li id="wfm-help-wf-5">Side panel: thumbnail, JSON viewer (format badge: UI/API/App), clipboard copy, group management</li>
+                                <li id="wfm-help-wf-5">Side panel: below the workflow name, the format badge (UI / API / App) and the GenerateUI Check result badges (checked automatically on selection, results only — hover for the reasons); tabs for thumbnail, JSON viewer (format badge: UI/API/App), clipboard copy, group management</li>
                                 <li id="wfm-help-wf-6">Detail modal: rename, favorite, thumbnail change, badge assignment, tags, memo, AI summary, send to canvas, load in GenerateUI, set as default, delete</li>
+                                <li id="wfm-help-wf-8">GenerateUI Check: in the detail modal, the row below the title shows the format badge (UI / API / App) at the left, then the GenerateUI Check button and two result badges; the side panel shows the same format and result badges automatically. Nothing is saved (results stay in memory until the page is reloaded); the check takes about 20 ms (the first one after opening the page waits for ComfyUI's node list, about 10 s). Hover a ✅ / ⚠ / ❌ badge for the reasons. Conversion: converts the workflow with the same logic as GenerateUI; ❌ for unsupported formats, conversion errors or node types not installed in this ComfyUI, ⚠ for values not available here (models, LoRAs, images…) — UI-format workflows have them silently replaced with the first choice, while API-format workflows are sent as-is and rejected by ComfyUI ("Value not in list") unless you pick another value in GenerateUI (a checkpoint is replaced if "Force default checkpoint on workflow load" is on). Operability: how much of the workflow GenerateUI's fields alone can operate — the share of nodes with settings that GenerateUI shows (✅ 80%+, ⚠ 50%+, ❌ below); the tip lists the prompt/sampler fields found and the nodes whose settings must be changed in the node graph</li>
                             </ul>
                         </div>
                     </div>
@@ -1584,7 +1589,7 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-prompt-card-ai-title">AI Assistant &amp; Translation</h3>
                             <ul>
-                                <li id="wfm-help-prompt-1">AI assistant (Ollama / LM Studio / Lemonade / Unsloth): chat for prompt consultation, image attachment (vision models); click the &#9881; Settings button to choose backend, connection URL, model, Thinking mode, Max tokens, and unload the loaded model &mdash; settings are independent from the AI TOOL and Tagger tabs</li>
+                                <li id="wfm-help-prompt-1">AI assistant (Ollama / LM Studio / Lemonade / Unsloth): chat for prompt consultation, image attachment (vision models); click the ⚙ Settings button to choose backend, connection URL, model, Thinking mode, Max tokens, and unload the loaded model (with Ollama, every model loaded in Ollama on localhost is unloaded, decision models included — the same as Settings → VRAM Management) — settings are independent from the AI TOOL and Tagger tabs</li>
                                 <li id="wfm-help-prompt-2">Apply AI responses to GenerateUI prompts</li>
                                 <li id="wfm-help-prompt-3">Translation: JA&#8596;EN, ZH&#8596;EN</li>
                             </ul>
@@ -1649,8 +1654,9 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-metadata-card-extracted-title">Extracted Information</h3>
                             <ul>
-                                <li id="wfm-help-metadata-2">Center column: Checkpoint, VAE, Diffusion Model, and Text Encoder lists extracted from the workflow</li>
-                                <li id="wfm-help-metadata-3">Right column: LoRA list (with strength values) and Prompt list (click to view full text below)</li>
+                                <li id="wfm-help-metadata-2">Center column: Checkpoint, VAE, Diffusion Model, and Text Encoder lists extracted from the workflow, plus (since v0.7.14) the LoRA list and Prompt list that used to be in the right column</li>
+                                <li id="wfm-help-metadata-3">Right column (v0.7.14): <b>Settings</b> — image size (width×height) and, when the workflow has a KSampler-type node, its Seed / Steps / CFG / Sampler / Scheduler / Denoise values</li>
+                                <li id="wfm-help-metadata-7">Right column, <b>Nanobanana</b> section (v0.7.14): shown only for images from ComfyUI Comic Creator's Nanobanana tab opened via the Gallery tab's Metadata button (needs a matching entry in that folder's history.jsonl log) — engine, model, image size, seed, timestamp, and the prompt/negative prompt actually used; replaces what would otherwise be a "no metadata found" error, since these images have no embedded ComfyUI workflow</li>
                                 <li id="wfm-help-metadata-4">Prompt actions — Copy: copy to clipboard; GenUI:P/N: set GenerateUI positive/negative prompt; Prompt:P/N: set Prompt tab preset positive/negative</li>
                             </ul>
                         </div>
@@ -1683,6 +1689,7 @@
                                 <li id="wfm-help-settings-7">Eagle integration URL and auto-save toggle</li>
                                 <li id="wfm-help-settings-22">G'MIC-Qt Integration: path to the G'MIC-Qt executable (gmic_qt.exe) used by the Image Edit tab's G'MIC filter (Edit with G'MIC); Save stores it — see the Image Edit help for installing G'MIC-Qt</li>
                                 <li id="wfm-help-settings-17">Decision Model: its own section, independent of the AI TOOL / Tagger LLM/VLM backends so it can be used alongside them — backend, URL, model and a default probability threshold (answers below it are treated as suggestions to confirm). Unsloth: Laya models (laya / laya-multilingual / laya-english / laya-typed-decisions); requires Settings → API → Decision API → Serve requests in Unsloth Desktop (otherwise HTTP 404 "The Decision API is off") and either UNSLOTH_API_KEY in .env or Keyless API access → "Chat and inference". Ollama (0.35+): lists installed models whose capabilities include "decision" (tev1, tev1:0.8b, nimble — ollama pull first; ↻ refreshes the list); no key needed. Test sends one yes/no question with the unsaved form values; the first request loads the model.</li>
+                                <li id="wfm-help-settings-25">VRAM Management (Ollama): right before every image generation from Workflow Studio, unload the models Ollama has loaded to free VRAM (off / only as much as needed to reach a target free VRAM / everything every time); free VRAM is measured with nvidia-smi; &quot;Unload all now&quot; unloads them immediately; the same "Unload all now" is also in the sidepanel A tab → Settings → VRAM (Ollama). Running a workflow from the ComfyUI canvas itself is not covered</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1791,9 +1798,10 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-gallery-card-detail-title">Detail Panel</h3>
                             <ul>
-                                <li id="wfm-help-gallery-7">Detail panel — Info tab: filename, size, dimensions (image width×height) or video duration, date, tags (add/remove), memo; <b>download icon</b> (on image hover) to download the single image; "Move To..." moves the image to another folder, "Delete File" removes it permanently</li>
+                                <li id="wfm-help-gallery-7">Detail panel — Info tab: filename, size, dimensions (image width×height) or video duration, date, tags (add/remove), memo; <b>download icon</b> (on image hover) to download the single image; "Move To..." moves the image to another folder, "Delete File" removes it permanently. In the Move To dialog (also from the bulk bar), type in the filter box to narrow the folder list by name or path (space = AND); Enter moves to the first match.</li>
                                 <li id="wfm-help-gallery-8">Detail panel — JSON tab: displays workflow JSON from PNG embedded data (prompt / workflow keys) or from metadata saved by the Generate UI tab; 'Copy &amp; Send Canvas' button copies to clipboard and stores the workflow for title-drag to canvas</li>
                                 <li id="wfm-help-gallery-9">Detail panel — Groups tab: create, assign, remove, rename, and delete groups per image; the <b>__Feeder__</b> group is reserved (shown with 🔒) and cannot be renamed or deleted — rename and delete buttons are disabled when it is selected</li>
+                                <li id="wfm-help-gallery-32">Detail panel — Prompt tab (selected by default): lists positive/negative prompts found in the embedded workflow; hidden for images in a <b>cc_nanobanana</b> folder, since those carry no embedded ComfyUI workflow — a <b>Nanobanana</b> tab (v0.7.14) appears there instead, shown only when that folder's <b>history.jsonl</b> generation log (written by ComfyUI Comic Creator's Nanobanana tab) has a matching entry for the selected image: engine, model, image size, seed, timestamp, and the prompt/negative prompt actually used</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1805,7 +1813,8 @@
                                 <li id="wfm-help-gallery-16"><b>Image Edit</b> button (toolbar, next to Refresh): sends the currently selected image to the Image Edit tab; if layers already exist the image is added as a new layer scaled to fit the canvas, otherwise it becomes Layer 1; PSD files are fully decomposed into their original layers instead of being flattened into one image</li>
                                 <li id="wfm-help-gallery-17"><b>Send GenUI Image</b> button (toolbar, next to Image Edit): uploads the selected image to ComfyUI and sets it as the input for the first LoadImage node in the GenerateUI tab; automatically switches to GenerateUI → Input → Image; requires a workflow with at least one LoadImage node to be loaded first</li>
                                 <li id="wfm-help-gallery-27"><b>Send to LI node</b> button (toolbar, next to Send GenUI Image): uploads the selected image and writes its filename into the image widget of the currently selected node on the ComfyUI canvas (falling back to the first LoadImage-type node found) — same destination as Image Edit tab's Send to LI node; requires Workflow Studio to have been opened from ComfyUI's top menu button</li>
-                                <li id="wfm-help-gallery-28"><b>Create PSD</b> bulk button: combines all selected images into a single layered PSD file and downloads it — each image becomes its own layer (named after the file), positioned top-left on a canvas sized to the largest selected image; the last selected image ends up on top</li>
+                                <li id="wfm-help-gallery-31"><b>Send to LV node</b> button (toolbar, next to Send to LI node): the video equivalent — uploads the selected video and writes its filename into the file widget of the currently selected node, which must be ComfyUI's native <b>Load Video</b> node; only enabled when the selected item is a video (mp4/webm); requires Workflow Studio to have been opened from ComfyUI's top menu button</li>
+                                <li id="wfm-help-gallery-28"><b>Create PSD</b> bulk button: combines all selected images into a single layered PSD file and downloads it — each image becomes its own layer (named after the file), positioned top-left on a canvas sized to the largest selected image; the last selected image ends up on top Convert... bulk button (shown when audio/video files are selected): converts audio files — or extracts the audio track of videos — to FLAC / MP3 / Opus / M4A / WAV (bitrate, sample rate, channels selectable) into the same folder as new files; prompt/workflow tags are carried over for formats that can hold them (WAV cannot), favorite/tags/memo/groups can be carried over, and the originals can optionally be deleted afterwards.</li>
                                 <li id="wfm-help-gallery-29"><b>Edit as Layers</b> bulk button: switches to the Image Edit tab and opens all selected images at once, each as an independent layer (video files in the selection are skipped); the last selected image ends up on top</li>
                             </ul>
                         </div>
@@ -1813,7 +1822,7 @@
                             <h3 id="wfm-help-gallery-card-formats-title">Formats &amp; Auto-save</h3>
                             <ul>
                                 <li id="wfm-help-gallery-10">Workflow auto-save: images generated in the Generate UI tab automatically have their workflow saved to gallery metadata and shown in the JSON tab</li>
-                                <li id="wfm-help-gallery-11">Supports PNG (tEXt/iTXt), JPEG, WebP, GIF, MP4, PSD; workflow extraction reads ComfyUI prompt/workflow keys embedded in PNG metadata or in MP4 container tags (as written by SaveVideo, e.g. MiniMax H3 output)</li>
+                                <li id="wfm-help-gallery-11">Supports PNG (tEXt/iTXt), JPEG, WebP, GIF, MP4, WebM, PSD, and audio (WAV, MP3, OGG, M4A, FLAC, Opus — waveform thumbnail, built-in player, prompt/workflow tags written by ComfyUI's SaveAudio nodes); workflow extraction reads ComfyUI prompt/workflow keys embedded in PNG metadata (including chunks appended after IEND by ComfyUI-Custom-Scripts), WebP EXIF, or MP4/WebM container tags (as written by SaveVideo, e.g. MiniMax H3 output); the Prompt tab also reads A1111 / Forge / Fooocus <code>parameters</code> text when no workflow is embedded. Audio waveform thumbnails are colored by format (MP3 blue, WAV green, FLAC amber, OGG/Opus purple, M4A rose) so formats can be told apart at a glance; the detail panel shows the waveform with the player below it.</li>
                                 <li id="wfm-help-gallery-30">PSD files: thumbnails and full-size previews show all layers merged together (hidden layers excluded); the underlying PSD file itself is left untouched — only the preview shown in Gallery is a flattened rendering</li>
                             </ul>
                         </div>
@@ -1872,7 +1881,7 @@
                             <ul>
                                 <li id="wfm-help-sidepanel-1">Open from the Workflow Studio Library button in the ComfyUI toolbar</li>
                                 <li id="wfm-help-sidepanel-2">Workflows tab: All / ★ Favorites / Groups sub-tabs; ★ shown for favorites in All view</li>
-                                <li id="wfm-help-sidepanel-3">Nodes tab: All / ★ Favorites / Groups / Sets / 📂 Category / 🧩 Package sub-tabs; Category and Package show a dropdown to filter nodes</li>
+                                <li id="wfm-help-sidepanel-3">Nodes tab: All / ★ Favorites / Groups / Sets / 📂 Category / 🧩 Package sub-tabs; Category and Package show a dropdown to filter nodes Alt+click a node to add/remove it from Favorites.</li>
                                 <li id="wfm-help-sidepanel-11">Models tab: All / ★ Favorites / Groups / By Type sub-tabs</li>
                                 <li id="wfm-help-sidepanel-4">Prompts tab: browse prompt presets with All/Favorites/Categories sub-tabs</li>
                             </ul>
@@ -1891,7 +1900,7 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-sidepanel-card-info-title">Information (I) tab</h3>
                             <ul>
-                                <li id="wfm-help-sidepanel-13">I tab (Information): drop a ComfyUI PNG/WebP/MP4/JSON to inspect model, LoRA, and prompt metadata in the side panel — sub-tabs: model / lora / Prompts; supports UnetLoaderGGUF and QuadrupleCLIPLoader node types; MP4 reads the workflow/prompt tags embedded by SaveVideo, including all-in-one video nodes like MiniMax H3 ImageToVideo</li>
+                                <li id="wfm-help-sidepanel-13">I tab (Information): drop a ComfyUI PNG/WebP/MP4/JSON to inspect model, LoRA, and prompt metadata in the side panel — sub-tabs: model / lora / Prompts; supports UnetLoaderGGUF, QuadrupleCLIPLoader, Lora Loader (LoraManager), and ImageMetadataLoRALoader node types (API format included); MP4 reads the workflow/prompt tags embedded by SaveVideo, including all-in-one video nodes like MiniMax H3 ImageToVideo</li>
                                 <li id="wfm-help-sidepanel-14">Information tab — drag items to canvas: model sub-tab places the loader node (Checkpoint → CheckpointLoaderSimple, VAE → VAELoader, Diffusion Model → UNETLoader, Text Encoder → CLIPLoader); double-click also places at canvas center</li>
                                 <li id="wfm-help-sidepanel-15">Information tab — LoRA sub-tab: drag individual LoRA to place LoraLoader; "Multiple LORA" section at bottom places all LoRAs in a single Lora Loader (LoraManager) node; Prompts sub-tab: drag a prompt to place CLIPTextEncode node with text pre-filled; click prompt to view full text and copy</li>
                             </ul>
@@ -1899,7 +1908,7 @@
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-sidepanel-card-ai-title">AI TOOL tab</h3>
                             <ul>
-                                <li id="wfm-help-sidepanel-16">AI TOOL tab: Translation, Chat, TOOLS, and Settings sub-tabs powered by Ollama, LM Studio, Lemonade, or Unsloth; Chat supports multi-turn conversations; TOOLS includes VLM image analysis and wildcard generation; settings shared with the SPA AI TOOL tab via localStorage</li>
+                                <li id="wfm-help-sidepanel-16">AI TOOL tab: Translation, Chat, TOOLS, and Settings sub-tabs powered by Ollama, LM Studio, Lemonade, or Unsloth; Chat supports multi-turn conversations; TOOLS includes VLM image analysis and wildcard generation; settings shared with the SPA AI TOOL tab via localStorage; the Settings sub-tab&#39;s VRAM (Ollama) &rarr; &quot;Unload all now&quot; unloads every model loaded in Ollama on localhost, decision models included</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -1946,7 +1955,7 @@
                         </div>
                         <div class="wfm-help-card">
                             <h3 id="wfm-help-ai-card-settings-title">Settings pane</h3>
-                            <p id="wfm-help-ai-6">Settings pane: choose backend (Ollama / LM Studio / Lemonade / Unsloth), set API URL, test connection, select model, and use the Unload Model button (next to Test connection) to free the loaded model from VRAM/memory &mdash; Ollama uses keep_alive:0, LM Studio uses /api/v1/models/unload, Lemonade uses /api/v1/unload; Unsloth has no unload API, so this shows an unsupported message for it; Unsloth needs either an API key or Keyless API access — set UNSLOTH_API_KEY in a .env file in the plugin folder (copy .env.example) and restart ComfyUI (the key is read server-side and never sent to the browser), or leave it unset and turn on Keyless API access → "Chat and inference" in Unsloth Desktop's Settings → API (requests are then sent without a key; note that setting also opens the API to your private LAN, and keep "Allow tools" off); Unsloth also requires "Auto model switching (OpenAI API)" to be turned ON in the Unsloth Desktop app itself (its own Settings screen) — without it, requests fail with HTTP 404 unless a model was already manually loaded in the Unsloth Studio UI; Unsloth reasoning models return their thinking in a separate reasoning_content field rather than inline &lt;think&gt; tags, so a low Max tokens can make the model spend its whole budget reasoning and return an empty reply — increase Max tokens (2048+) if replies come back blank; Generation section — Thinking mode toggle (off by default; Ollama receives a `think` flag, and regardless of backend any &lt;think&gt;...&lt;/think&gt; block is stripped from the output when off, so reasoning models don't clutter Translation/Chat/TOOLS results) and Max tokens (Ollama: num_predict, LM Studio/Lemonade/Unsloth: max_tokens; 0 = unlimited); configure Free language names; Chat Image Generation section lets you enable a dedicated workflow for Chat-triggered text-to-image generation instead of the one currently loaded in GenerateUI; Chat I2I Generation section is the same but for image-to-image generation when an image is attached; settings are shared with the Library panel's A tab via localStorage</p>
+                            <p id="wfm-help-ai-6">Settings pane: choose backend (Ollama / LM Studio / Lemonade / Unsloth), set API URL, test connection, select model, and use the Unload Model button (next to Test connection) to free the loaded model from VRAM/memory &mdash; Ollama unloads every loaded Ollama model, decision models included (the same step as Settings &rarr; VRAM Management's &quot;Unload all now&quot;; the Prompt/Tagger settings button does the same), LM Studio uses /api/v1/models/unload, Lemonade uses /api/v1/unload; Unsloth has no unload API, so this shows an unsupported message for it; Unsloth needs either an API key or Keyless API access — set UNSLOTH_API_KEY in a .env file in the plugin folder (copy .env.example) and restart ComfyUI (the key is read server-side and never sent to the browser), or leave it unset and turn on Keyless API access → "Chat and inference" in Unsloth Desktop's Settings → API (requests are then sent without a key; note that setting also opens the API to your private LAN, and keep "Allow tools" off); Unsloth also requires "Auto model switching (OpenAI API)" to be turned ON in the Unsloth Desktop app itself (its own Settings screen) — without it, requests fail with HTTP 404 unless a model was already manually loaded in the Unsloth Studio UI; Unsloth reasoning models return their thinking in a separate reasoning_content field rather than inline &lt;think&gt; tags, so a low Max tokens can make the model spend its whole budget reasoning and return an empty reply — increase Max tokens (2048+) if replies come back blank; Generation section — Thinking mode toggle (off by default; Ollama receives a `think` flag, and regardless of backend any &lt;think&gt;...&lt;/think&gt; block is stripped from the output when off, so reasoning models don't clutter Translation/Chat/TOOLS results) and Max tokens (Ollama: num_predict, LM Studio/Lemonade/Unsloth: max_tokens; 0 = unlimited); configure Free language names; Chat Image Generation section lets you enable a dedicated workflow for Chat-triggered text-to-image generation instead of the one currently loaded in GenerateUI; Chat I2I Generation section is the same but for image-to-image generation when an image is attached; settings are shared with the Library panel's A tab via localStorage</p>
                         </div>
                     </div>
 
@@ -1968,7 +1977,7 @@
                             <ul>
                                 <li id="wfm-help-tagger-3">Single tab: drag &amp; drop an image onto the preview area, or click Upload to pick a file; the Tagger button in the Gallery detail panel opens the selected image directly here</li>
                                 <li id="wfm-help-tagger-4">Threshold slider: minimum confidence score for general tags (default 0.35); Character Threshold: separate threshold for character: prefix tags (default 0.85)</li>
-                                <li id="wfm-help-tagger-5">VLM Tagging: enable the checkbox to run a vision model alongside WD Tagger; click the &#9881; Settings button to choose backend (Ollama / LM Studio / Lemonade / Unsloth), URL, model, Thinking mode, Max tokens, and unload the model &mdash; independent from the Prompt tab's own AI settings; customize the prompt and Max Tags inline; results from both models are merged</li>
+                                <li id="wfm-help-tagger-5">VLM Tagging: enable the checkbox to run a vision model alongside WD Tagger; click the ⚙ Settings button to choose backend (Ollama / LM Studio / Lemonade / Unsloth), URL, model, Thinking mode, Max tokens, and unload the model (with Ollama, every model loaded in Ollama on localhost is unloaded, decision models included) — independent from the Prompt tab's own AI settings; customize the prompt and Max Tags inline; results from both models are merged</li>
                             </ul>
                         </div>
                         <div class="wfm-help-card">
@@ -2137,7 +2146,7 @@
                                 <li id="wfm-help-video-9">Project tab (sidebar): lists saved Video Plans while the center Plan subtab is active, or saved Edit projects while the center Edit subtab is active (thumbnail/block or clip count, last updated) — click one to load it, or delete it with the × button; clicking the same tab again collapses the panel.</li>
                                 <li id="wfm-help-video-10">Highlight color: the Prompt / Duration / First Image / Last Image / Aspect Ratio / Megapixels / Multiple / Noise Seed / Width / Height / Turbo Mode / Strength / Steps / Prompt Enhance labels turn the same highlight color as the GenerateUI Model tab (customizable in the Settings tab) when the loaded workflow actually supports that field — e.g. for a Wan2.2 workflow (no ResolutionSelector node), the Aspect Ratio / Megapixels / Multiple labels stay unhighlighted while Width / Height light up instead.</li>
                                 <li id="wfm-help-video-11">Edit subtab: a lightweight clip timeline for trimming and concatenating video/image clips outside of generation. Add clips via the Video Source panel's "Add to Edit" button or the Asset subtab's "Send to Edit" button, then drag blocks to reorder (or use the ◀/▶ toolbar buttons), Duplicate/Delete the selected clip, and Clear to empty the timeline (this also resets the Audio section). The trim panel for the selected video clip shows a time ruler, a draggable playhead synced to the Source preview, and draggable in/out handles with time badges — image clips instead get a simple hold-duration field. ▶ Preview plays every ready clip back-to-back (trimmed to its in/out points) in the right-hand result preview; Export builds and runs the actual ComfyUI graph (trim → concatenate if more than one clip → save), tagging the result into the Video Temp group automatically. The Audio section of the export panel controls the soundtrack: "Keep original audio" (with its own volume in dB) keeps each clip's audio aligned to its segment even across multiple clips (image clips contribute silence), and "BGM..." lays one audio file over the whole video with its own volume and start offset (a longer BGM is cut to the video length). Each clip can also carry text overlays ("+ Add text" under the trim panel: text, start/end seconds within the clip, size as % of frame height, color, 9-position anchor, outline, background box); they are previewed live over the Source/Result panes and burned in on Export as a final pass. The BGM can be chosen with "BGM...", by dropping an audio/video file onto the Audio section, or with "Set as BGM" on a video in the Asset subtab (its audio track is used). Video clips can also be cropped: "Edit crop" shows a draggable/resizable rectangle over the Source preview (optionally locked to 16:9 / 9:16 / 1:1 / 4:3 / 3:4) — "Done" keeps it, "Cancel" restores the crop from before editing, and switching to another subtab/tab ends editing like Done; the export size becomes the first video clip's cropped size, and other clips of a different size are center-fit to it. ↶/↷ in the timeline toolbar (or Ctrl+Z / Ctrl+Y) undo and redo edits to clips, trims, crops, text and audio settings. The export panel's Save/Save As/Load buttons persist the timeline itself (clip order, trim points, crop, text overlays, audio/BGM settings, and which uploaded file each clip and the BGM refer to) as a JSON project file on the server. The project only stores references to those files in ComfyUI's input folder, so Load re-fetches each clip from its saved server reference and re-probes it — the original files must still exist (Settings → Full Backup can bundle them with "Include media used by Video Edit projects"). These saved projects also show up in the sidebar's Project tab whenever the Edit subtab is active (see the Project tab item).</li>
-                                <li id="wfm-help-video-12">Asset subtab (center panel, next to Plan/Edit): browses every video/image tagged into Video Assets or Video Temp (via the group dropdown, or "All Video Assets" for both). Search filters by filename; the ▦/☰ buttons switch between a thumbnail grid and a table (filename/updated/tags). Selecting an item shows its tags/memo, loads it into the center preview, and offers "Send to Edit" (queues it as a clip in the Edit subtab) plus, for images only, "Set as First Image"/"Set as Last Image" (uploads it straight into the currently-selected Plan block, switching to the Plan subtab).</li>
+                                <li id="wfm-help-video-12">Asset subtab (center panel, next to Plan/Edit): browses every video/image tagged into Video Assets or Video Temp (via the group dropdown, or "All Video Assets" for both). Search filters by filename; the ▦/☰ buttons switch between a thumbnail grid and a table (filename/updated/tags). Selecting an item shows its tags/memo, loads it into the center preview, and offers "Send to Edit" (queues it as a clip in the Edit subtab) plus, for images only, "Set as First Image"/"Set as Last Image" (uploads it straight into the currently-selected Plan block, switching to the Plan subtab). Audio files tagged into Video Assets also appear (&quot;Audio Only&quot; filter): the detail panel gets a player plus &quot;Set as BGM&quot; and &quot;Add as sound&quot; (places it on the Edit subtab's Audio track at the selected clip's start).</li>
                             </ul>
                         </div>
                         <button class="wfm-help-jump-btn wfm-btn wfm-btn-sm" data-jump-tab="video">Go to Video Tab</button>
@@ -2286,6 +2295,7 @@
                     <button id="wfm-gallery-send-image-edit-btn" class="wfm-btn wfm-btn-sm" title="Send selected image to Image Edit tab">Image Edit</button>
                     <button id="wfm-gallery-send-genui-image-btn" class="wfm-btn wfm-btn-sm" title="Send selected image to GenerateUI Image input">Send GenUI Image</button>
                     <button id="wfm-gallery-send-li-node-btn" class="wfm-btn wfm-btn-sm" title="Upload and write selected image's filename into the selected node's image widget (e.g. LoadImage)">Send to LI node</button>
+                    <button id="wfm-gallery-send-lv-node-btn" class="wfm-btn wfm-btn-sm" title="Upload and write selected video's filename into the selected node's file widget (native Load Video node)">Send to LV node</button>
                     <button id="wfm-gallery-send-cc-btn" class="wfm-btn wfm-btn-sm" title="Send selected image to ComfyUI Comic Creator's selected panel" style="display:none;">Send CC</button>
                 </div>
                 <!-- 複数選択時の一括操作バー -->
@@ -2305,6 +2315,7 @@
                     <button id="wfm-gallery-bulk-export" class="wfm-btn wfm-btn-sm"></button>
                     <button id="wfm-gallery-bulk-psd" class="wfm-btn wfm-btn-sm"></button>
                     <button id="wfm-gallery-bulk-edit-layers" class="wfm-btn wfm-btn-sm"></button>
+                    <button id="wfm-gallery-bulk-convert" class="wfm-btn wfm-btn-sm" style="display:none;"></button>
                     <button id="wfm-gallery-bulk-delete" class="wfm-btn wfm-btn-sm wfm-btn-danger"></button>
                 </div>
             </div>
@@ -2347,6 +2358,8 @@
                         <button class="wfm-gallery-detail-tab-btn" data-detail-tab="meta">JSON</button>
                         <button class="wfm-gallery-detail-tab-btn" data-detail-tab="group">Groups</button>
                         <button class="wfm-gallery-detail-tab-btn active" data-detail-tab="prompt">Prompt</button>
+                        <!-- cc_nanobananaフォルダの画像でのみJSから表示する（他フォルダではdisplay:none） -->
+                        <button class="wfm-gallery-detail-tab-btn" data-detail-tab="nanobanana" id="wfm-gallery-detail-tab-nanobanana" style="display:none;">Nanobanana</button>
                     </div>
                     <div class="wfm-gallery-detail-action-row">
                         <button id="wfm-gallery-open-metadata-btn" class="wfm-gallery-action-btn wfm-gallery-action-btn-green" title="Open in Metadata tab (or Alt+click image)">Metadata</button>
@@ -2418,6 +2431,27 @@
                                 <div class="wfm-meta-prompt-full-label" id="wfm-gallery-prompt-full-label"></div>
                                 <textarea class="wfm-meta-prompt-full" id="wfm-gallery-prompt-full" readonly placeholder="Select a prompt above to view full text..."></textarea>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Nanobanana タブ（cc_nanobananaフォルダの画像のみ。Comic Creatorのnanobananaタブが
+                         同フォルダに書くhistory.jsonlから、この画像に対応する生成履歴エントリを表示する） -->
+                    <div id="wfm-gallery-detail-nanobanana" class="wfm-gallery-detail-tab-content" style="display:none;">
+                        <div class="wfm-gallery-info-section">
+                            <div class="wfm-gallery-info-row" id="wfm-gallery-nb-engine"></div>
+                            <div class="wfm-gallery-info-row" id="wfm-gallery-nb-model"></div>
+                            <div class="wfm-gallery-info-row" id="wfm-gallery-nb-size"></div>
+                            <div class="wfm-gallery-info-row" id="wfm-gallery-nb-seed"></div>
+                            <div class="wfm-gallery-info-row" id="wfm-gallery-nb-timestamp"></div>
+                        </div>
+                        <hr class="wfm-group-divider">
+                        <div class="wfm-gallery-info-section">
+                            <div class="wfm-gallery-section-title">Prompt</div>
+                            <textarea class="wfm-meta-prompt-full" id="wfm-gallery-nb-prompt" readonly rows="4"></textarea>
+                        </div>
+                        <div class="wfm-gallery-info-section" id="wfm-gallery-nb-negative-section" style="display:none;">
+                            <div class="wfm-gallery-section-title">Negative Prompt</div>
+                            <textarea class="wfm-meta-prompt-full" id="wfm-gallery-nb-negative" readonly rows="4"></textarea>
                         </div>
                     </div>
                 </div>
@@ -2591,7 +2625,7 @@
                         <input type="file" id="wfm-meta-file-input" accept="image/png,image/webp,video/mp4,.mp4,.json,application/json" style="display:none;">
                     </div>
 
-                    <!-- Col2: Model info -->
+                    <!-- Col2: Model info + LoRA + Prompt -->
                     <div class="wfm-metadata-col2">
                         <div class="wfm-meta-section" id="wfm-meta-ckpt-section">
                             <div class="wfm-meta-section-title">Checkpoint</div>
@@ -2609,10 +2643,6 @@
                             <div class="wfm-meta-section-title">Text Encoder</div>
                             <div class="wfm-meta-list" id="wfm-meta-te-list"></div>
                         </div>
-                    </div>
-
-                    <!-- Col3: LoRA + Prompt -->
-                    <div class="wfm-metadata-col3">
                         <div class="wfm-meta-section" id="wfm-meta-lora-section">
                             <div class="wfm-meta-section-title">LoRA</div>
                             <div class="wfm-meta-list" id="wfm-meta-lora-list"></div>
@@ -2630,6 +2660,41 @@
                                     <button class="wfm-btn wfm-btn-sm" id="wfm-meta-preset-pos-btn">Prompt:P</button>
                                     <button class="wfm-btn wfm-btn-sm" id="wfm-meta-preset-neg-btn">Prompt:N</button>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Col3: Settings(画像サイズ・KSampler設定) + Nanobanana履歴 -->
+                    <div class="wfm-metadata-col3">
+                        <div class="wfm-meta-section" id="wfm-meta-settings-section">
+                            <div class="wfm-meta-section-title">Settings</div>
+                            <div class="wfm-gallery-info-section">
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-size"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-seed"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-steps"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-cfg"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-sampler"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-scheduler"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-set-denoise"></div>
+                            </div>
+                        </div>
+                        <!-- Comic Creatorのnanobananaタブ(history.jsonl)から来た画像のみ表示 -->
+                        <div class="wfm-meta-section" id="wfm-meta-nb-section">
+                            <div class="wfm-meta-section-title">Nanobanana</div>
+                            <div class="wfm-gallery-info-section">
+                                <div class="wfm-gallery-info-row" id="wfm-meta-nb-engine"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-nb-model"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-nb-size"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-nb-seed"></div>
+                                <div class="wfm-gallery-info-row" id="wfm-meta-nb-timestamp"></div>
+                            </div>
+                            <div class="wfm-gallery-info-section">
+                                <div class="wfm-gallery-section-title">Prompt</div>
+                                <textarea class="wfm-meta-prompt-full" id="wfm-meta-nb-prompt" readonly rows="4"></textarea>
+                            </div>
+                            <div class="wfm-gallery-info-section" id="wfm-meta-nb-negative-section" style="display:none;">
+                                <div class="wfm-gallery-section-title">Negative Prompt</div>
+                                <textarea class="wfm-meta-prompt-full" id="wfm-meta-nb-negative" readonly rows="4"></textarea>
                             </div>
                         </div>
                     </div>
@@ -2803,6 +2868,7 @@
                                         <option value="all">All Types</option>
                                         <option value="video">Video Only</option>
                                         <option value="image">Image Only</option>
+                                        <option value="audio">Audio Only</option>
                                     </select>
                                     <input type="text" id="wfm-video-asset-search" class="wfm-input" placeholder="Search filename..." style="flex:1;">
                                     <button type="button" id="wfm-video-asset-view-grid" class="wfm-btn wfm-btn-sm wfm-video-asset-view-btn active" title="Thumbnail view">▦</button>
