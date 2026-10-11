@@ -249,6 +249,8 @@ function applyI18nToHtml() {
     if (galleryBulkPsd) galleryBulkPsd.textContent = t("galleryBulkPsd");
     const galleryBulkEditLayers = document.getElementById("wfm-gallery-bulk-edit-layers");
     if (galleryBulkEditLayers) galleryBulkEditLayers.textContent = t("galleryBulkEditLayers");
+    const galleryBulkConvert = document.getElementById("wfm-gallery-bulk-convert");
+    if (galleryBulkConvert) galleryBulkConvert.textContent = t("galleryBulkConvert");
     const galleryBulkDelete = document.getElementById("wfm-gallery-bulk-delete");
     if (galleryBulkDelete) galleryBulkDelete.textContent = t("galleryBulkDelete");
     const galleryOpenTaggerBtn = document.getElementById("wfm-gallery-open-tagger-btn");
@@ -472,7 +474,7 @@ function applyI18nToHtml() {
         "wfm-help-about-1": "helpAbout1", "wfm-help-about-2": "helpAbout2",
         "wfm-help-wf-1": "helpWf1", "wfm-help-wf-2": "helpWf2", "wfm-help-wf-3": "helpWf3",
         "wfm-help-wf-4": "helpWf4", "wfm-help-wf-5": "helpWf5", "wfm-help-wf-6": "helpWf6",
-        "wfm-help-wf-7": "helpWf7",
+        "wfm-help-wf-7": "helpWf7", "wfm-help-wf-8": "helpWf8",
         "wfm-help-gen-1": "helpGen1", "wfm-help-gen-2": "helpGen2",
         "wfm-help-gen-3": "helpGen3", "wfm-help-gen-4": "helpGen4",
         "wfm-help-gen-5": "helpGen5", "wfm-help-gen-6": "helpGen6", "wfm-help-gen-7": "helpGen7",
@@ -557,7 +559,7 @@ function applyI18nToHtml() {
         "wfm-help-settings-18": "helpSettings18", "wfm-help-settings-19": "helpSettings19",
         "wfm-help-settings-20": "helpSettings20", "wfm-help-settings-21": "helpSettings21",
         "wfm-help-settings-22": "helpSettings22",
-        "wfm-help-settings-23": "helpSettings23", "wfm-help-settings-24": "helpSettings24",
+        "wfm-help-settings-23": "helpSettings23", "wfm-help-settings-24": "helpSettings24", "wfm-help-settings-25": "helpSettings25",
         "wfm-help-nodes-1": "helpNodes1", "wfm-help-nodes-2": "helpNodes2",
         "wfm-help-nodes-3": "helpNodes3", "wfm-help-nodes-4": "helpNodes4",
         "wfm-help-nodes-5": "helpNodes5", "wfm-help-nodes-6": "helpNodes6",
@@ -584,7 +586,8 @@ function applyI18nToHtml() {
         "wfm-help-gallery-24": "helpGallery24", "wfm-help-gallery-25": "helpGallery25",
         "wfm-help-gallery-26": "helpGallery26",
         "wfm-help-gallery-28": "helpGallery28", "wfm-help-gallery-29": "helpGallery29",
-        "wfm-help-gallery-30": "helpGallery30",
+        "wfm-help-gallery-30": "helpGallery30", "wfm-help-gallery-31": "helpGallery31",
+        "wfm-help-gallery-32": "helpGallery32",
         "wfm-help-gallery-card-styleprompt-title": "helpGalleryCardStyleprompt",
         "wfm-help-gallery-card-stylecatalog-title": "helpGalleryCardStylecatalog",
         "wfm-help-tagger-title": "helpTaggerTitle",

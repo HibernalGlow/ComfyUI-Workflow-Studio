@@ -26,12 +26,12 @@ A comprehensive workflow, asset management, and generation UI plugin for [ComfyU
 - Built-in AI tools (translation and more)
 
 ![Workflow Studio](https://img.shields.io/badge/ComfyUI-Custom_Node-blue)
-![Version](https://img.shields.io/badge/version-0.7.11-green)
+![Version](https://img.shields.io/badge/version-0.8.1-green)
 
 ## Features (tab -> feature names)
 
 ### Workflow Tab
-Thumbnail / Table views, Thumbnail side panel, Badge filtering, Search, Side panel tabs, Badge management, AI summary, Import / Export, Side panel toolbar buttons, Default view setting, Search clear (✕), Clear all filters (✕ Clear), Sort
+Thumbnail / Table views, Thumbnail side panel, Badge filtering, Search, Side panel tabs, Badge management, AI summary, Import / Export, Side panel toolbar buttons, Default view setting, Search clear (✕), Clear all filters (✕ Clear), Sort, GenerateUI Check
 
 ### Canvas Snapshot (v0.1.2)
 One-click capture, Auto-save as thumbnail, Embedded workflow metadata, Auto-import
@@ -49,10 +49,10 @@ Setting / Results / Plan JSON sub-panels, Per-column keyframes, Model column —
 3-column layout, AI chat assistant, Image attachment, Translation, Prompt presets, Preset Manager, Group management, Clipboard copy, GenUI Set, Wildcard/Style tab bar, Wildcard input toolbar, Wildcard file manager, Style manager, Form / Table toggle, Table view — Presets / Presets Group / Wildcards / Style
 
 ### Settings Tab
-2-column layout, Collapsible sections, Theme selection, Theme customization, Workflows directory, Gallery output directory, Eagle connection, CivitAI Host, CivitAI API Key, Default workflow, Default Checkpoint, Video Playback Volume, Data Management, Text Size, RAW JSON Colors, GenerateUI Model Tab Highlight, Wildcard Integration, G'MIC-Qt Integration, Language
+2-column layout, Collapsible sections, Theme selection, Theme customization, Workflows directory, Gallery output directory, Eagle connection, CivitAI Host, CivitAI API Key, Default workflow, Default Checkpoint, VRAM Management (Ollama), Video Playback Volume, Data Management, Text Size, RAW JSON Colors, GenerateUI Model Tab Highlight, Wildcard Integration, G'MIC-Qt Integration, Language
 
 ### Gallery Tab (v0.3.44)
-Output / ImagePrompt / Style_Catalog / Metadata sub-tabs, Image browser, Folder tree root label, Thumbnail / Table views, Folder management, File operations, Download, MP4 video support, MP4 embedded metadata, Info tab: dimensions & duration, Multi-select, Image Compare, Prompt search, Server-side filtering, Group management, Thumbnail F button, Favorites, Detail panel, Prompt tab, Workflow viewer, GenUI button, Image Edit button, Send GenUI Image button, Send to LI node button, Send CC button, Search clear (✕), Clear all filters (✕ Clear), Workflow auto-save, Output folder configurable, SVG file support, PSD file support, Performance
+Output / ImagePrompt / Style_Catalog / Metadata sub-tabs, Image browser, Folder tree root label, Thumbnail / Table views, Folder management, File operations, Download, MP4 video support, MP4 embedded metadata, WebM support, Embedded metadata reading fixes, Audio support, File conversion, Move To folder filter, Audio waveform colors, Info tab: dimensions & duration, Multi-select, Image Compare, Prompt search, Server-side filtering, Group management, Thumbnail F button, Favorites, Detail panel, Prompt tab, Nanobanana tab, Workflow viewer, GenUI button, Image Edit button, Send GenUI Image button, Send to LI node button, Send to LV node button, Send CC button, Search clear (✕), Clear all filters (✕ Clear), Workflow auto-save, Output folder configurable, SVG file support, PSD file support, Performance
 
 ### ImagePrompt Gallery subtab (v0.3.94, renamed from Style/Prompt in v0.3.95)
 Visual prompt library, 3-column layout, Prompt builder (right pane), Plain-text prompt storage, ponyxlWildcardsVault format support, Seed data importer
@@ -61,7 +61,7 @@ Visual prompt library, 3-column layout, Prompt builder (right pane), Plain-text 
 Visual Style picker, 3-column layout, Positive/Negative panel, Select as Style button, Load in GenerateUI / Open in Metadata Tab buttons, Double-click to enlarge
 
 ### Metadata Gallery subtab (v0.3.8, moved from a top-level tab in v0.4.6)
-Now inside Gallery, 3-column layout, File drop, MP4 embedded metadata, Model extraction, LoRA extraction, Prompt extraction, Prompt actions, Format support, Format note
+Now inside Gallery, 3-column layout, File drop, MP4 embedded metadata, Settings section, Nanobanana section, Model extraction, LoRA extraction, Prompt extraction, Prompt actions, Format support, Format note
 
 ### Nodes Tab (v0.1.7)
 Node Browser, Search & Filter, Package badges, Node detail panel, Node Sets, Right-click context menu, Multi-select, Search clear (✕), Clear all filters (✕ Clear)
@@ -161,6 +161,10 @@ Click the **camera icon** (next to the W button) in ComfyUI's top bar to capture
 - **[Eagle](https://eagle.cool/)** — for auto-saving generated images with metadata
 - **[comfyui-mask-editor-one](https://github.com/ketle-man/comfyui-mask-editor-one) (v0.1.9+)** — enables BiRefNet background removal, SAM3 text-prompt segmentation, and ABR stamp-brush library in the Image Edit Mask tool; `birefnet.safetensors` must be placed in `ComfyUI/models/background_removal/` for BiRefNet
 - **[psd-tools](https://pypi.org/project/psd-tools/)** (v0.6.0) — enables all PSD (Photoshop) features: Gallery bulk "Create PSD" export, Gallery browsing/thumbnails for `.psd` files, and Image Edit's Save PSD / Open PSD buttons; `pip install -r requirements.txt` (ships prebuilt wheels, no C compiler required); without it, PSD-related actions show an error toast with the install command instead of failing silently
+
+#### Backend connection security (v0.7.12)
+
+Server-side proxies for Ollama, LM Studio, Lemonade, Unsloth, the Tagger VLM and Eagle only connect to **localhost / 127.0.0.1 / ::1** (any port); `http(s)` only, no credentials in the URL, and redirects are never followed. To use a backend on another machine (e.g. an Ollama server on your LAN), list it in the `WFS_ALLOWED_BACKEND_HOSTS` environment variable (comma-separated `host` or `host:port`, e.g. `192.168.1.20:11434,gpu-box`) and restart ComfyUI. If you start ComfyUI with `--listen`, anyone who can reach it can use these routes, so only do that on a trusted network.
 
 ---
 

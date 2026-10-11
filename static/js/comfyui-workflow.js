@@ -9,6 +9,9 @@ let _objectInfoCache = null;
 // ckpt_name に対して発生した場合の記録。呼び出し元が読み込み直後に確認して警告表示できるよう、
 // 直近の convertUiToApi() 呼び出し分だけを保持する。
 let _lastCheckpointSubstitutions = [];
+// 同じフォールバックを全COMBO入力（LoRA・VAE・画像など）について記録したもの。
+// Workflowタブの「GenerateUI互換チェック」が、無警告で差し替わる値を一覧するのに使う。
+let _lastComboSubstitutions = [];
 
 // convertUiToApi() で除外された Bypass(mode:4) / Mute(mode:2) ノードの記録。
 // API形式には mode 情報が残らないため、呼び出し元がRaw JSON表示時に
@@ -617,6 +620,15 @@ export const comfyWorkflow = {
         return _lastCheckpointSubstitutions;
     },
 
+    getLastComboSubstitutions() {
+        return _lastComboSubstitutions;
+    },
+
+    // Cached /object_info (same snapshot convertUiToApi() uses)
+    async getObjectInfo() {
+        return _loadObjectInfo();
+    },
+
     getLastBypassedNodes() {
         return _lastBypassedNodes;
     },
@@ -637,8 +649,21 @@ export const comfyWorkflow = {
         _objectInfoCache = null;
     },
 
-    async convertUiToApi(workflow) {
+    // opts.readOnly: 表示用の読み取り変換。COMBO値の差し替えを行わず、Workflowタブの互換性
+    // チェックが参照する _last* 記録も変更しない（Metadataタブなど表示目的の呼び出し用）。
+    async convertUiToApi(workflow, opts = {}) {
+        if (!opts.readOnly) return comfyWorkflow._convertUiToApiImpl(workflow, opts);
+        const saved = [_lastCheckpointSubstitutions, _lastComboSubstitutions, _lastBypassedNodes, _lastMutedNodes];
+        try {
+            return await comfyWorkflow._convertUiToApiImpl(workflow, opts);
+        } finally {
+            [_lastCheckpointSubstitutions, _lastComboSubstitutions, _lastBypassedNodes, _lastMutedNodes] = saved;
+        }
+    },
+
+    async _convertUiToApiImpl(workflow, opts = {}) {
         _lastCheckpointSubstitutions = [];
+        _lastComboSubstitutions = [];
         _lastBypassedNodes = [];
         _lastMutedNodes = [];
         if (!workflow.nodes || !workflow.links) return {};
@@ -794,7 +819,7 @@ export const comfyWorkflow = {
                             const spec = allInputDefs[name];
                             if (spec) {
                                 const choices = Array.isArray(spec[0]) ? spec[0] : null;
-                                if (choices && choices.length > 0 && !choices.includes(val)) {
+                                if (!opts.readOnly && choices && choices.length > 0 && !choices.includes(val)) {
                                     if (name === "ckpt_name") {
                                         _lastCheckpointSubstitutions.push({
                                             nodeId: String(node.id),
@@ -803,6 +828,14 @@ export const comfyWorkflow = {
                                             replaced: choices[0],
                                         });
                                     }
+                                    _lastComboSubstitutions.push({
+                                        nodeId: String(node.id),
+                                        type: node.type,
+                                        title: node.title || node.type,
+                                        input: name,
+                                        original: val,
+                                        replaced: choices[0],
+                                    });
                                     val = choices[0];
                                 }
                             }

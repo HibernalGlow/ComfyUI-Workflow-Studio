@@ -11,14 +11,36 @@ import re
 import struct
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# サポートする画像拡張子（.mp4は動画だがGalleryでは静止画と同じ一覧・配信経路を共有する。
+# 動画拡張子（PyAV(av)がコンテナ形式を問わず共通で扱えるため、寸法/再生時間/埋め込み
+# メタデータ読み取り・サムネイル抽出は両形式で同じコードパスを通る）
+VIDEO_EXTENSIONS = {".mp4", ".webm"}
+
+# 音声拡張子（ComfyUIの音楽生成出力）。動画と同様にPyAVで再生時間・埋め込みメタデータを読む。
+# サムネイルは波形画像を生成する。
+AUDIO_EXTENSIONS = {".wav", ".mp3", ".ogg", ".m4a", ".flac", ".opus"}
+# 波形サムネイルの版数（描画仕様を変えたら上げる）。static/js/gallery-tab.js の WAVE_THUMB_VERSION と同じ値にすること。
+WAVE_THUMB_VERSION = "wave2"
+_NB_INDEX_CACHE_MAX = 16
+
+# 音声サムネイル（波形）の色。拡張子ごとに変えて、一覧で形式を見分けやすくする。
+AUDIO_WAVE_COLORS = {
+    ".mp3": (56, 189, 248),    # blue
+    ".wav": (74, 222, 128),    # green
+    ".flac": (251, 191, 36),   # amber
+    ".ogg": (192, 132, 252),   # purple
+    ".opus": (192, 132, 252),  # purple（Ogg系は同色）
+    ".m4a": (251, 113, 133),   # rose
+}
+
+# サポートする画像拡張子（動画・音声はGalleryでは静止画と同じ一覧・配信経路を共有する。
 # .psdはブラウザが直接レンダリングできないため、配信時に合成済みPNGへ変換する）
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".mp4", ".psd"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".psd"} | VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 
 # Canvas2D の globalCompositeOperation 文字列 -> psd_tools.constants.BlendMode 名
 # (Image Edit タブの Layer.blendMode はCanvas2Dの合成モード文字列をそのまま保持している)
@@ -53,6 +75,10 @@ _SAVE_EXT_BY_MIME = {
     "image/gif": ".gif",
     "image/svg+xml": ".svg",
 }
+
+# Comic Creator (eagle_comic_creator_spa) の nanobananaタブが生成履歴を記録するフォルダ名。
+# 画像と同じフォルダに history.jsonl (1行1リクエスト、filenames配列で画像と対応) が書かれる。
+NANOBANANA_FOLDER_NAME = "cc_nanobanana"
 
 
 def _decode_image_data_url(image_data: str) -> tuple[bytes, str]:
@@ -175,6 +201,10 @@ class _FolderCache:
 
 
 class GalleryService:
+    _nb_index_cache: "OrderedDict[str, tuple]" = OrderedDict()  # history.jsonlの索引キャッシュ(上限付き)
+    _nb_index_lock = threading.Lock()
+    _convert_lock = threading.Lock()  # 変換は同時に1本だけ実行する
+
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         self.metadata_store = GalleryMetadataStore(data_dir / "gallery_metadata.json")
@@ -571,6 +601,58 @@ class GalleryService:
             pass
         return self._read_vault_prompt(image_path)
 
+    def _read_nanobanana_entry(self, image_path: Path) -> dict | None:
+        """画像がcc_nanobananaフォルダ内にあり、同フォルダのhistory.jsonlに対応エントリが
+        あれば返す(1行=1生成リクエストで複数画像filenamesを束ねているため、自分の
+        ファイル名を含む行を新しい方から探す。同名再生成があれば最新を優先する)。"""
+        if image_path.parent.name != NANOBANANA_FOLDER_NAME:
+            return None
+        history_path = image_path.parent / "history.jsonl"
+        index = self._load_nanobanana_index(history_path)
+        return index.get(image_path.name) if index else None
+
+    def _load_nanobanana_index(self, history_path: Path) -> dict | None:
+        """history.jsonl を「ファイル名→エントリ」の辞書にして返す。(mtime, size)をキーに
+        キャッシュし、メタデータ要求のたびの全読み込みを避ける。同名再生成は新しい行を優先する。"""
+        try:
+            st = history_path.stat()
+        except OSError:
+            return None
+        key = str(history_path)
+        sig = (st.st_mtime_ns, st.st_size)
+        with self._nb_index_lock:
+            cached = self._nb_index_cache.get(key)
+            if cached and cached[0] == sig:
+                self._nb_index_cache.move_to_end(key)
+                return cached[1]
+        try:
+            lines = history_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        index: dict = {}
+        for line in reversed(lines):  # 新しい行から。最初に見つかったものを優先
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):  # 破損行（[]・数値など）は無視
+                continue
+            filenames = entry.get("filenames")
+            if not isinstance(filenames, list):
+                continue
+            for name in filenames:
+                if isinstance(name, str) and name not in index:
+                    index[name] = entry
+        with self._nb_index_lock:
+            self._nb_index_cache[key] = (sig, index)
+            self._nb_index_cache.move_to_end(key)
+            while len(self._nb_index_cache) > _NB_INDEX_CACHE_MAX:
+                self._nb_index_cache.popitem(last=False)
+        return index
+
     def _find_vault_category_root(self, image_path: Path) -> Path | None:
         """image_path の祖先を辿り、直下に thumbnails(_option2) を持つフォルダ
         (=ponyxlWildcardsVaultのカテゴリルート) を探す。
@@ -659,8 +741,12 @@ class GalleryService:
             embedded = self._read_png_metadata(path)
         elif ext in {".jpg", ".jpeg"}:
             embedded = self._read_jpeg_metadata(path)
-        elif ext == ".mp4":
+        elif ext == ".webp":
+            embedded = self._read_webp_metadata(path)
+        elif ext in VIDEO_EXTENSIONS:
             embedded = self._read_mp4_metadata(path)
+        elif ext in AUDIO_EXTENSIONS:
+            embedded = self._read_audio_metadata(path)
 
         dims = self._read_media_dimensions(path, ext)
         saved = self.metadata_store.get(str(path))
@@ -689,6 +775,7 @@ class GalleryService:
             "memo": saved.get("memo", ""),
             "groups": saved.get("groups", []),
             "image_prompt": self._read_sidecar_prompt(path),
+            "nanobanana": self._read_nanobanana_entry(path),
         }
 
     def _read_png_metadata(self, path: Path) -> dict:
@@ -707,8 +794,6 @@ class GalleryService:
                     chunk_type = f.read(4).decode("ascii", errors="ignore")
                     if chunk_len > _PNG_CHUNK_MAX:
                         f.seek(chunk_len + 4, 1)
-                        if chunk_type == "IEND":
-                            break
                         continue
                     chunk_data = f.read(chunk_len)
                     f.read(4)  # CRC
@@ -728,14 +813,53 @@ class GalleryService:
                                 rest = rest[null_idx2 + 1:]
                                 null_idx3 = rest.index(b"\x00")
                                 value = rest[null_idx3 + 1:].decode("utf-8", errors="replace")
-                            result[key] = value
+                            # 先勝ち: png_extractor.extract_png_workflow(ワークフロー読み込み)と
+                            # 同じチャンクを採用し、Gallery表示との食い違いを防ぐ。
+                            if key not in result:
+                                result[key] = value
                         except (ValueError, UnicodeDecodeError):
                             pass
-
-                    if chunk_type == "IEND":
-                        break
+                    # IENDで止めない: ComfyUI-Custom-Scripts等はIENDの後ろに
+                    # workflowチャンクを追記するため、ファイル末尾まで読む。
         except Exception as e:
             logger.debug("PNG metadata read error: %s", e)
+        return result
+
+    def _read_webp_metadata(self, path: Path) -> dict:
+        """WebPのRIFF EXIFチャンクから埋め込みworkflow/prompt(JSON文字列)を抽出する。
+        ComfyUIはWebPのEXIFに "workflow:{...}" / "prompt:{...}" 形式で書き込む
+        （static/js/metadata-tab.js の extractWorkflowFromEXIF と同じ処理）。"""
+        result = {}
+        try:
+            with open(path, "rb") as f:
+                head = f.read(12)
+                if len(head) < 12 or head[:4] != b"RIFF" or head[8:12] != b"WEBP":
+                    return result
+                while True:
+                    hdr = f.read(8)
+                    if len(hdr) < 8:
+                        break
+                    fourcc = hdr[:4]
+                    size = struct.unpack("<I", hdr[4:])[0]
+                    if fourcc == b"EXIF":
+                        if size > _PNG_CHUNK_MAX:
+                            break
+                        text = f.read(size).decode("utf-8", errors="replace")
+                        decoder = json.JSONDecoder()
+                        for key in ("workflow", "prompt"):
+                            idx = text.find(key + ":{")
+                            if idx < 0:
+                                continue
+                            start = idx + len(key) + 1
+                            try:
+                                _, end = decoder.raw_decode(text, start)
+                            except json.JSONDecodeError:
+                                continue
+                            result[key] = text[start:end]
+                        break
+                    f.seek(size + (size & 1), 1)
+        except Exception as e:
+            logger.debug("WebP metadata read error: %s", e)
         return result
 
     def _read_jpeg_metadata(self, path: Path) -> dict:
@@ -777,17 +901,41 @@ class GalleryService:
             logger.debug("MP4 metadata read error: %s", e)
         return result
 
+    def _read_audio_metadata(self, path: Path) -> dict:
+        """音声ファイルのタグ（ComfyUIのSaveAudio系は prompt/workflow をJSON文字列で書き込む）をPyAVで抽出する。
+        FLACのVorbisコメント等はキーの大文字小文字が実装依存のため、prompt/workflowは小文字キーでも引けるようにする。"""
+        result = {}
+        try:
+            import av
+            with av.open(str(path)) as container:
+                tags = dict(container.metadata or {})
+                for stream in container.streams.audio:
+                    for k, v in (stream.metadata or {}).items():
+                        tags.setdefault(k, v)
+                for k, v in tags.items():
+                    result[k] = v
+                    if k.lower() in ("workflow", "prompt"):
+                        result.setdefault(k.lower(), v)
+        except Exception as e:
+            logger.debug("Audio metadata read error: %s", e)
+        return result
+
     def _read_media_dimensions(self, path: Path, ext: str) -> dict:
         """画像は幅高さ、動画は幅高さ+再生時間（秒）を返す。取得できない項目はNone。"""
         info: dict = {"width": None, "height": None, "duration": None}
         try:
-            if ext == ".mp4":
+            if ext in VIDEO_EXTENSIONS:
                 import av
                 with av.open(str(path)) as container:
                     if container.streams.video:
                         stream = container.streams.video[0]
                         info["width"] = stream.width
                         info["height"] = stream.height
+                    if container.duration:
+                        info["duration"] = container.duration / 1_000_000
+            elif ext in AUDIO_EXTENSIONS:
+                import av
+                with av.open(str(path)) as container:
                     if container.duration:
                         info["duration"] = container.duration / 1_000_000
             elif ext == ".psd":
@@ -820,8 +968,12 @@ class GalleryService:
         embedded = None
         if ext == ".png":
             embedded = self._read_png_metadata(path)
-        elif ext == ".mp4":
+        elif ext == ".webp":
+            embedded = self._read_webp_metadata(path)
+        elif ext in VIDEO_EXTENSIONS:
             embedded = self._read_mp4_metadata(path)
+        elif ext in AUDIO_EXTENSIONS:
+            embedded = self._read_audio_metadata(path)
 
         if embedded:
             key_groups = (("workflow", "Workflow"), ("prompt", "Prompt"))
@@ -853,6 +1005,87 @@ class GalleryService:
     # ──────────────────────────────────────────────────────────────
     # メタデータ保存
     # ──────────────────────────────────────────────────────────────
+
+    # ──────────────────────────────────────────────────────────────
+    # ファイル変換（音声変換 / 動画からの音声抽出）
+    # ──────────────────────────────────────────────────────────────
+
+    def convert_file(self, image_path: str, opts: dict) -> dict:
+        """音声ファイル（または動画の音声トラック）を指定形式へ変換し、同じフォルダに別ファイルとして保存する。
+
+        opts: format(flac/mp3/opus/m4a/wav), bitrate(kbps), sample_rate(0=元のまま), channels(keep/mono/stereo),
+              inherit_metadata(prompt/workflow等のタグ引き継ぎ。タグを持てない形式は対象外),
+              copy_gallery_meta(お気に入り/タグ/メモ/グループの引き継ぎ), delete_original(変換成功後に元を削除)
+        """
+        from .convert_service import OUTPUT_FORMATS, convert_audio, supports_tags
+
+        p = Path(image_path).resolve()
+        if not p.is_file():
+            return {"ok": False, "error": "File not found"}
+        if p.suffix.lower() not in AUDIO_EXTENSIONS | VIDEO_EXTENSIONS:
+            return {"ok": False, "error": "Not an audio/video file"}
+        if not self._check_path_allowed(p):
+            return {"ok": False, "error": "Access denied"}
+        fmt = str(opts.get("format", ""))
+        if fmt not in OUTPUT_FORMATS:
+            return {"ok": False, "error": f"Unsupported format: {fmt}"}
+
+        def _int(key: str, default: int = 0) -> int:
+            try:
+                return max(0, int(opts.get(key) or default))
+            except (TypeError, ValueError):
+                return default
+
+        ext = OUTPUT_FORMATS[fmt]["ext"]
+        inherit = bool(opts.get("inherit_metadata", True))
+
+        # 出力名の決定〜変換完了までを同一ロック内で行う（同時リクエストで同じ名前を選んで
+        # 上書きし合うのを防ぐ）。エラー時に消すのは自分が決めたdstだけ。
+        with self._convert_lock:
+            dst = p.with_suffix(ext)
+            if dst.exists():  # 同名（同形式への再変換を含む）は上書きせず連番
+                counter = 1
+                while True:
+                    dst = p.with_name(f"{p.stem}_converted{'' if counter == 1 else counter}{ext}")
+                    if not dst.exists():
+                        break
+                    counter += 1
+            try:
+                result = convert_audio(
+                    p, dst, fmt,
+                    bitrate_kbps=_int("bitrate"),
+                    sample_rate=_int("sample_rate"),
+                    channels=str(opts.get("channels", "keep")),
+                    inherit_metadata=inherit,
+                )
+            except Exception as e:
+                logger.warning("convert_file: failed for %s: %s", p, e)
+                try:
+                    dst.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return {"ok": False, "error": str(e)}
+
+        dst_str = str(dst.resolve()).replace("\\", "/")
+        if opts.get("copy_gallery_meta", True):
+            saved = self.metadata_store.get(str(p))
+            carry = {k: saved[k] for k in ("favorite", "tags", "memo", "groups") if saved.get(k)}
+            if carry:
+                self.metadata_store.save(str(dst.resolve()), carry)
+        self._folder_cache.invalidate(p.parent)
+
+        deleted = False
+        if opts.get("delete_original"):
+            deleted = bool(self.delete_images([str(p)])["deleted"])
+
+        return {
+            "ok": True,
+            "path": dst_str,
+            "filename": dst.name,
+            "tags_written": result["tags_written"],
+            "tags_skipped": inherit and not supports_tags(fmt),
+            "deleted": deleted,
+        }
 
     def save_image_meta(self, image_path: str, data: dict) -> bool:
         resolved = Path(image_path).resolve()
@@ -1081,8 +1314,8 @@ class GalleryService:
             p = Path(img_path).resolve()
             if not p.is_file() or p.suffix.lower() not in IMAGE_EXTENSIONS:
                 continue
-            if p.suffix.lower() == ".mp4":
-                continue  # 動画はPSDレイヤーにできない
+            if p.suffix.lower() in VIDEO_EXTENSIONS | AUDIO_EXTENSIONS:
+                continue  # 動画・音声はPSDレイヤーにできない
             if not self._check_path_allowed(p):
                 continue
             try:
@@ -1306,6 +1539,48 @@ class GalleryService:
             logger.warning("serve_image: psd composite failed for %s: %s", p, e)
             return None
 
+    def _render_audio_waveform(self, path: Path, out_path: Path, size: int) -> None:
+        """音声ファイルの波形を size×size のJPEGとして out_path に書き出す。
+        8kHzモノラルへリサンプルしてから列ごとの最大振幅を描く（長尺でも軽く保つ）。"""
+        import av
+        import numpy as np
+        from PIL import Image, ImageDraw
+
+        max_samples = 8000 * 600  # 先頭10分まで
+        chunks = []
+        total = 0
+        with av.open(str(path)) as container:
+            stream = container.streams.audio[0]
+            resampler = av.AudioResampler(format="flt", layout="mono", rate=8000)
+            for frame in container.decode(stream):
+                for rf in resampler.resample(frame):
+                    arr = rf.to_ndarray().reshape(-1)
+                    chunks.append(arr)
+                    total += arr.size
+                if total >= max_samples:
+                    break
+        data = np.concatenate(chunks) if chunks else np.zeros(1, dtype=np.float32)
+        data = np.abs(data[:max_samples])
+
+        cols = size
+        edges = np.linspace(0, data.size, cols + 1).astype(int)
+        peaks = np.array([
+            data[edges[i]:max(edges[i + 1], edges[i] + 1)].max() if edges[i] < data.size else 0.0
+            for i in range(cols)
+        ])
+        top = float(peaks.max())
+        if top > 0:
+            peaks = peaks / top
+
+        color = AUDIO_WAVE_COLORS.get(path.suffix.lower(), (56, 189, 248))
+        img = Image.new("RGB", (size, size), (24, 28, 38))
+        draw = ImageDraw.Draw(img)
+        mid = size / 2
+        for x, v in enumerate(peaks):
+            h = max(1.0, float(v) * (size * 0.42))
+            draw.line([(x, mid - h), (x, mid + h)], fill=color)
+        img.save(out_path, "JPEG", quality=85, optimize=True)
+
     def serve_thumbnail(self, image_path: str, width: int = 256) -> Path | None:
         """縮小サムネイルのPathを返す。
         ディスクキャッシュがあればそれを返し、なければPillowで生成して保存する。
@@ -1338,7 +1613,9 @@ class GalleryService:
         except OSError:
             return None
 
-        cache_key = hashlib.md5(f"{p}:{mtime}:{width}".encode()).hexdigest()
+        # 音声は波形の描画仕様(色)を変えたらキャッシュを作り直せるよう版数をキーに含める
+        wave_ver = f":{WAVE_THUMB_VERSION}" if p.suffix.lower() in AUDIO_EXTENSIONS else ""
+        cache_key = hashlib.md5(f"{p}:{mtime}:{width}{wave_ver}".encode()).hexdigest()
         cache_dir = self.data_dir / "thumb_cache"
         cache_dir.mkdir(exist_ok=True)
         thumb_path = cache_dir / f"{cache_key}.jpg"
@@ -1346,10 +1623,19 @@ class GalleryService:
         if thumb_path.exists():
             return thumb_path
 
-        # MP4は動画のためPillowで開けない。PyAV(av)で先頭フレームを抽出しJPEGとしてキャッシュする。
-        # avが未導入/デコード失敗の場合、元mp4ファイルは<img>的な経路に渡せないため
+        # 音声はPillowで開けない。PyAVでデコードして波形をJPEGに描画しキャッシュする。
+        if p.suffix.lower() in AUDIO_EXTENSIONS:
+            try:
+                self._render_audio_waveform(p, thumb_path, width)
+                return thumb_path
+            except Exception as e:
+                logger.warning("serve_thumbnail: audio waveform failed for %s: %s", p, e)
+                return None
+
+        # 動画(mp4/webm)はPillowで開けない。PyAV(av)で先頭フレームを抽出しJPEGとしてキャッシュする。
+        # avが未導入/デコード失敗の場合、元ファイルは<img>的な経路に渡せないため
         # (GIF/SVGと違い元ファイルへフォールバックできない) Noneを返しプレースホルダー表示に委ねる。
-        if p.suffix.lower() == ".mp4":
+        if p.suffix.lower() in VIDEO_EXTENSIONS:
             try:
                 import av
                 from PIL import Image

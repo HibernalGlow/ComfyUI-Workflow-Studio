@@ -168,6 +168,37 @@ for (const p of srcFiles) {
 }
 if (srcFiles.length && banned === 0) ok("no React module imports an upstream UI module");
 
+// --- 7: core's transitive graph stays out of the old UI's entry modules ------
+// Checking core/*.js for direct imports is not enough. Upstream v0.7.13 wired
+// comfyui-client.js (re-exported by core/client.js) to vram-prepare.js, which imported app.js —
+// the old UI's entry module, whose tab graph touches `window` at load time. The poison arrived
+// two hops away, so the only thing that noticed was the runtime import in check 1, as a bare
+// `ReferenceError: window is not defined`. Walk the graph instead.
+// Only static `from "…"` specifiers are walked on purpose: a lazy `import("./app.js")` inside a
+// function is exactly the sanctioned way to reach a cosmetic UI helper from this layer.
+const REPO = resolve(here, "../..");
+const UI_ENTRY = /^static\/js\/(app|main)\.js$|^static\/js\/[a-z0-9-]+-tab\.js$/;
+const walked = new Set();
+const reachedUi = [];
+const pending = [join(CORE, "index.js")];
+while (pending.length) {
+    const file = pending.shift();
+    if (walked.has(file)) continue;
+    walked.add(file);
+    const rel = file.slice(REPO.length + 1).replace(/\\/g, "/");
+    if (UI_ENTRY.test(rel)) { reachedUi.push(rel); continue; }
+    let src = "";
+    try { src = readFileSync(file, "utf8"); } catch { continue; }
+    for (const m of src.matchAll(/from\s+["'](\.[^"']+)["']/g)) {
+        pending.push(resolve(dirname(file), m[1]));
+    }
+}
+if (reachedUi.length) {
+    bad(`core/index.js reaches the old UI entry graph through: ${reachedUi.join(", ")}`);
+} else {
+    ok(`core's transitive graph (${walked.size} modules) never reaches app.js or a *-tab.js`);
+}
+
 void createRequire;
 console.log(`\n${problems} problem(s)`);
 process.exit(problems);
