@@ -67,6 +67,7 @@ import type { MdTextButton as TextButtonEl } from "@material/web/button/text-but
 import type { MdElevatedButton as ElevatedButtonEl } from "@material/web/button/elevated-button.js";
 import type { MdIconButton as IconButtonEl } from "@material/web/iconbutton/icon-button.js";
 import type { MdFilledIconButton as FilledIconButtonEl } from "@material/web/iconbutton/filled-icon-button.js";
+import type { MdFilledTonalIconButton as FilledTonalIconButtonEl } from "@material/web/iconbutton/filled-tonal-icon-button.js";
 import type { MdOutlinedIconButton as OutlinedIconButtonEl } from "@material/web/iconbutton/outlined-icon-button.js";
 import type { MdFab as FabEl } from "@material/web/fab/fab.js";
 import type { MdOutlinedTextField as OutlinedTextFieldEl } from "@material/web/textfield/outlined-text-field.js";
@@ -142,6 +143,7 @@ export const MdTextButton = define<TextButtonEl, NoEvents>("md-text-button");
 export const MdElevatedButton = define<ElevatedButtonEl, NoEvents>("md-elevated-button");
 export const MdIconButton = define<IconButtonEl, NoEvents>("md-icon-button");
 export const MdFilledIconButton = define<FilledIconButtonEl, NoEvents>("md-filled-icon-button");
+export const MdFilledTonalIconButton = define<FilledTonalIconButtonEl, NoEvents>("md-filled-tonal-icon-button");
 export const MdOutlinedIconButton = define<OutlinedIconButtonEl, NoEvents>("md-outlined-icon-button");
 export const MdFab = define<FabEl, NoEvents>("md-fab");
 

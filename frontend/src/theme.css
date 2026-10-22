@@ -1,26 +1,21 @@
 /*
- * App-level styling for the new UI — Material 3 Expressive.
+ * App-level styling for the new UI — Material 3 Expressive, rebuilt around the
+ * two reference builds on this machine.
  *
- * Where the look comes from:
- *   static/css/newui/m3-tokens.css   layer 1-3 tokens, now carrying the Expressive
- *                                    corner family, space scale, emphasized
- *                                    typescale (ROND axis) and spatial springs.
- *   static/css/newui/theme-m3.css    the light/dark colour switch.
- *   static/css/newui/expressive-hooks.css  GENERATED per-component shape hooks of
- *                                    the @material/web elements this app mounts,
- *                                    registered with @property so they interpolate.
- *   static/css/newui/expressive.css  the font, the tone utilities and the
- *                                    expressive primitives (hero, section,
- *                                    connected group, press feedback).
- *   @material/web                    the components themselves.
+ * Layers, in order:
+ *   static/css/newui/m3-tokens.css        shape, space, typescale, motion
+ *   static/css/newui/theme-m3.css         light + dark colour roles
+ *   static/css/newui/expressive-hooks.css generated per-component shape hooks
+ *   static/css/newui/expressive.css       font, focus ring, tone seam, hero art
  *
- * This file therefore does two things: it lays out the app shell and the views
- * with those tokens, and it restates every `nu-*` class the views already use in
- * the Expressive composition language — pill at rest, rounder on hover, collapsed
- * on press, one notched corner on a surface, weight 700 on a control label.
+ * What this file adds is the composition: a paper/obsidian ground with layered
+ * surfaces, an editorial hero, pill controls, filled fields and borderless
+ * cards. Every `nu-*` class the seven views already use still exists; the
+ * component overrides below are what remove the stock MD3 outline-and-bar look
+ * from @material/web without giving up its focus trap, state layers or ARIA.
  *
- * Every selector that existed before still exists: the seven views, and the
- * responsive unit test in tools/core-tests/core.test.mjs, address them by name.
+ * No raw colour literals: every colour resolves through a layer-2 role or one
+ * of the four tone pairs in expressive.css.
  */
 
 @import "../../static/css/newui/m3-tokens.css";
@@ -28,16 +23,41 @@
 @import "../../static/css/newui/expressive-hooks.css";
 @import "../../static/css/newui/expressive.css";
 
-:root {
-  --nu-top-bar-height: 76px;
-  --nu-rail-width: 96px;
-  --nu-rail-width-label: 96px;
-  --nu-content-gap: var(--md-sys-space-300);
-  --nu-content-max: 1440px;
-  /* PRODUCT: the shell keeps 8px as its unit (Expressive's own space scale) and
-     lets a surface breathe at 24px instead of M3's 16px, because the shapes are
-     32px now and the same padding reads cramped against them. */
-  --nu-surface-pad: var(--md-sys-space-300);
+/* ---------------------------------------------------------------------------
+   app surfaces
+   ------------------------------------------------------------------------ */
+
+:root,
+[data-theme="m3-dark"] {
+  --nu-ground: var(--md-sys-color-surface);
+  --nu-panel: var(--md-sys-color-surface-container);
+  --nu-panel-high: var(--md-sys-color-surface-container-high);
+  --nu-well: var(--md-sys-color-surface-container-low);
+  --nu-well-deep: var(--md-sys-color-surface-container-lowest);
+  --nu-hairline: color-mix(in oklab, var(--md-sys-color-outline-variant) 62%, transparent);
+  --nu-code-bg: var(--md-sys-color-surface-container-lowest);
+  --nu-code-ink: var(--md-ref-palette-neutral-90);
+  --nu-shadow: 0 30px 70px -32px color-mix(in srgb, var(--md-sys-color-shadow) 72%, transparent);
+  --nu-top-bar-height: 88px;
+  --nu-rail-width: 104px;
+  --nu-pad-x: clamp(24px, 4vw, 56px);
+  --nu-content-max: 1280px;
+}
+
+[data-theme="m3-light"] {
+  --nu-ground: var(--md-sys-color-surface);
+  --nu-panel: var(--md-ref-palette-neutral-96);
+  --nu-panel-high: var(--md-ref-palette-neutral-94);
+  --nu-well: var(--md-ref-palette-neutral-100);
+  --nu-well-deep: var(--md-ref-palette-neutral-96);
+  --nu-hairline: color-mix(in oklab, var(--md-sys-color-outline-variant) 45%, transparent);
+  --nu-code-bg: var(--md-ref-palette-neutral-12);
+  --nu-code-ink: var(--md-ref-palette-neutral-95);
+  --nu-shadow: 0 30px 60px -36px color-mix(in srgb, var(--md-sys-color-shadow) 34%, transparent);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html,
@@ -48,13 +68,13 @@ body,
 
 body {
   margin: 0;
-  background: var(--md-sys-color-surface);
+  background:
+    radial-gradient(1100px 620px at 12% -12%, color-mix(in oklab, var(--md-sys-color-primary) 9%, transparent), transparent 62%),
+    var(--nu-ground);
   color: var(--md-sys-color-on-surface);
-  /* the UI body text is Expressive's body-md at weight 400; only controls and
-     headings go to the emphasized tier */
-  font: var(--md-sys-typescale-body-md);
-  font-family: var(--md-sys-typescale-font-family-plain);
+  font: 500 15px/1.6 var(--md-sys-typescale-font-family-plain);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
@@ -62,529 +82,684 @@ body {
   color: var(--md-sys-color-on-primary-container);
 }
 
-/* --- app grid ------------------------------------------------------------ */
+:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 3px;
+}
+
+/* thin, low-contrast scrollbars so the paper keeps its quiet */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--md-sys-color-outline) 55%, transparent) transparent;
+}
+
+.nu-skip {
+  position: fixed;
+  inset-block-start: 10px;
+  inset-inline-start: 16px;
+  z-index: 100;
+  padding: 10px 18px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-weight: 700;
+  text-decoration: none;
+  translate: 0 -160%;
+  transition: translate var(--nu-dur) var(--nu-ease);
+}
+.nu-skip:focus-visible {
+  translate: 0 0;
+}
+
+/* ---------------------------------------------------------------------------
+   shell
+   ------------------------------------------------------------------------ */
 
 .nu-app {
   display: grid;
   grid-template-areas:
     "bar bar"
     "rail main";
-  grid-template-columns: var(--nu-rail-width) 1fr;
-  grid-template-rows: var(--nu-top-bar-height) 1fr;
+  grid-template-columns: var(--nu-rail-width) minmax(0, 1fr);
+  grid-template-rows: var(--nu-top-bar-height) minmax(0, 1fr);
   height: 100dvh;
+  overflow: hidden;
 }
 
 .nu-top-bar {
   grid-area: bar;
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-200);
-  padding: 0 var(--nu-surface-pad);
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
+  gap: 10px;
+  padding: 0 var(--nu-pad-x);
+  background: color-mix(in oklab, var(--nu-ground) 86%, transparent);
+  backdrop-filter: blur(14px);
   z-index: 10;
 }
 
-/* the current destination is said out loud, big, in the emphasized tier — M3
-   Expressive's small top app bar carries a headline, not a title */
-.nu-top-bar__title {
-  margin: 0;
-  font: var(--md-sys-typescale-emphasized-headline-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-headline-sm-axes);
-  letter-spacing: var(--md-e-tracking-tight);
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.nu-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: opacity var(--nu-dur) var(--nu-ease);
+}
+.nu-brand:hover {
+  opacity: 0.82;
+}
+.nu-brand__mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  rotate: -4deg;
+  transition: rotate var(--nu-dur) var(--nu-ease-spring);
+}
+.nu-brand:hover .nu-brand__mark {
+  rotate: 0deg;
+}
+.nu-brand__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nu-brand__name {
+  font: 730 19px/1.1 var(--md-sys-typescale-font-family-brand);
+  font-variation-settings: "ROND" 100, "wght" 730;
+  letter-spacing: -0.03em;
+}
+.nu-brand__caption {
+  color: var(--md-sys-color-on-surface-variant);
+  font: 650 10px/1.4 var(--md-sys-typescale-font-family-plain);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
-/* a status read-out, not a decoration: pill container, tone colour, the word and
-   the dot both carrying the state (a colour alone is not readable evidence) */
-.nu-top-bar__status {
+.nu-status {
   display: inline-flex;
   align-items: center;
-  gap: var(--md-sys-space-100);
-  min-height: 36px;
-  padding: 0 var(--md-sys-space-200);
+  gap: 8px;
+  height: 38px;
+  padding: 0 15px;
   border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-surface-container-high);
+  background: var(--nu-well);
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-emphasized-label-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-md-axes);
-  transition: var(--md-e-morph-color);
+  font: 650 12px/1 var(--md-sys-typescale-font-family-plain);
+  white-space: nowrap;
 }
-
-.nu-top-bar__status:hover {
-  border-radius: var(--md-sys-shape-corner-lg);
-}
-
-.nu-top-bar__dot {
-  width: 10px;
-  height: 10px;
+.nu-status__dot {
+  width: 8px;
+  height: 8px;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-outline);
 }
-
-.nu-top-bar__dot--on {
-  background: var(--md-sys-color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent);
+.nu-status--on .nu-status__dot {
+  background: var(--md-ref-palette-spring-40);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--md-ref-palette-spring-40) 20%, transparent);
 }
-
-.nu-top-bar__dot--off {
+.nu-status--off .nu-status__dot {
   background: var(--md-sys-color-error);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-error) 22%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--md-sys-color-error) 20%, transparent);
 }
 
-/* --- navigation rail ----------------------------------------------------- */
-/*
- * @material/web 2.5.0 ships md-navigation-drawer (modal/adaptive only) and
- * md-navigation-bar (bottom) — neither is an M3 Navigation Rail, so the rail is
- * built here from tokens. Expressively it is a column of destinations where the
- * ACTIVE one is a filled pill and everything else is bare: the container is the
- * selection, and it morphs on hover and press like any other Expressive control.
- */
+.nu-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface);
+  font: 650 12.5px/1 var(--md-sys-typescale-font-family-plain);
+  cursor: pointer;
+  transition:
+    background var(--nu-dur) var(--nu-ease),
+    transform var(--nu-dur) var(--nu-ease);
+}
+.nu-control md-icon {
+  --md-icon-size: 18px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.nu-control:hover {
+  background: var(--nu-panel-high);
+}
+.nu-control:active {
+  transform: scale(0.97);
+}
+.nu-control--quiet {
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.nu-control--quiet:hover {
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface);
+}
+
+/* --- rail ---------------------------------------------------------------- */
+/* three clusters, no headings: the hero's eyebrow names the cluster, and the
+   rail stays a map of shapes rather than a second table of contents */
 
 .nu-rail {
   grid-area: rail;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--md-sys-space-100);
-  padding: var(--md-sys-space-200) var(--md-sys-space-100);
-  background: var(--md-sys-color-surface-container-low);
-  overflow: hidden;
+  gap: 2px;
+  padding: 22px 12px 28px;
+  overflow: hidden auto;
+}
+
+.nu-rail__group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.nu-rail__sep {
+  width: 22px;
+  height: 3px;
+  margin: 10px 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-outline-variant);
+  opacity: 0.7;
 }
 
 .nu-rail__item {
   position: relative;
-  isolation: isolate;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--md-sys-space-050);
+  gap: 3px;
   width: 100%;
+  max-width: 84px;
   min-height: 64px;
-  padding: var(--md-sys-space-100) 0;
+  padding: 8px 4px 7px;
   border: 0;
-  background: none;
+  border-radius: 24px;
+  background: transparent;
   color: var(--md-sys-color-on-surface-variant);
+  font: 650 10.5px/1.25 var(--md-sys-typescale-font-family-plain);
+  letter-spacing: 0.005em;
+  text-align: center;
   cursor: pointer;
-  border-radius: var(--md-sys-shape-corner-full);
-  /* one spring for shape, size and colour: the label, tile and container all
-     follow the same gesture, which is what makes it read as one movement */
-  transition: var(--md-e-morph-color);
+  transition:
+    background var(--nu-dur) var(--nu-ease),
+    color var(--nu-dur) var(--nu-ease),
+    border-radius var(--nu-dur) var(--nu-ease),
+    transform var(--nu-dur) var(--nu-ease);
 }
-
-.nu-rail__item::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: currentColor;
-  opacity: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  transition: opacity var(--md-e-effects);
-}
-
-.nu-rail__item:hover::before {
-  opacity: var(--md-sys-state-hover-opacity);
-}
-
-.nu-rail__item:focus-visible::before {
-  opacity: var(--md-sys-state-focus-opacity);
-}
-
-.nu-rail__item:active::before {
-  opacity: var(--md-sys-state-pressed-opacity);
-}
-
-.nu-rail__item:hover {
-  border-radius: var(--md-sys-shape-corner-xl);
-  color: var(--md-sys-color-on-surface);
-}
-
-.nu-rail__item:active {
-  border-radius: var(--md-sys-shape-corner-md);
-  transform: var(--md-e-press-scale);
-}
-
-.nu-rail__item:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-
 .nu-rail__icon {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 36px;
-  border-radius: var(--md-sys-shape-corner-full);
-  transition: var(--md-e-morph);
+  width: 38px;
+  height: 34px;
+  border-radius: 13px;
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
+.nu-rail__icon md-icon {
+  --md-icon-size: 22px;
+}
+.nu-rail__item:hover {
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface);
+  border-radius: 20px;
+}
+.nu-rail__item:active {
+  transform: scale(0.96);
+}
 .nu-rail__item--active {
-  /* the cluster tone, set once on .nu-app by the shell, so the selected tile and
-     the hero plate are the same colour and mean the same thing */
   background: var(--tone);
   color: var(--on-tone);
+  border-radius: 24px;
 }
-
-.nu-rail__item--active .nu-rail__icon {
-  width: auto;
-  background: transparent;
-  color: inherit;
-}
-
-/* the active destination is the filled, heavier glyph — the Expressive cue that
-   survives even where colour is not distinguishable */
-.nu-rail__item--active .nu-rail__icon md-icon {
-  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
-}
-
-.nu-rail__label {
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  line-height: 16px;
-  text-align: center;
-}
-
-.nu-rail__item--active .nu-rail__label {
-  font-weight: 700;
-}
-
-/* seven equal tiles read as a list; three labelled clusters read as a map. The
-   group label is the only thing in the rail that is not a destination. */
-.nu-rail__group {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--md-sys-space-050);
-  width: 100%;
-}
-
-.nu-rail__group + .nu-rail__group {
-  margin-block-start: var(--md-sys-space-200);
-  padding-block-start: var(--md-sys-space-200);
-  border-top: 1px solid var(--md-sys-color-outline-variant);
-}
-
-.nu-rail__group-label {
-  padding: 0 var(--md-sys-space-100) var(--md-sys-space-050);
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-align: center;
-  opacity: 0.8;
-}
-
-/* --- the shell hero ------------------------------------------------------ */
-/*
- * Press feedback on the library controls. The shape hooks of @material/web
- * resolve into internal --_container-shape-* aliases inside each component's
- * shadow tree, so a host-side shape morph depends on that indirection holding.
- * A transform on the host does not: it always lands. Both are declared, so the
- * Expressive "press" gesture survives even where a component's internals would
- * not interpolate, and the two are the same spring and the same scale the
- * reference sites use.
- */
-md-filled-button,
-md-filled-tonal-button,
-md-outlined-button,
-md-text-button,
-md-elevated-button,
-md-icon-button,
-md-filled-icon-button,
-md-filled-tonal-icon-button,
-md-outlined-icon-button,
-md-assist-chip,
-md-filter-chip,
-md-input-chip,
-md-suggestion-chip,
-md-primary-tab {
-  transition: transform var(--md-e-spatial-fast);
-}
-
-md-filled-button:active,
-md-filled-tonal-button:active,
-md-outlined-button:active,
-md-text-button:active,
-md-elevated-button:active,
-md-icon-button:active,
-md-filled-icon-button:active,
-md-filled-tonal-icon-button:active,
-md-outlined-icon-button:active,
-md-assist-chip:active,
-md-filter-chip:active,
-md-input-chip:active,
-md-suggestion-chip:active {
-  transform: var(--md-e-press-scale);
-}
-
-md-filled-button:hover,
-md-filled-tonal-button:hover,
-md-outlined-button:hover,
-md-elevated-button:hover,
-md-icon-button:hover,
-md-filled-icon-button:hover,
-md-filled-tonal-icon-button:hover,
-md-outlined-icon-button:hover,
-md-assist-chip:hover,
-md-filter-chip:hover,
-md-input-chip:hover,
-md-suggestion-chip:hover,
-md-fab:hover {
-  transform: var(--md-e-hover-lift);
-}
-
-/*
- * One hero per screen, and it belongs to the shell: the destination's name in
- * Expressive display weight, what it is for in one line, and the cluster's colour
- * as a shaped mark. Views keep their own toolbars as sections underneath, so the
- * page never stacks two headlines.
- */
-.nu-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--md-sys-space-400);
-  align-items: center;
-  min-height: 148px;
-  margin-block-end: var(--md-sys-space-400);
-}
-
-.nu-hero__copy {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-space-150);
-  min-width: 0;
-}
-
-.nu-hero__title {
-  margin: 0;
-  font: var(--md-e-typescale-hero);
-  font-variation-settings: var(--md-e-typescale-hero-axes);
-  letter-spacing: var(--md-e-tracking-tight);
-  text-wrap: balance;
-}
-
-.nu-hero__lede {
-  margin: 0;
-  max-width: 56ch;
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-emphasized-body-lg);
-  font-variation-settings: var(--md-sys-typescale-emphasized-body-lg-axes);
-  line-height: 1.6;
-}
-
-/* the mark keeps the hero honest: it is the destination's own glyph, in the
-   cluster's colour, on a plate with one notched corner. Nothing here is fake art. */
-.nu-hero__art {
-  display: grid;
-  gap: var(--md-sys-space-150);
-  justify-items: center;
-  padding: var(--md-sys-space-250) var(--md-sys-space-300);
-  transform: rotate(-2deg);
-}
-
-.nu-hero__art:hover {
-  transform: rotate(0deg) var(--md-e-hover-lift);
-}
-
-.nu-hero__mark {
-  display: grid;
-  place-items: center;
-  width: 76px;
-  height: 76px;
-  border-radius: var(--md-sys-shape-corner-xl);
-  background: color-mix(in srgb, var(--on-tone) 14%, transparent);
+.nu-rail__item--active:hover {
+  background: var(--tone);
   color: var(--on-tone);
-  transition: var(--md-e-morph);
+  border-radius: 20px;
 }
-
-.nu-hero__art:hover .nu-hero__mark {
-  border-radius: var(--md-sys-shape-corner-full);
+.nu-rail__item--active .nu-rail__icon {
+  background: color-mix(in oklab, var(--on-tone) 14%, transparent);
 }
-
-.nu-hero__mark md-icon {
-  --md-icon-size: 44px;
-  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 40;
-}
-
-/* three shapes, three corner families: the expressive vocabulary in miniature,
-   and the only decoration in the shell that is not carrying information */
-.nu-hero__shapes {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--md-sys-space-100);
-}
-
-.nu-hero__shape {
-  display: block;
-  background: color-mix(in srgb, var(--on-tone) 32%, transparent);
-  transition: var(--md-e-morph);
-}
-
-.nu-hero__shape--a {
-  width: 34px;
-  height: 22px;
-  border-radius: var(--md-sys-shape-corner-full);
-}
-
-.nu-hero__shape--b {
-  width: 22px;
-  height: 34px;
-  border-radius: 12px 12px 12px 2px;
-}
-
-.nu-hero__shape--c {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-md) var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-md);
-}
-
-.nu-hero__art:hover .nu-hero__shape--a {
-  border-radius: var(--md-sys-shape-corner-md);
-}
-
-.nu-hero__art:hover .nu-hero__shape--b {
-  border-radius: var(--md-sys-shape-corner-full);
-}
-
-/* --- the app bar's own pieces -------------------------------------------- */
-
-.nu-top-bar__wordmark {
-  font: var(--md-sys-typescale-emphasized-title-lg);
-  font-variation-settings: var(--md-sys-typescale-emphasized-title-lg-axes);
-  letter-spacing: var(--md-e-tracking-tight);
-  color: var(--md-sys-color-on-surface);
-  flex: 1 1 auto;
-  min-width: 0;
+.nu-rail__label {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* the two app-bar actions are tonal circles that square off when you reach for
-   them — the same gesture the rail and the controls use */
-md-icon-button.nu-top-bar__action {
-  --md-icon-button-container-color: var(--md-sys-color-surface-container-high);
-  --md-icon-button-container-height: 44px;
-  --md-icon-button-icon-size: 22px;
-}
+/* --- main ---------------------------------------------------------------- */
 
 .nu-main {
   grid-area: main;
   overflow: auto;
-  padding: var(--nu-content-gap);
+  padding: 38px var(--nu-pad-x) 96px;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
 }
 
-/* --- generic view layout ------------------------------------------------- */
-
+.nu-hero,
 .nu-view {
+  width: min(100%, var(--nu-content-max));
+  margin-inline: auto;
+}
+
+.nu-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
+  gap: clamp(32px, 5vw, 76px);
+  align-items: center;
+  min-height: 348px;
+  margin-block-end: 58px;
+}
+
+.nu-hero__copy {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-400);
-  max-width: var(--nu-content-max);
-  margin: 0 auto;
+  gap: 24px;
+  min-width: 0;
 }
-
-.nu-view__toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--md-sys-space-150);
-  flex-wrap: wrap;
-  padding: var(--md-sys-space-100);
-  border-radius: var(--md-sys-shape-corner-xl);
-  background: var(--md-sys-color-surface-container-low);
-  transition: var(--md-e-morph);
-}
-
-.nu-view__title {
-  font: var(--md-e-typescale-section);
-  font-variation-settings: var(--md-e-typescale-section-axes);
-  letter-spacing: var(--md-e-tracking-tight);
-  margin: 0;
-}
-
-.nu-grid {
-  display: grid;
-  gap: var(--md-sys-space-100);
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-}
-
-.nu-fields {
-  display: grid;
-  gap: var(--md-sys-space-150);
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.nu-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-space-150);
-}
-
-.nu-row {
-  display: flex;
-  align-items: center;
-  gap: var(--md-sys-space-100);
-  flex-wrap: wrap;
+.nu-hero__art {
+  justify-self: end;
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 7 / 5;
+  min-height: 0;
 }
 
 .nu-spacer {
   flex: 1 1 auto;
 }
 
-.nu-muted {
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-body-sm);
-  font-variation-settings: var(--md-sys-typescale-body-sm-axes);
+/* ---------------------------------------------------------------------------
+   @material/web — strip the stock MD3 chrome
+   ------------------------------------------------------------------------ */
+
+md-linear-progress {
+  width: 100%;
+  height: 4px;
+  border-radius: var(--md-sys-shape-corner-full);
+  overflow: hidden;
+  --md-linear-progress-active-indicator-color: var(--md-sys-color-primary);
+  --md-linear-progress-track-color: var(--nu-well);
 }
 
-.nu-empty,
-.nu-error {
-  padding: var(--md-sys-space-400);
-  border-radius: var(--md-e-shape-note);
-  text-align: center;
+/* --- buttons: pills with real containers, no outlines -------------------- */
+
+md-filled-button,
+md-filled-tonal-button,
+md-outlined-button,
+md-elevated-button,
+md-text-button {
+  --md-filled-button-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-filled-button-label-text-size: 13px;
+  --md-filled-button-label-text-weight: 700;
+  --md-filled-button-label-text-line-height: 20px;
+  --md-filled-button-container-height: 46px;
+  --md-filled-button-leading-space: 22px;
+  --md-filled-button-trailing-space: 22px;
+  --md-filled-button-with-leading-icon-leading-space: 18px;
+  --md-filled-button-with-trailing-icon-trailing-space: 18px;
+  --md-filled-button-icon-size: 18px;
+
+  --md-filled-tonal-button-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-filled-tonal-button-label-text-size: 13px;
+  --md-filled-tonal-button-label-text-weight: 700;
+  --md-filled-tonal-button-container-height: 46px;
+  --md-filled-tonal-button-leading-space: 22px;
+  --md-filled-tonal-button-trailing-space: 22px;
+  --md-filled-tonal-button-icon-size: 18px;
+
+  --md-outlined-button-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-outlined-button-label-text-size: 13px;
+  --md-outlined-button-label-text-weight: 700;
+  --md-outlined-button-label-text-line-height: 20px;
+  --md-outlined-button-container-height: 46px;
+  --md-outlined-button-leading-space: 20px;
+  --md-outlined-button-trailing-space: 20px;
+  --md-outlined-button-with-leading-icon-leading-space: 16px;
+  --md-outlined-button-with-trailing-icon-trailing-space: 16px;
+  --md-outlined-button-icon-size: 18px;
+
+  --md-elevated-button-label-text-size: 13px;
+  --md-elevated-button-label-text-weight: 700;
+  --md-elevated-button-container-height: 46px;
+
+  --md-text-button-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-text-button-label-text-size: 13px;
+  --md-text-button-label-text-weight: 650;
+  --md-text-button-container-height: 40px;
+  --md-text-button-leading-space: 14px;
+  --md-text-button-trailing-space: 14px;
+  --md-text-button-icon-size: 18px;
+
+  font-family: var(--md-sys-typescale-font-family-plain);
+  transition:
+    background var(--nu-dur) var(--nu-ease),
+    transform var(--nu-dur) var(--nu-ease);
 }
 
-.nu-error {
-  background: var(--md-sys-color-error-container);
-  color: var(--md-sys-color-on-error-container);
+md-filled-button {
+  --md-filled-button-container-color: var(--md-sys-color-primary);
+  --md-filled-button-label-text-color: var(--md-sys-color-on-primary);
+  --md-filled-button-icon-color: var(--md-sys-color-on-primary);
+  --md-filled-button-hover-state-layer-color: var(--md-sys-color-on-primary);
+  --md-filled-button-pressed-state-layer-color: var(--md-sys-color-on-primary);
+  box-shadow: 0 14px 30px -18px color-mix(in oklab, var(--md-sys-color-primary) 80%, transparent);
 }
 
-/* an empty state deserves a shape of its own; it is the screen a user sees most
-   on a fresh box, so it is composed rather than left as grey text */
-.nu-empty {
-  background: var(--tone, var(--md-sys-color-surface-container));
-  color: var(--on-tone, var(--md-sys-color-on-surface-variant));
+md-outlined-button {
+  --md-outlined-button-outline-width: 0;
+  --md-outlined-button-hover-outline-width: 0;
+  --md-outlined-button-focus-outline-width: 0;
+  --md-outlined-button-pressed-outline-width: 0;
+  --md-outlined-button-outline-color: transparent;
+  --md-outlined-button-label-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-button-icon-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-button-hover-label-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-button-focus-label-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-button-pressed-label-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-button-hover-state-layer-color: var(--md-sys-color-primary);
+  --md-outlined-button-pressed-state-layer-color: var(--md-sys-color-primary);
+  --md-outlined-button-disabled-label-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-button-disabled-outline-width: 0;
+  --md-outlined-button-disabled-outline-color: transparent;
+  background: var(--nu-well);
+  border-radius: var(--md-sys-shape-corner-full);
+}
+md-outlined-button:hover {
+  background: var(--nu-panel-high);
+}
+md-outlined-button:disabled {
+  opacity: 0.45;
+}
+
+md-text-button {
+  --md-text-button-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-text-button-hover-label-text-color: var(--md-sys-color-on-surface);
+  --md-text-button-focus-label-text-color: var(--md-sys-color-on-surface);
+  --md-text-button-pressed-label-text-color: var(--md-sys-color-on-surface);
+  --md-text-button-hover-state-layer-color: var(--md-sys-color-on-surface);
+  --md-text-button-pressed-state-layer-color: var(--md-sys-color-on-surface);
+  border-radius: var(--md-sys-shape-corner-full);
+}
+md-text-button:hover {
+  background: var(--nu-well);
+}
+
+md-filled-button:not(:disabled):active,
+md-outlined-button:not(:disabled):active,
+md-text-button:not(:disabled):active,
+md-filled-tonal-button:not(:disabled):active {
+  transform: scale(0.975);
+}
+
+/* --- text fields and selects: filled pills ------------------------------- */
+
+md-outlined-text-field,
+md-outlined-select {
+  --md-outlined-text-field-outline-width: 0;
+  --md-outlined-text-field-hover-outline-width: 0;
+  --md-outlined-text-field-focus-outline-width: 0;
+  --md-outlined-text-field-disabled-outline-width: 0;
+  --md-outlined-text-field-outline-color: transparent;
+  --md-outlined-text-field-hover-outline-color: transparent;
+  --md-outlined-text-field-focus-outline-color: transparent;
+  --md-outlined-text-field-disabled-outline-color: transparent;
+
+  --md-outlined-text-field-input-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-text-field-input-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-outlined-text-field-input-text-size: 14px;
+  --md-outlined-text-field-input-text-weight: 550;
+  --md-outlined-text-field-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-text-field-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-outlined-text-field-label-text-size: 12px;
+  --md-outlined-text-field-label-text-weight: 650;
+  --md-outlined-text-field-focus-label-text-color: var(--md-sys-color-primary);
+  --md-outlined-text-field-hover-label-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-text-field-caret-color: var(--md-sys-color-primary);
+  --md-outlined-text-field-supporting-text-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-text-field-supporting-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-outlined-text-field-supporting-text-size: 11px;
+  --md-outlined-text-field-container-shape: var(--md-sys-shape-corner-xl);
+  --md-outlined-text-field-leading-icon-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-text-field-trailing-icon-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-text-field-container-color: transparent;
+
+  background: var(--nu-well);
+  border-radius: var(--md-sys-shape-corner-xl);
+  overflow: hidden;
+  transition:
+    background var(--nu-dur) var(--nu-ease),
+    box-shadow var(--nu-dur) var(--nu-ease);
+}
+md-outlined-text-field:hover,
+md-outlined-select:hover {
+  background: var(--nu-panel-high);
+}
+md-outlined-text-field:focus-within,
+md-outlined-select:focus-within {
+  background: var(--nu-panel-high);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--md-sys-color-primary) 34%, transparent);
+}
+
+md-outlined-select {
+  --md-outlined-select-text-field-outline-width: 0;
+  --md-outlined-select-text-field-hover-outline-width: 0;
+  --md-outlined-select-text-field-focus-outline-width: 0;
+  --md-outlined-select-text-field-outline-color: transparent;
+  --md-outlined-select-text-field-input-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-select-text-field-input-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-outlined-select-text-field-input-text-size: 14px;
+  --md-outlined-select-text-field-input-text-weight: 550;
+  --md-outlined-select-text-field-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-select-text-field-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-outlined-select-text-field-label-text-size: 12px;
+  --md-outlined-select-text-field-label-text-weight: 650;
+  --md-outlined-select-text-field-focus-label-text-color: var(--md-sys-color-primary);
+  --md-outlined-select-text-field-container-shape: var(--md-sys-shape-corner-xl);
+}
+
+md-menu {
+  --md-menu-container-color: var(--nu-panel-high);
+  --md-menu-container-shape: var(--md-sys-shape-corner-xl);
+  --md-menu-item-label-text-color: var(--md-sys-color-on-surface);
+  --md-menu-item-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-menu-item-label-text-size: 14px;
+}
+
+/* --- chips: soft at rest, inverted when selected ------------------------- */
+
+md-filter-chip,
+md-input-chip,
+md-assist-chip,
+md-suggestion-chip {
+  --md-filter-chip-outline-width: 0;
+  --md-filter-chip-selected-outline-width: 0;
+  --md-filter-chip-container-height: 40px;
+  --md-filter-chip-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-filter-chip-label-text-size: 12.5px;
+  --md-filter-chip-label-text-weight: 650;
+  --md-filter-chip-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-filter-chip-selected-label-text-color: var(--md-sys-color-surface);
+  --md-filter-chip-selected-container-color: var(--md-sys-color-on-surface);
+  --md-filter-chip-selected-hover-label-text-color: var(--md-sys-color-surface);
+  --md-filter-chip-selected-focus-label-text-color: var(--md-sys-color-surface);
+  --md-filter-chip-hover-label-text-color: var(--md-sys-color-on-surface);
+  --md-filter-chip-hover-state-layer-color: var(--md-sys-color-on-surface);
+  background: var(--nu-well);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: background var(--nu-dur) var(--nu-ease);
+}
+md-filter-chip[selected] {
+  background: var(--md-sys-color-on-surface);
+}
+
+/* --- cards: filled surfaces, no outline ---------------------------------- */
+
+md-outlined-card,
+md-elevated-card {
+  --md-outlined-card-outline-width: 0;
+  --md-outlined-card-outline-color: transparent;
+  --md-outlined-card-container-color: var(--nu-panel);
+  --md-elevated-card-container-color: var(--nu-panel);
+  --md-outlined-card-container-shape: var(--md-sys-shape-corner-xl-increased);
+  --md-elevated-card-container-shape: var(--md-sys-shape-corner-xl-increased);
+  display: block;
+  padding: var(--nu-pad);
+  background: var(--nu-panel);
+  border-radius: var(--md-sys-shape-corner-xl-increased);
+}
+md-outlined-card.nu-list-panel,
+md-outlined-card.nu-detail {
+  padding: 10px;
+  border-radius: var(--md-sys-shape-corner-xl);
+}
+
+md-divider {
+  opacity: 0.55;
+  --md-divider-color: var(--nu-hairline);
+}
+
+/* --- control internals ---------------------------------------------------- */
+
+md-checkbox {
+  --md-checkbox-container-shape: 7px;
+  --md-checkbox-outline-color: var(--md-sys-color-outline);
+  --md-checkbox-outline-width: 2px;
+  --md-checkbox-selected-container-color: var(--md-sys-color-primary);
+  --md-checkbox-selected-icon-color: var(--md-sys-color-on-primary);
+}
+
+md-switch {
+  --md-switch-selected-track-color: var(--md-sys-color-primary);
+  --md-switch-selected-handle-color: var(--md-sys-color-on-primary);
+  --md-switch-selected-icon-color: var(--md-sys-color-on-primary);
+  --md-switch-track-color: var(--nu-well);
+  --md-switch-handle-color: var(--md-sys-color-on-surface-variant);
+  --md-switch-selected-hover-track-color: var(--md-sys-color-primary);
+}
+
+md-tabs {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 5px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--nu-well);
+  overflow-x: auto;
+}
+md-primary-tab {
+  --md-primary-tab-container-color: transparent;
+  --md-primary-tab-active-indicator-height: 0;
+  --md-primary-tab-container-height: 42px;
+  --md-primary-tab-container-shape: var(--md-sys-shape-corner-full);
+  --md-primary-tab-label-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-primary-tab-label-text-size: 13px;
+  --md-primary-tab-label-text-weight: 650;
+  --md-primary-tab-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-primary-tab-active-label-text-color: var(--md-sys-color-on-surface);
+  --md-primary-tab-hover-label-text-color: var(--md-sys-color-on-surface);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: background var(--nu-dur) var(--nu-ease);
+}
+md-primary-tab[active] {
+  background: var(--nu-panel-high);
+}
+
+/* ---------------------------------------------------------------------------
+   views
+   ------------------------------------------------------------------------ */
+
+.nu-view {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--md-sys-space-150);
+  gap: 22px;
 }
 
-.nu-badge {
-  display: inline-flex;
+.nu-view__toolbar {
+  display: flex;
   align-items: center;
-  gap: var(--md-sys-space-050);
-  padding: 0 var(--md-sys-space-150);
-  height: 26px;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--md-sys-shape-corner-xl-increased);
+  background: var(--nu-panel);
+}
+
+.nu-view__toolbar md-outlined-text-field,
+.nu-view__toolbar md-outlined-select {
+  flex: 1 1 240px;
+  min-width: 180px;
+}
+
+.nu-grow {
+  flex: 1 1 260px;
+  min-width: 180px;
+}
+
+.nu-native-select {
+  height: 48px;
+  min-width: 96px;
+  padding: 0 36px 0 18px;
+  border: 0;
   border-radius: var(--md-sys-shape-corner-full);
-  color: var(--badge-color, var(--md-sys-color-on-surface-variant));
-  background: color-mix(in srgb, var(--badge-color, var(--md-sys-color-primary)) 18%, transparent);
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  transition: var(--md-e-morph);
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface);
+  font: 650 13px/1 var(--md-sys-typescale-font-family-plain);
+  cursor: pointer;
+  transition: background var(--nu-dur) var(--nu-ease);
+}
+.nu-native-select:hover {
+  background: var(--nu-panel-high);
+}
+.nu-native-select:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+input.nu-native-select {
+  cursor: text;
 }
 
-.nu-badge:hover {
-  border-radius: var(--md-sys-shape-corner-sm);
+.nu-fields {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.nu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nu-muted {
+  color: var(--md-sys-color-on-surface-variant);
+  font: 550 12.5px/1.5 var(--md-sys-typescale-font-family-plain);
+}
+
+.nu-readout {
+  --md-outlined-text-field-disabled-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-outlined-text-field-disabled-label-text-opacity: 1;
+  --md-outlined-text-field-disabled-input-text-color: var(--md-sys-color-on-surface);
+  --md-outlined-text-field-disabled-input-text-opacity: 1;
 }
 
 /* --- cards --------------------------------------------------------------- */
@@ -597,164 +772,189 @@ md-icon-button.nu-top-bar__action {
 .nu-card__head {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-200);
-  padding-block: var(--md-sys-space-200);
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-block-end: 18px;
 }
-
 .nu-card__title {
   margin: 0;
-  font: var(--md-sys-typescale-emphasized-title-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-title-md-axes);
+  font: 720 23px/1.2 var(--md-sys-typescale-font-family-brand);
+  font-variation-settings: "ROND" 100, "wght" 720;
+  letter-spacing: -0.03em;
 }
-
 .nu-card__body {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-200);
-  padding-block-end: var(--md-sys-space-200);
+  gap: 18px;
+  padding-block-end: 4px;
 }
 
-/* --- switch rows ---------------------------------------------------------- */
-/* md-switch has no label prop, so text is a sibling of the control. */
+.nu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: var(--nu-pad);
+  border-radius: var(--md-sys-shape-corner-xl-increased);
+  background: var(--nu-panel);
+}
+
+.nu-empty,
+.nu-error,
+.nu-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 42px 24px;
+  border-radius: var(--md-sys-shape-corner-xl);
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+  font: 650 14px/1.6 var(--md-sys-typescale-font-family-plain);
+}
+.nu-empty,
+.nu-placeholder {
+  background: var(--nu-well);
+}
+.nu-error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+.nu-empty__art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 104px;
+  height: 104px;
+  color: var(--md-sys-color-primary);
+}
+.nu-empty__bloom {
+  position: absolute;
+  inset: 0;
+  border-radius: 46% 54% 52% 48% / 54% 45% 55% 46%;
+  background: var(--tone);
+  opacity: 0.9;
+}
+.nu-empty__art md-icon {
+  position: relative;
+  --md-icon-size: 40px;
+  color: var(--on-tone);
+  font-variation-settings: "FILL" 1, "wght" 650, "GRAD" 0, "opsz" 40;
+}
+.nu-empty__title {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface);
+  font: 720 20px/1.25 var(--md-sys-typescale-font-family-brand);
+  font-variation-settings: "ROND" 100, "wght" 720;
+  letter-spacing: -0.025em;
+}
+.nu-empty__hint {
+  max-width: 42ch;
+  margin: 0;
+  font: 500 13.5px/1.65 var(--md-sys-typescale-font-family-plain);
+}
+
+.nu-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--md-sys-shape-corner-full);
+  color: var(--badge-color, var(--md-sys-color-on-surface-variant));
+  background: color-mix(in oklab, var(--badge-color, var(--md-sys-color-primary)) 18%, transparent);
+  font: 700 11px/1 var(--md-sys-typescale-font-family-plain);
+}
 
 .nu-switch-row {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-200);
+  gap: 12px;
   min-height: 48px;
-  padding: var(--md-sys-space-100) var(--md-sys-space-200);
-  border-radius: var(--md-sys-shape-corner-full);
-  transition: var(--md-e-morph);
+  padding: 8px 12px;
+  border-radius: 18px;
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
 .nu-switch-row:hover {
-  background: var(--md-sys-color-surface-container);
-  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--nu-well);
 }
-
 .nu-switch-row__label {
-  font: var(--md-sys-typescale-emphasized-body-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
+  font: 600 13.5px/1.4 var(--md-sys-typescale-font-family-plain);
   overflow-wrap: anywhere;
 }
 
 .nu-link {
   display: inline-flex;
-  text-decoration: none;
   color: inherit;
+  text-decoration: none;
 }
 
-/* --- view layout --------------------------------------------------------- */
+/* --- split layouts ------------------------------------------------------- */
 
 .nu-split {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
-  gap: var(--md-sys-space-200);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
-@media (max-width: 900px) {
-  .nu-split {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* a list panel is a surface: 32px, and the rows inside it are pills */
 .nu-list-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-050);
+  gap: 3px;
   max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
   overflow: auto;
-  background: var(--md-sys-color-surface-container-low);
-  border-radius: var(--md-e-shape-surface);
-  padding: var(--md-sys-space-150);
-  transition: var(--md-e-morph);
-}
-
-.nu-list-panel:hover {
-  border-radius: var(--md-e-shape-surface-hover);
-}
-
-/* --- form + list primitives ----------------------------------------------- */
-
-.nu-native-select {
-  height: 44px;
-  padding: 0 var(--md-sys-space-200);
-  border: 1px solid var(--md-sys-color-outline-strong, var(--md-sys-color-outline));
-  border-radius: var(--md-sys-shape-corner-lg-increased);
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-emphasized-body-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
-  transition: var(--md-e-morph);
-}
-
-.nu-native-select:hover {
-  border-radius: var(--md-sys-shape-corner-full);
-}
-
-.nu-native-select:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-
-.nu-grow {
-  flex: 1 1 auto;
-  min-width: 200px;
-}
-
-/* A disabled field used as a readout: the library draws its label/value as
-   on-surface at 38% opacity (3.05:1 on this surface). The text here is
-   information, not an editable control, so the opacity is lifted while the
-   disabled outline keeps the "not an input" signal. */
-.nu-readout {
-  --md-outlined-text-field-disabled-label-text-color: var(--md-sys-color-on-surface-variant);
-  --md-outlined-text-field-disabled-label-text-opacity: 1;
-  --md-outlined-text-field-disabled-input-text-color: var(--md-sys-color-on-surface);
-  --md-outlined-text-field-disabled-input-text-opacity: 1;
+  background: var(--nu-panel);
+  border-radius: var(--md-sys-shape-corner-xl);
+  padding: 10px;
 }
 
 .nu-file {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-100);
+  gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: var(--md-sys-space-100) var(--md-sys-space-200);
+  min-height: 46px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: var(--md-sys-shape-corner-full);
+  border-radius: 18px;
   background: none;
-  color: inherit;
-  font: inherit;
+  color: var(--md-sys-color-on-surface-variant);
+  font: 600 13px/1.35 var(--md-sys-typescale-font-family-plain);
   text-align: start;
   cursor: pointer;
-  transition: var(--md-e-morph-color);
+  transition:
+    background var(--nu-dur) var(--nu-ease),
+    color var(--nu-dur) var(--nu-ease),
+    transform var(--nu-dur) var(--nu-ease);
 }
-
+.nu-file md-icon {
+  --md-icon-size: 19px;
+  opacity: 0.75;
+}
 .nu-file:hover {
-  background: var(--md-sys-color-surface-container-high);
-  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface);
+  border-radius: 14px;
 }
-
 .nu-file:active {
-  border-radius: var(--md-sys-shape-corner-md);
-  transform: var(--md-e-press-scale);
+  transform: scale(0.985);
 }
-
-.nu-file:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: -2px;
-}
-
 .nu-file--active {
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
+  background: var(--tone);
+  color: var(--on-tone);
   font-weight: 700;
 }
-
+.nu-file--active md-icon {
+  opacity: 1;
+}
+.nu-file--active .nu-muted {
+  color: color-mix(in oklab, var(--on-tone) 76%, transparent);
+}
 .nu-file__name {
   flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -763,269 +963,40 @@ md-icon-button.nu-top-bar__action {
 .nu-list-row {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-200);
-  padding: var(--md-sys-space-150) var(--md-sys-space-100);
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  transition: var(--md-e-morph);
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
 .nu-list-row:hover {
-  background: var(--md-sys-color-surface-container);
-  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--nu-well);
 }
-
 .nu-list-row__main {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-050);
+  gap: 3px;
   min-width: 0;
 }
 
 .nu-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--md-sys-space-100);
-}
-
-/* --- code + JSON --------------------------------------------------------- */
-
-.nu-code,
-.nu-pre {
-  width: 100%;
-  min-height: 240px;
-  margin: 0;
-  padding: var(--md-sys-space-200);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-xl);
-  background: var(--md-sys-color-surface-container-low);
-  color: var(--md-sys-color-on-surface);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  transition: var(--md-e-morph);
-}
-
-.nu-code:focus-visible,
-.nu-pre:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-
-.nu-code-preview {
-  display: none;
-}
-
-/* --- nodes / images ------------------------------------------------------ */
-
-.nu-node {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-space-100);
-  padding: var(--md-sys-space-200) var(--md-sys-space-100);
-  border-top: 1px solid var(--md-sys-color-outline-variant);
-  transition: var(--md-e-morph);
-}
-
-.nu-node:hover {
-  background: var(--md-sys-color-surface-container-low);
-  border-radius: var(--md-sys-shape-corner-xl);
-}
-
-.nu-node__title {
-  margin: 0;
-  font: var(--md-sys-typescale-emphasized-title-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-title-sm-axes);
-}
-
-.nu-shot {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-space-050);
-}
-
-/* a thumbnail is the one place the notch is worth spending: the image is square
-   and the container is not, so the corner reads as an opening, not a mistake */
-.nu-shot__hit,
-.nu-card__hit {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: var(--md-sys-shape-corner-xl);
-  background: var(--md-sys-color-surface-container-low);
-  color: inherit;
-  cursor: pointer;
-  overflow: hidden;
-  transition: var(--md-e-morph-color);
-}
-
-.nu-shot__hit:hover,
-.nu-card__hit:hover {
-  border-radius: var(--md-e-shape-hero);
-  transform: var(--md-e-hover-lift);
-}
-
-.nu-shot__hit:active,
-.nu-card__hit:active {
-  border-radius: var(--md-sys-shape-corner-md);
-  transform: var(--md-e-press-scale);
-}
-
-.nu-shot__hit:focus-visible,
-.nu-card__hit:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-
-/* Multi-tone grids. MEASURED: this is the interaction Inkloom's subject grid
-   uses — the tile takes its colour from a --tone the row above it sets, so a
-   grid of six reads as six hues without any of them being a new colour value.
-   .nu-tone-cycle (expressive.css) assigns the tone per child; nothing here
-   names a hue, so both schemes and the audited pairs carry it. */
-.nu-tone-cycle .nu-shot__hit:hover,
-.nu-tone-cycle .nu-card__hit:hover {
-  background: var(--tone);
-}
-
-.nu-tone-cycle .nu-shot:hover .nu-card__name,
-.nu-tone-cycle .nu-shot:hover .nu-muted {
-  color: var(--on-tone);
-}
-
-/* Artists' manage-mode scrim badge over a thumbnail. It was an inline
-   rgba(0,0,0,.6) — gate A5a exists precisely so a colour like that is a token
-   instead, because a literal does not change with the scheme. */
-.nu-artist-overlay {
-  background-color: color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent);
-  color: var(--md-sys-color-inverse-on-surface);
-  border-radius: var(--md-sys-shape-corner-full);
-  transition: var(--md-e-morph);
-}
-
-.nu-artist-overlay:hover {
-  border-radius: var(--md-sys-shape-corner-md);
-}
-
-.nu-shot__hit img,
-.nu-card__hit img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-}
-
-.nu-shot__full {
-  display: block;
-  max-width: 100%;
-  max-height: 60vh;
-  margin-inline: auto;
-}
-
-.nu-card__name {
-  display: block;
-  padding: var(--md-sys-space-075) var(--md-sys-space-100);
-  font: var(--md-sys-typescale-emphasized-label-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-md-axes);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.nu-thumb {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
-  overflow: hidden;
-}
-
-.nu-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: color-mix(in srgb, var(--md-sys-color-scrim) 30%, transparent);
-}
-
-.nu-thumb--fail {
-  min-height: 72px;
-}
-
-/* --- models layout ------------------------------------------------------- */
-
-.nu-models {
-  display: grid;
-  grid-template-columns: 1fr minmax(260px, 340px);
-  gap: var(--md-sys-space-200);
-  align-items: start;
-}
-
-.nu-models__list {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-space-150);
-}
-
-.nu-detail {
-  position: sticky;
-  top: 0;
-  max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
-  overflow: auto;
-  padding: var(--md-sys-space-200);
-  border-radius: var(--md-e-shape-surface);
-  background: var(--md-sys-color-surface-container-low);
-}
-
-@media (max-width: 1100px) {
-  .nu-models {
-    grid-template-columns: 1fr;
-  }
-
-  .nu-detail {
-    position: static;
-    max-height: none;
-  }
-}
-
-/* --- batch panel ----------------------------------------------------------- */
-
-.nu-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-space-150);
-  padding: var(--nu-surface-pad);
-  border-radius: var(--md-e-shape-surface);
-  background: var(--md-sys-color-surface-container-low);
-  transition: var(--md-e-morph);
-}
-
-.nu-panel:hover {
-  border-radius: var(--md-e-shape-surface-hover);
+  gap: 8px;
 }
 
 .nu-group {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-025);
-  padding: var(--md-sys-space-100) 0;
-  border-top: 1px solid var(--md-sys-color-outline-variant);
+  gap: 4px;
+  padding: 8px 0 2px;
 }
-
 .nu-row--indent {
-  padding-inline-start: var(--md-sys-space-350, 28px);
+  padding-inline-start: 28px;
 }
-
 .nu-row--wrap {
   flex-wrap: wrap;
 }
-
 .nu-ellip {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1034,429 +1005,746 @@ md-icon-button.nu-top-bar__action {
   flex: 1 1 auto;
 }
 
+/* --- code ---------------------------------------------------------------- */
+
+.nu-code,
+.nu-pre {
+  width: 100%;
+  min-height: 320px;
+  margin: 0;
+  padding: 22px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--nu-code-bg);
+  color: var(--nu-code-ink);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.nu-code:focus-visible,
+.nu-pre:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 3px;
+}
+.nu-code-preview {
+  display: none;
+}
+
+/* --- nodes / thumbnails -------------------------------------------------- */
+
+.nu-node {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 22px;
+  transition: background var(--nu-dur) var(--nu-ease);
+}
+.nu-node:hover {
+  background: var(--nu-well);
+}
+.nu-node__title {
+  margin: 0;
+  font: 700 15px/1.4 var(--md-sys-typescale-font-family-plain);
+}
+
+.nu-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 9px;
+  border-radius: var(--md-sys-shape-corner-xl);
+  background: color-mix(in oklab, var(--tone, var(--nu-panel)) 16%, var(--nu-panel));
+  transition:
+    transform var(--nu-dur) var(--nu-ease),
+    border-radius var(--nu-dur) var(--nu-ease),
+    background var(--nu-dur) var(--nu-ease);
+}
+.nu-shot:hover {
+  transform: translateY(-3px);
+  border-radius: 28px 28px 16px 28px;
+}
+
+.nu-shot__hit,
+.nu-card__hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  background: var(--nu-well-deep);
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-radius var(--nu-dur) var(--nu-ease);
+}
+.nu-shot__hit:hover,
+.nu-card__hit:hover {
+  border-radius: 24px 24px 10px 24px;
+}
+.nu-shot__hit img,
+.nu-card__hit img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  transition: transform 420ms var(--nu-ease);
+}
+.nu-shot__hit:hover img,
+.nu-card__hit:hover img {
+  transform: scale(1.025);
+}
+
+.nu-shot__full {
+  display: block;
+  max-width: 100%;
+  max-height: 62vh;
+  margin-inline: auto;
+  border-radius: var(--md-sys-shape-corner-xl);
+}
+
+.nu-card__name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 6px 4px;
+  font: 650 12.5px/1.35 var(--md-sys-typescale-font-family-plain);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nu-card__name::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--tone-bright, var(--md-sys-color-primary));
+}
+
+.nu-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface-variant);
+  overflow: hidden;
+}
+.nu-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.nu-thumb--fail {
+  min-height: 72px;
+}
+
+.nu-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+}
+
+/* --- models layout ------------------------------------------------------- */
+
+.nu-models {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 350px);
+  gap: 18px;
+  align-items: start;
+}
+.nu-models__list {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.nu-detail {
+  position: sticky;
+  top: 0;
+  max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
+  overflow: auto;
+  padding: 20px;
+  border-radius: var(--md-sys-shape-corner-xl-increased);
+  background: var(--nu-panel);
+}
+
+/* --- batch panel --------------------------------------------------------- */
+
 .nu-log {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-025);
+  gap: 2px;
   max-height: 220px;
   overflow: auto;
 }
-
 .nu-log li {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-100);
-  padding: var(--md-sys-space-050) var(--md-sys-space-100);
+  gap: 9px;
+  padding: 6px 10px;
   border-radius: var(--md-sys-shape-corner-full);
-  font: var(--md-sys-typescale-body-sm);
-  transition: var(--md-e-morph);
+  font: 550 12px/1.4 var(--md-sys-typescale-font-family-plain);
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
 .nu-log li:hover {
-  background: var(--md-sys-color-surface-container);
-  border-radius: var(--md-sys-shape-corner-md);
+  background: var(--nu-well);
 }
-
 .nu-log__fail md-icon {
   color: var(--md-sys-color-error);
   font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
 }
-
 .nu-log__ok md-icon {
   color: var(--md-sys-color-primary);
   font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
 }
 
 /* --- snackbar ------------------------------------------------------------ */
-/* md-snackbar does not exist in @material/web 2.5.0, so it is implemented here. */
 
 .nu-snackbar-host {
   position: fixed;
-  inset-inline-start: var(--md-sys-space-200);
-  bottom: var(--md-sys-space-200);
+  inset-inline-start: 24px;
+  bottom: 24px;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-space-100);
+  gap: 10px;
   z-index: 70;
   pointer-events: none;
 }
-
-/* Expressive keeps the inverse surface but gives it a real radius and a spring
-   on the way in, so a report arrives as an object rather than a bar */
 .nu-snackbar {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-100);
-  min-width: 288px;
+  gap: 12px;
+  min-width: 300px;
   max-width: 56vw;
-  padding: var(--md-sys-space-100) var(--md-sys-space-150) var(--md-sys-space-100) var(--md-sys-space-250);
-  min-height: 52px;
+  padding: 12px 16px 12px 22px;
+  min-height: 54px;
   border-radius: var(--md-sys-shape-corner-xl);
   background: var(--md-sys-color-inverse-surface);
   color: var(--md-sys-color-inverse-on-surface);
-  box-shadow: var(--md-sys-elevation-level3);
-  font: var(--md-sys-typescale-emphasized-body-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
+  box-shadow: var(--nu-shadow);
+  font: 600 13.5px/1.45 var(--md-sys-typescale-font-family-plain);
   pointer-events: auto;
-  transition: var(--md-e-morph);
+  transition: border-radius var(--nu-dur) var(--nu-ease);
 }
-
 .nu-snackbar:hover {
-  border-radius: var(--md-sys-shape-corner-xxl);
+  border-radius: 28px 28px 12px 28px;
 }
-
 .nu-snackbar__label {
   flex: 1 1 auto;
 }
 
 /* --- data table ---------------------------------------------------------- */
-/* M3 has no table component; the shell is built from tokens. */
 
 .nu-table-wrap {
   overflow: auto;
-  border-radius: var(--md-e-shape-surface);
-  background: var(--md-sys-color-surface-container-low);
-  padding: var(--md-sys-space-100);
-  transition: var(--md-e-morph);
+  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--nu-panel);
+  padding: 6px 14px 10px;
 }
-
-.nu-table-wrap:hover {
-  border-radius: var(--md-e-shape-surface-hover);
-}
-
 .nu-table {
   width: 100%;
   border-collapse: collapse;
-  font: var(--md-sys-typescale-body-md);
+  font: 550 13px/1.4 var(--md-sys-typescale-font-family-plain);
 }
-
 .nu-table th,
 .nu-table td {
-  padding: 0 var(--md-sys-space-200);
-  height: 56px;
+  padding: 0 14px;
+  height: 54px;
   text-align: start;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  border-bottom: 1px solid var(--nu-hairline);
   white-space: nowrap;
 }
-
 .nu-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--md-sys-color-surface-container-low);
+  height: 46px;
+  background: var(--nu-panel);
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-emphasized-label-lg);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-lg-axes);
+  font: 700 10.5px/1 var(--md-sys-typescale-font-family-plain);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
-
+.nu-table tbody tr:last-child td {
+  border-bottom: 0;
+}
 .nu-table tbody tr {
-  transition: var(--md-e-morph);
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
 .nu-table tbody tr:hover {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
-  border-radius: var(--md-sys-shape-corner-lg);
+  background: var(--nu-well);
 }
-
+.nu-table tbody tr:hover td:first-child {
+  border-start-start-radius: 16px;
+  border-end-start-radius: 16px;
+}
+.nu-table tbody tr:hover td:last-child {
+  border-start-end-radius: 16px;
+  border-end-end-radius: 16px;
+}
 .nu-table tbody tr[data-selected="true"] {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-  border-radius: var(--md-sys-shape-corner-lg-increased);
+  background: var(--tone);
+  color: var(--on-tone);
 }
-
 .nu-table__sort {
   display: inline-flex;
   align-items: center;
-  gap: var(--md-sys-space-050);
-  background: none;
+  gap: 5px;
+  padding: 5px 9px;
   border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: none;
   color: inherit;
   font: inherit;
   cursor: pointer;
-  padding: var(--md-sys-space-050) var(--md-sys-space-100);
-  border-radius: var(--md-sys-shape-corner-full);
-  transition: var(--md-e-morph);
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
 .nu-table__sort:hover {
-  background: var(--md-sys-color-surface-container-high);
-  border-radius: var(--md-sys-shape-corner-md);
+  background: var(--nu-well);
 }
-
-.nu-table__sort:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-
-/* Per-row table controls: upstream's table cells are plain buttons that inherit
-   the row's typography — no filled chip, no card. The state is carried by glyph
-   (★/☆, ⏸/▶) and by the accent colour for an active Batch/Stack. */
 .nu-table__act {
-  background: none;
+  padding: 5px 9px;
   border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: none;
   color: inherit;
   font: inherit;
   line-height: 1;
   cursor: pointer;
-  padding: var(--md-sys-space-050) var(--md-sys-space-100);
-  border-radius: var(--md-sys-shape-corner-full);
-  transition: var(--md-e-morph);
+  transition: background var(--nu-dur) var(--nu-ease);
 }
-
 .nu-table__act:hover {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
-  border-radius: var(--md-sys-shape-corner-sm);
+  background: var(--nu-well);
 }
-
 .nu-table__act--on {
   color: var(--md-sys-color-primary);
   font-weight: 700;
 }
-
 .nu-table__act--off {
   color: var(--md-sys-color-on-surface-variant);
 }
 
-.nu-table__act:focus-visible {
-  outline: 3px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-
-/* Upstream's empty state, one placeholder for "this type has no models" and
-   "nothing matches the filters", rendered in both the grid and the table. */
-.nu-placeholder {
-  margin: var(--md-sys-space-200) 0;
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-emphasized-body-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
-  text-align: center;
-  padding: var(--md-sys-space-200);
-  border-radius: var(--md-sys-shape-corner-xl);
-  background: var(--md-sys-color-surface-container-low);
-}
-
-/* --- dialogs --------------------------------------------------------------- */
-/* md-dialog supplies the scrim, focus trap and Escape handling; only its slotted
-   content is styled here (its shape comes from the generated hooks). */
+/* --- dialogs ------------------------------------------------------------- */
 
 .nu-dialog-portal {
   display: contents;
 }
-
+md-dialog {
+  --md-dialog-container-color: var(--nu-panel-high);
+  --md-dialog-container-shape: 36px 36px 36px 14px;
+  --md-dialog-headline-color: var(--md-sys-color-on-surface);
+  --md-dialog-headline-font: var(--md-sys-typescale-font-family-brand);
+  --md-dialog-headline-size: 24px;
+  --md-dialog-headline-weight: 720;
+  --md-dialog-supporting-text-color: var(--md-sys-color-on-surface-variant);
+  --md-dialog-supporting-text-font: var(--md-sys-typescale-font-family-plain);
+  --md-dialog-supporting-text-size: 14px;
+}
 .nu-dialog__body {
-  font: var(--md-sys-typescale-body-md);
+  font: 500 14px/1.65 var(--md-sys-typescale-font-family-plain);
   color: var(--md-sys-color-on-surface-variant);
 }
-
 .nu-dialog__actions {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-space-100);
+  gap: 10px;
   justify-content: flex-end;
 }
-
-.nu-dialog__actions > :first-child:last-child {
-  justify-content: center;
-}
-
 .nu-dialog__input {
   width: 100%;
-  margin-block-start: var(--md-sys-space-150);
-  padding: var(--md-sys-space-150) var(--md-sys-space-200);
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: var(--md-sys-shape-corner-lg-increased);
-  background: var(--md-sys-color-surface);
+  margin-block-start: 14px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--nu-well);
   color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-body-lg);
-  transition: var(--md-e-morph);
+  font: 550 14px/1.4 var(--md-sys-typescale-font-family-plain);
 }
-
-.nu-dialog__input:hover {
-  border-radius: var(--md-sys-shape-corner-xl);
-}
-
 .nu-dialog__input:focus-visible {
   outline: 3px solid var(--md-sys-color-primary);
   outline-offset: 2px;
 }
-
-/* Destructive confirmation, expressed through the error role rather than a
-   hard-coded colour. */
 md-filled-button.nu-btn--danger {
   --md-filled-button-container-color: var(--md-sys-color-error);
   --md-filled-button-label-text-color: var(--md-sys-color-on-error);
   --md-filled-button-hover-state-layer-color: var(--md-sys-color-on-error);
   --md-filled-button-focus-state-layer-color: var(--md-sys-color-on-error);
   --md-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error);
+  box-shadow: none;
 }
 
-/* --- Artists view ---------------------------------------------------------- */
-/* The lightbox is a viewer, so it keeps the scrim and the dark plate; what it
-   borrows from Expressive is the shape language of the card around the art. */
+/* --- Artists ------------------------------------------------------------- */
+
 .nu-artist-lightbox-scrim {
   position: fixed;
   inset: 0;
-  background-color: color-mix(in srgb, var(--md-sys-color-scrim) 85%, transparent);
-  backdrop-filter: blur(8px);
   z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--nu-surface-pad);
+  padding: 24px;
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 86%, transparent);
+  backdrop-filter: blur(10px);
 }
-
 .nu-artist-lightbox-card {
-  background-color: var(--md-sys-color-surface);
-  border-radius: var(--md-sys-shape-corner-xxl);
-  max-width: 920px;
-  max-height: 90vh;
-  width: 100%;
-  overflow: hidden;
   display: flex;
   flex-direction: row;
-  box-shadow: var(--md-sys-elevation-level5);
+  width: 100%;
+  max-width: 960px;
+  max-height: 90vh;
+  overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-xl-increased);
+  background: var(--nu-panel);
+  box-shadow: var(--nu-shadow);
 }
-
 .nu-artist-lightbox-preview {
+  position: relative;
   flex: 1 1 56%;
-  background-color: var(--md-sys-color-surface-container-lowest);
   display: flex;
   align-items: center;
   justify-content: center;
   max-height: 88vh;
+  padding: 18px;
   overflow: hidden;
-  position: relative;
-  padding: var(--md-sys-space-200);
+  background: var(--nu-well);
 }
-
 .nu-artist-lightbox-img {
   position: relative;
+  z-index: 1;
   max-width: 100%;
   max-height: 84vh;
+  border-radius: 20px;
   object-fit: contain;
-  z-index: 1;
-  border-radius: var(--md-sys-shape-corner-xl);
-  box-shadow: var(--md-sys-elevation-level4);
+  box-shadow: var(--nu-shadow);
 }
-
 .nu-artist-lightbox-empty {
-  color: var(--md-sys-color-outline);
   display: flex;
   flex-direction: column;
   align-items: center;
+  color: var(--md-sys-color-outline);
 }
-
-.nu-artist-cat-badge {
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  padding: var(--md-sys-space-025) var(--md-sys-space-100);
+.nu-artist-cat-badge,
+.nu-artist-notrigger-badge,
+.nu-artist-notrigger-pill,
+.nu-artist-chip-category,
+.nu-artist-chip-arch,
+.nu-artist-chip-group {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
   border-radius: var(--md-sys-shape-corner-full);
-  background-color: var(--md-sys-color-primary);
+  font: 700 11px/1.35 var(--md-sys-typescale-font-family-plain);
+}
+.nu-artist-cat-badge {
+  background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
 }
-
-.nu-artist-notrigger-badge {
-  display: inline-block;
-  background-color: var(--md-e-color-tone-spring-container);
+.nu-artist-notrigger-badge,
+.nu-artist-notrigger-pill {
+  background: var(--md-e-color-tone-spring-container);
   color: var(--md-e-color-tone-spring-on);
-  padding: var(--md-sys-space-050) var(--md-sys-space-150);
-  border-radius: var(--md-sys-shape-corner-full);
-  font: var(--md-sys-typescale-emphasized-label-md);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-md-axes);
 }
-
+.nu-artist-chip-category {
+  background: var(--md-e-color-tone-sky-container);
+  color: var(--md-e-color-tone-sky-on);
+}
+.nu-artist-chip-arch {
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  text-transform: uppercase;
+}
+.nu-artist-chip-group {
+  background: var(--nu-well);
+  color: var(--md-sys-color-on-surface-variant);
+}
 .nu-artist-card-thumb {
   position: relative;
-  width: 100%;
-  height: 250px;
-  background-color: var(--md-sys-color-surface-container-highest);
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 248px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--nu-well);
 }
-
-.nu-artist-chip-category {
-  background-color: var(--md-e-color-tone-sky-container);
-  color: var(--md-e-color-tone-sky-on);
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  padding: var(--md-sys-space-025) var(--md-sys-space-100);
-  border-radius: var(--md-sys-shape-corner-full);
-}
-
-.nu-artist-chip-arch {
-  background-color: var(--md-sys-color-inverse-surface);
+.nu-artist-overlay {
+  background-color: color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent);
   color: var(--md-sys-color-inverse-on-surface);
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  padding: var(--md-sys-space-025) var(--md-sys-space-100);
   border-radius: var(--md-sys-shape-corner-full);
-  text-transform: uppercase;
 }
-
-.nu-artist-chip-group {
-  background-color: var(--md-sys-color-surface-container-high);
+.nu-presets__meta {
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  padding: var(--md-sys-space-025) var(--md-sys-space-100);
-  border-radius: var(--md-sys-shape-corner-full);
+  font: 550 12px/1.5 var(--md-sys-typescale-font-family-plain);
 }
 
-.nu-artist-notrigger-pill {
-  font: var(--md-sys-typescale-emphasized-label-sm);
-  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
-  color: var(--md-e-color-tone-spring-on);
-  background-color: var(--md-e-color-tone-spring-container);
-  padding: var(--md-sys-space-025) var(--md-sys-space-100);
-  border-radius: var(--md-sys-shape-corner-full);
+/* ---------------------------------------------------------------------------
+   mobile dock
+   ------------------------------------------------------------------------ */
+
+.nu-dock {
+  display: none;
 }
 
-/* --- narrow viewports ---------------------------------------------------- */
-/* The rail gives up its labels below 840px and the tiles shrink to the 48dp
-   target; the breakpoint and the three values are asserted by
-   tools/core-tests/core.test.mjs, so they change together or not at all. */
+/* ---------------------------------------------------------------------------
+   narrow viewports
+   ------------------------------------------------------------------------ */
+
+@media (max-width: 1200px) {
+  :root,
+  [data-theme="m3-dark"],
+  [data-theme="m3-light"] {
+    --nu-rail-width: 92px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .nu-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 0.72fr);
+    gap: 36px;
+  }
+  .nu-hero__art {
+    max-width: 420px;
+  }
+  .nu-models {
+    grid-template-columns: 1fr;
+  }
+  .nu-detail {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .nu-hero {
+    grid-template-columns: 1fr;
+    gap: 34px;
+    min-height: 0;
+  }
+  .nu-hero__art {
+    justify-self: start;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+  }
+  .nu-hero__bloom {
+    width: 180px;
+    height: 180px;
+  }
+  .nu-split {
+    grid-template-columns: 1fr;
+  }
+  .nu-list-panel {
+    max-height: 320px;
+  }
+}
 
 @media (max-width: 839px) {
   .nu-app {
-    grid-template-columns: 56px 1fr;
+    grid-template-areas:
+      "bar"
+      "main";
+    grid-template-columns: 1fr;
     --nu-rail-width: 56px;
   }
-
+  .nu-rail {
+    display: none;
+  }
   .nu-rail__label {
     display: none;
   }
-
   .nu-rail__icon {
     width: 48px;
   }
-
   .nu-rail__item {
     min-height: 56px;
   }
 
   .nu-top-bar {
-    padding: 0 var(--md-sys-space-150);
-    gap: var(--md-sys-space-100);
+    padding: 0 18px;
+    gap: 8px;
+  }
+  .nu-brand__caption {
+    display: none;
+  }
+  .nu-status__text {
+    display: none;
+  }
+  .nu-status {
+    padding: 0 12px;
+  }
+  .nu-control {
+    width: 42px;
+    padding: 0;
+    justify-content: center;
+  }
+  .nu-control span {
+    display: none;
+  }
+  .nu-control--quiet {
+    display: none;
   }
 
-  .nu-top-bar__title {
-    font: var(--md-sys-typescale-emphasized-title-lg);
-    font-variation-settings: var(--md-sys-typescale-emphasized-title-lg-axes);
+  .nu-main {
+    padding: 26px 20px 112px;
+  }
+  .nu-hero {
+    margin-block-end: 38px;
+  }
+  .nu-hero__title {
+    font-size: clamp(46px, 11vw, 72px);
   }
 
+  .nu-dock {
+    position: fixed;
+    inset-inline: 12px;
+    inset-block-end: 12px;
+    z-index: 40;
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    overflow-x: auto;
+    border-radius: 24px;
+    background: color-mix(in oklab, var(--nu-panel-high) 88%, transparent);
+    backdrop-filter: blur(18px);
+    box-shadow: var(--nu-shadow);
+    scrollbar-width: none;
+  }
+  .nu-dock::-webkit-scrollbar {
+    display: none;
+  }
+  .nu-dock__item {
+    flex: 1 0 62px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-height: 58px;
+    padding: 7px 4px;
+    border: 0;
+    border-radius: 18px;
+    background: transparent;
+    color: var(--md-sys-color-on-surface-variant);
+    font: 650 10px/1.2 var(--md-sys-typescale-font-family-plain);
+    cursor: pointer;
+  }
+  .nu-dock__item md-icon {
+    --md-icon-size: 21px;
+  }
+  .nu-dock__item--active {
+    background: var(--tone);
+    color: var(--on-tone);
+  }
+}
+
+@media (max-width: 640px) {
+  .nu-top-bar {
+    padding: 0 14px;
+  }
+  .nu-brand__mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+  }
+  .nu-brand__name {
+    font-size: 16px;
+  }
+  .nu-main {
+    padding: 22px 16px 108px;
+  }
+  .nu-hero__copy {
+    gap: 16px;
+  }
+  .nu-hero__title {
+    font-size: clamp(42px, 12vw, 58px);
+    letter-spacing: -0.05em;
+  }
+  .nu-hero__lede {
+    font-size: 15px;
+    line-height: 1.65;
+  }
   .nu-hero__art {
-    transform: none;
+    aspect-ratio: 4 / 3;
+    padding: 20px;
+    border-radius: 36px 36px 36px 12px;
+  }
+  .nu-hero__bloom {
+    width: 140px;
+    height: 140px;
+  }
+  .nu-hero__bloom md-icon {
+    --md-icon-size: 44px;
+  }
+  .nu-hero__pill {
+    min-height: 32px;
+    padding: 0 12px;
+    font-size: 11px;
+  }
+  .nu-hero__pill--a {
+    inset-inline-start: 18px;
+    inset-block-start: 18px;
+  }
+  .nu-hero__pill--b {
+    inset-inline-end: 18px;
+    inset-block-end: 18px;
+  }
+  .nu-hero__spark--a {
+    inset-block-start: 28px;
+    inset-inline-end: 26px;
+  }
+  .nu-hero__spark--b {
+    display: none;
+  }
+
+  .nu-view {
+    gap: 16px;
+  }
+  .nu-view__toolbar {
+    padding: 10px;
+    border-radius: 24px;
+  }
+  .nu-view__toolbar md-outlined-text-field,
+  .nu-view__toolbar md-outlined-select,
+  .nu-grow {
+    flex: 1 1 100%;
+  }
+  .nu-grid {
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 10px;
+  }
+  md-outlined-card {
+    padding: 18px;
+    border-radius: 26px;
+  }
+  .nu-card__title {
+    font-size: 20px;
+  }
+  .nu-dialog__actions {
+    flex-wrap: wrap;
+  }
+  .nu-snackbar-host {
+    inset-inline: 12px;
+    bottom: 84px;
+  }
+  .nu-snackbar {
+    max-width: 100%;
+    min-width: 0;
   }
 }
 
 /* --- reduced motion ------------------------------------------------------ */
-/* The token file zeroes every duration, so nothing springs at all. What still
-   has to be stopped here is anything this file declares outside those tokens. */
+/* Everything else follows the token durations, which go to zero; anything this
+   file declares outside those tokens is stopped here. */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1468,10 +1756,15 @@ md-filled-button.nu-btn--danger {
   }
 
   .nu-hero__art,
-  .nu-shot__hit:hover,
-  .nu-card__hit:hover,
+  .nu-hero__art:hover,
+  .nu-hero__bloom,
+  .nu-hero__art:hover .nu-hero__bloom,
+  .nu-shot:hover,
   .nu-rail__item:active,
-  .nu-file:active {
+  .nu-control:active,
+  .nu-file:active,
+  .nu-brand:hover .nu-brand__mark {
     transform: none;
+    rotate: 0deg;
   }
 }

@@ -407,6 +407,30 @@
   initial-value: 9999px;
 }
 
+@property --md-filled-tonal-icon-button-container-shape-start-start {
+  syntax: "<length-percentage>";
+  inherits: true;
+  initial-value: 9999px;
+}
+
+@property --md-filled-tonal-icon-button-container-shape-start-end {
+  syntax: "<length-percentage>";
+  inherits: true;
+  initial-value: 9999px;
+}
+
+@property --md-filled-tonal-icon-button-container-shape-end-end {
+  syntax: "<length-percentage>";
+  inherits: true;
+  initial-value: 9999px;
+}
+
+@property --md-filled-tonal-icon-button-container-shape-end-start {
+  syntax: "<length-percentage>";
+  inherits: true;
+  initial-value: 9999px;
+}
+
 @property --md-filter-chip-container-shape-start-start {
   syntax: "<length-percentage>";
   inherits: true;
@@ -702,6 +726,7 @@
   --md-filled-select-text-field-container-shape: var(--md-sys-shape-corner-lg);
   --md-filled-text-field-container-shape: var(--md-sys-shape-corner-lg);
   --md-filled-tonal-button-container-shape: var(--md-sys-shape-corner-full);
+  --md-filled-tonal-icon-button-container-shape: var(--md-sys-shape-corner-full);
   --md-filter-chip-container-shape: var(--md-sys-shape-corner-full);
   --md-input-chip-avatar-shape: var(--md-sys-shape-corner-full);
   --md-input-chip-container-shape: var(--md-sys-shape-corner-full);
@@ -999,6 +1024,25 @@ md-filled-tonal-button:active {
   --md-filled-tonal-button-container-shape-start-end: var(--md-sys-shape-corner-md);
   --md-filled-tonal-button-container-shape-end-end: var(--md-sys-shape-corner-md);
   --md-filled-tonal-button-container-shape-end-start: var(--md-sys-shape-corner-md);
+}
+
+md-filled-tonal-icon-button {
+  transition: --md-filled-tonal-icon-button-container-shape-start-start var(--md-e-spatial-fast),
+              --md-filled-tonal-icon-button-container-shape-start-end var(--md-e-spatial-fast),
+              --md-filled-tonal-icon-button-container-shape-end-end var(--md-e-spatial-fast),
+              --md-filled-tonal-icon-button-container-shape-end-start var(--md-e-spatial-fast);
+}
+md-filled-tonal-icon-button:hover {
+  --md-filled-tonal-icon-button-container-shape-start-start: var(--md-sys-shape-corner-xl);
+  --md-filled-tonal-icon-button-container-shape-start-end: var(--md-sys-shape-corner-xl);
+  --md-filled-tonal-icon-button-container-shape-end-end: var(--md-sys-shape-corner-xl);
+  --md-filled-tonal-icon-button-container-shape-end-start: var(--md-sys-shape-corner-xl);
+}
+md-filled-tonal-icon-button:active {
+  --md-filled-tonal-icon-button-container-shape-start-start: var(--md-sys-shape-corner-lg);
+  --md-filled-tonal-icon-button-container-shape-start-end: var(--md-sys-shape-corner-lg);
+  --md-filled-tonal-icon-button-container-shape-end-end: var(--md-sys-shape-corner-lg);
+  --md-filled-tonal-icon-button-container-shape-end-start: var(--md-sys-shape-corner-lg);
 }
 
 md-filter-chip {

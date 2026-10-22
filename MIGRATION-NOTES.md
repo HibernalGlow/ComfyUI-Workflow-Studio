@@ -982,20 +982,31 @@ their public hooks — the reason for the generated hook file below.
 
 ### Not measured — what is still owed
 
-1. **Nobody has looked at it.** Every number above is a computed value. A screenshot was
-   attempted and the in-app browser refused: `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE … visible=false`.
-   Whether the shapes *look* Expressive — and whether the morph reads as one movement rather
-   than four — is still unverified, and springs in particular cannot be judged from a
-   computed value.
-2. **The shape morph is unproven in motion.** `@material/web` resolves a public hook into an
-   internal `--_container-shape-*` alias inside each shadow tree, so host-side interpolation has
-   to survive that indirection. The attempt to watch it interpolate was made on a hidden page,
-   where transitions do not run at all — the result is inconclusive, not negative. A guaranteed
-   fallback for the same gesture (`transform: scale(.96)` on press, `translateY(-2px)` on hover)
-   was added to `theme.css` for this reason; it needs the same visual pass.
+1. **It has been looked at, on two routes only.** The in-app browser refused a surface
+   (`NATIVE_BROWSER_VIEWPORT_UNAVAILABLE … visible=false`), so the pass was done in the external
+   browser over the dev bundle: Workflow and Models, at 1544px. What only looking could show:
+   * the hero plate takes the cluster's tone — purple on Workflow, blue on Models — and the
+     selected rail tile is the same colour, which is the half of the idea no computed value proved;
+   * **two real bugs came out of looking**, and no gate sees either: the JSON textarea was 34px
+     wider than the card holding it (`width: 100%` plus padding and a border, with no `box-sizing`
+     in this UI), so its outline crossed the card's; and the tilted hero plate pushed 3px past the
+     content box, which put a horizontal scrollbar under the whole app. Both fixed.
+   * the tab row keeps a 3px active indicator instead of an Expressive container pill: the library
+     has no active-container colour hook, and forcing the indicator's height would lay a 32px plate
+     across the label. Left as is, deliberately.
+2. **Springs are still unproven in motion.** A screenshot is one frame. `@material/web` resolves a
+   public hook into an internal `--_container-shape-*` alias inside each shadow tree, so host-side
+   interpolation has to survive that indirection. The attempt to watch it interpolate was made on a
+   hidden page, where transitions do not run at all — inconclusive, not negative. The
+   `transform: scale(.96)` / `translateY(-2px)` rules in `theme.css` cover the same gesture
+   whatever that indirection does, and are what a hover should be judged on first.
 3. **axe-core and the DOM contrast walk were not re-run.** The tone pairs are arithmetic-certified
    (item 3 above) but the 635-sample DOM audit predates the typescale change; §5.1's claim should
    not be quoted as current until it runs again.
-4. **The data-bound views were seen empty.** No ComfyUI was reachable, so Models/Gallery/Generate
-   were rendered as their offline states. Their filters, badges and detail panels are unreviewed.
-5. **The `workflow`/`prompt`/`settings` forms** were not exercised against a live node graph.
+4. **Five of seven routes were measured, not seen.** Generate, Prompt, Gallery, Artists and
+   Settings have the computed values (hero 56px/700, surfaces 32px, chips and buttons 9999px,
+   button labels 700, zero horizontal overflow on all seven), which is not the same as a person
+   having looked at them.
+5. **No data was on screen.** No ComfyUI was reachable, so Models/Gallery/Generate rendered their
+   offline states. Their filters, badges, detail panel, results grid and node forms are unreviewed
+   with content in them.
