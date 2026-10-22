@@ -9,6 +9,7 @@ import {
     MdDivider,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { EmptyState } from "../EmptyState.js";
 import { confirmDialog, promptDialog } from "../dialogs.js";
 import { useApp, clearWorkflowHandoff } from "../store.js";
 import { api, comfyWorkflow, highlightJSON, tr, readPref, writePref } from "core";
@@ -214,7 +215,11 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
             <div className="nu-split">
                 <MdOutlinedCard className="nu-list-panel">
                     {filtered.length === 0 ? (
-                        <p className="nu-empty">{tr("nu.workflow.none", "No workflows.")}</p>
+                        <EmptyState
+                            icon="account_tree"
+                            title={tr("nu.workflow.none", "No workflows.")}
+                            hint={tr("nu.workflow.noneHint", "Import a workflow JSON to inspect its nodes and edit the parameters.")}
+                        />
                     ) : (
                         filtered.map((row) => {
                             const name = nameOf(row);
@@ -250,24 +255,35 @@ export default function Workflow({ navigate }: ViewProps): ReactElement {
                             {tr("nu.action.delete", "Delete")}
                         </MdOutlinedButton>
                     </div>
-                    <MdDivider />
-                    <textarea
-                        className="nu-code"
-                        aria-label={tr("nu.workflow.jsonLabel", "Workflow JSON")}
-                        spellCheck={false}
-                        value={json}
-                        onInput={(e) => {
-                            setJson((e.target as HTMLTextAreaElement).value);
-                            setDirty(true);
-                        }}
-                    />
-                    {json ? (
-                        <pre
-                            className="nu-code-preview"
-                            // highlightJSON() is a pure string -> HTML producer from core/json.js.
-                            dangerouslySetInnerHTML={{ __html: highlightJSON(json) }}
+                    {selected || json ? (
+                        <>
+                            <MdDivider />
+                            <textarea
+                                className="nu-code"
+                                aria-label={tr("nu.workflow.jsonLabel", "Workflow JSON")}
+                                placeholder={tr("nu.workflow.emptyEditor", "Choose a workflow on the left, or import one, to read and edit its JSON.")}
+                                spellCheck={false}
+                                value={json}
+                                onInput={(e) => {
+                                    setJson((e.target as HTMLTextAreaElement).value);
+                                    setDirty(true);
+                                }}
+                            />
+                            {json ? (
+                                <pre
+                                    className="nu-code-preview"
+                                    // highlightJSON() is a pure string -> HTML producer from core/json.js.
+                                    dangerouslySetInnerHTML={{ __html: highlightJSON(json) }}
+                                />
+                            ) : null}
+                        </>
+                    ) : (
+                        <EmptyState
+                            icon="data_object"
+                            title={tr("nu.workflow.pick", "Pick a workflow")}
+                            hint={tr("nu.workflow.pickHint", "Its JSON opens here, ready to edit. Nothing is written until you press Save.")}
                         />
-                    ) : null}
+                    )}
                 </MdOutlinedCard>
             </div>
         </div>

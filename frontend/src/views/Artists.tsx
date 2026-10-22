@@ -18,6 +18,7 @@ import {
     MdLinearProgress,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { EmptyState } from "../EmptyState.js";
 import { confirmDialog, promptDialog, moveFolderDialog } from "../dialogs.js";
 import { api } from "core";
 import type { ViewProps } from "../App.js";
@@ -46,13 +47,13 @@ export interface ArtistItem {
 // Category definitions
 const CATEGORIES = [
     { id: "all", label: "全部 LoRA", icon: "all_inclusive" },
-    { id: "artist", label: "🎨 画师风格", icon: "palette" },
-    { id: "chara", label: "🎭 角色", icon: "person" },
-    { id: "action", label: "🏃 动作姿态", icon: "accessibility_new" },
-    { id: "outfit", label: "👗 服饰换装", icon: "styler" },
-    { id: "enhancer", label: "✨ 美学加速", icon: "auto_fix_high" },
-    { id: "repair", label: "🛠️ 微调修复", icon: "tune" },
-    { id: "other", label: "📦 其他", icon: "category" },
+    { id: "artist", label: "画师风格", icon: "palette" },
+    { id: "chara", label: "角色", icon: "person" },
+    { id: "action", label: "动作姿态", icon: "accessibility_new" },
+    { id: "outfit", label: "服饰换装", icon: "styler" },
+    { id: "enhancer", label: "美学加速", icon: "auto_fix_high" },
+    { id: "repair", label: "微调修复", icon: "tune" },
+    { id: "other", label: "其他", icon: "category" },
 ];
 
 function detectCategoryFromPath(low: string): { cat: string; label: string } {
@@ -593,28 +594,24 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
     const withPreviewCount = useMemo(() => artists.filter((a) => a.has_preview).length, [artists]);
 
     return (
-        <div className="nu-view" style={{ padding: "16px 24px", height: "100%", overflowY: "auto" }}>
-            {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <div>
-                    <h2 className="nu-section__title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span>🎨 全量 LoRA 视觉画廊与挑选中心</span>
-                        <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--md-sys-color-outline)", backgroundColor: "var(--md-sys-color-surface-container)", padding: "2px 10px", borderRadius: 12 }}>
-                            全库 {artists.length} 个 LoRA · {withPreviewCount} 个带预览图 · 当前显示 {filtered.length} 个
-                        </span>
-                    </h2>
-                    <p style={{ margin: 0, fontSize: 13, color: "var(--md-sys-color-outline)" }}>
-                        涵盖全库画师、角色、动作、服装及美学 LoRA。可直观查看画风与效果预览，一键复制路径、复制 TOML 或直接应用。
+        <div className="nu-view">
+            <div className="nu-section__head nu-artists__head">
+                <div className="nu-artists__intro">
+                    <span className="nu-eyebrow">
+                        <span className="nu-eyebrow__dot" aria-hidden="true" />
+                        LoRA library
+                    </span>
+                    <h2 className="nu-section__title">全量 LoRA 视觉画廊与挑选中心</h2>
+                    <p className="nu-section__note">
+                        全库 {artists.length} 个 LoRA · {withPreviewCount} 个带预览图 · 当前显示 {filtered.length} 个
                     </p>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className="nu-row nu-artists__head-actions">
                     <MdOutlinedButton
+                        className={"nu-artists__manage" + (manageMode ? " is-on" : "")}
                         onClick={() => {
                             setManageMode((prev) => !prev);
                             setSelectedIds(new Set());
-                        }}
-                        style={{
-                            backgroundColor: manageMode ? "var(--md-sys-color-secondary-container)" : undefined,
                         }}
                     >
                         <MdIcon slot="icon">{manageMode ? "check_box" : "check_box_outline_blank"}</MdIcon>
@@ -631,23 +628,11 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
                 </div>
             </div>
 
-            {loading ? <MdLinearProgress indeterminate style={{ marginBottom: 16 }} /> : null}
+            {loading ? <MdLinearProgress indeterminate aria-label="扫描 LoRA" /> : null}
 
-            {/* Filter toolbar */}
-            <div
-                style={{
-                    backgroundColor: "var(--md-sys-color-surface-container-low)",
-                    padding: "14px 18px",
-                    borderRadius: 14,
-                    marginBottom: 20,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                }}
-            >
-                {/* Category tabs */}
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 13, color: "var(--md-sys-color-outline)", fontWeight: 600 }}>分类:</span>
+            <div className="nu-view__toolbar nu-artists__filters">
+                <div className="nu-row nu-artists__filters-row">
+                    <span className="nu-muted">分类</span>
                     <MdChipSet>
                         {CATEGORIES.map((cat) => {
                             const count = cat.id === "all" ? artists.length : artists.filter((a) => a.category === cat.id).length;
@@ -663,69 +648,52 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
                     </MdChipSet>
                 </div>
 
-                {/* Search & preview switch */}
-                <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-                    <div style={{ flex: "1 1 320px" }}>
-                        <MdOutlinedTextField
-                            label="搜索任意 LoRA 名称 / 角色 / 画师 / 触发词 / 路径..."
-                            value={search}
-                            onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
-                            style={{ width: "100%" }}
-                        >
-                            <MdIcon slot="leading-icon">search</MdIcon>
-                            {search ? (
-                                <MdTextButton slot="trailing-icon" onClick={() => setSearch("")}>
-                                    ✕
-                                </MdTextButton>
-                            ) : null}
-                        </MdOutlinedTextField>
-                    </div>
+                <div className="nu-row nu-artists__filters-row">
+                    <MdOutlinedTextField
+                        className="nu-grow"
+                        label="搜索名称 / 角色 / 画师 / 触发词 / 路径"
+                        value={search}
+                        onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+                    >
+                        <MdIcon slot="leading-icon">search</MdIcon>
+                        {search ? (
+                            <MdTextButton slot="trailing-icon" onClick={() => setSearch("")} aria-label="清空搜索">
+                                <MdIcon>close</MdIcon>
+                            </MdTextButton>
+                        ) : null}
+                    </MdOutlinedTextField>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 13, color: "var(--md-sys-color-outline)", fontWeight: 500 }}>架构:</span>
-                        <MdChipSet>
-                            {["all", "anima", "illustrious", "flux"].map((arch) => (
-                                <MdFilterChip
-                                    key={arch}
-                                    label={arch === "all" ? "全部架构" : arch.toUpperCase()}
-                                    selected={archFilter === arch}
-                                    onClick={() => setArchFilter(arch)}
-                                />
-                            ))}
-                        </MdChipSet>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto", flexWrap: "wrap" }}>
-                        <MdFilterChip
-                            label={fitMode === "contain" ? "🖼️ 完整自适应 (无裁切)" : "📐 裁切铺满"}
-                            selected={fitMode === "contain"}
-                            onClick={toggleFitMode}
-                            title="切换图片显示模式：自适应完整展示（包含氛围光晕）或铺满裁切"
-                        />
-                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
-                            <MdSwitch
-                                selected={onlyWithPreview}
-                                onChange={(e) => setOnlyWithPreview(Boolean((e.target as unknown as { selected?: boolean }).selected))}
+                    <span className="nu-muted">架构</span>
+                    <MdChipSet>
+                        {["all", "anima", "illustrious", "flux"].map((arch) => (
+                            <MdFilterChip
+                                key={arch}
+                                label={arch === "all" ? "全部架构" : arch.toUpperCase()}
+                                selected={archFilter === arch}
+                                onClick={() => setArchFilter(arch)}
                             />
-                            <span>仅看带图 ({withPreviewCount})</span>
-                        </label>
-                    </div>
+                        ))}
+                    </MdChipSet>
+
+                    <span className="nu-spacer" />
+                    <MdFilterChip
+                        label={fitMode === "contain" ? "完整自适应" : "裁切铺满"}
+                        selected={fitMode === "contain"}
+                        onClick={toggleFitMode}
+                        title="切换图片显示模式：完整展示，或铺满裁切"
+                    />
+                    <label className="nu-row nu-switch-row">
+                        <MdSwitch
+                            selected={onlyWithPreview}
+                            onChange={(e) => setOnlyWithPreview(Boolean((e.target as unknown as { selected?: boolean }).selected))}
+                        />
+                        <span className="nu-switch-row__label">仅看带图 ({withPreviewCount})</span>
+                    </label>
                 </div>
 
                 {/* Batch management toolbar */}
                 {manageMode ? (
-                    <div
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 12,
-                            backgroundColor: "var(--md-sys-color-surface-container-high)",
-                            padding: "8px 14px",
-                            borderRadius: 10,
-                            marginTop: 4,
-                            flexWrap: "wrap",
-                        }}
-                    >
+                    <div className="nu-panel nu-artists__batch">
                         <span style={{ fontSize: 13, fontWeight: 600 }}>
                             已选中 {selectedIds.size} / {filtered.length} 项
                         </span>
@@ -769,14 +737,7 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
             </div>
 
             {/* Grid display */}
-            <div
-                style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                    gap: 18,
-                    paddingBottom: 40,
-                }}
-            >
+            <div className="nu-grid nu-tone-cycle nu-artists__grid">
                 {filtered.map((artist) => (
                     <ArtistCard
                         key={artist.id}
@@ -799,13 +760,15 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
             </div>
 
             {filtered.length === 0 && !loading ? (
-                <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--md-sys-color-outline)" }}>
-                    <MdIcon style={{ fontSize: 48, marginBottom: 12 }}>image_not_supported</MdIcon>
-                    <p style={{ fontSize: 16 }}>没有找到符合条件的 LoRA</p>
+                <EmptyState
+                    icon="palette"
+                    title="没有找到符合条件的 LoRA"
+                    hint="换一个分类、清空搜索，或关掉「仅看带图」再试一次。"
+                >
                     <MdTextButton onClick={() => { setSearch(""); setCategoryFilter("all"); setOnlyWithPreview(false); setArchFilter("all"); }}>
-                        重置所有筛选 (显示全量 305 个 LoRA)
+                        重置所有筛选
                     </MdTextButton>
-                </div>
+                </EmptyState>
             ) : null}
 
             {/* Lightbox / Detail Dialog */}
@@ -853,121 +816,94 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
                             )}
                         </div>
 
-                        {/* Details column */}
-                        <div
-                            style={{
-                                flex: "1 1 44%",
-                                padding: 24,
-                                display: "flex",
-                                flexDirection: "column",
-                                overflowY: "auto",
-                                maxHeight: "88vh",
-                            }}
-                        >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                                <div>
-                                    <h3 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 600 }}>{lightboxItem.display_name}</h3>
-                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                                        <span className="nu-artist-cat-badge">
-                                            {lightboxItem.category_label}
-                                        </span>
-                                        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--md-sys-color-primary-container)", color: "var(--md-sys-color-on-primary-container)" }}>
-                                            {lightboxItem.arch.toUpperCase()}
-                                        </span>
-                                        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--md-sys-color-surface-container-high)", color: "var(--md-sys-color-outline)" }}>
-                                            {lightboxItem.group}
-                                        </span>
+                        <div className="nu-artist-lightbox-body">
+                            <div className="nu-row nu-artist-lightbox-head">
+                                <div className="nu-artist-lightbox-heading">
+                                    <h3 className="nu-artist-lightbox-title">{lightboxItem.display_name}</h3>
+                                    <div className="nu-artist-lightbox-chips">
+                                        <span className="nu-artist-cat-badge">{lightboxItem.category_label}</span>
+                                        <span className="nu-artist-chip-arch">{lightboxItem.arch.toUpperCase()}</span>
+                                        {lightboxItem.group ? <span className="nu-artist-chip-group">{lightboxItem.group}</span> : null}
                                         {lightboxItem.preview_url ? (
                                             <a
+                                                className="nu-artist-lightbox-link"
                                                 href={lightboxItem.preview_url}
                                                 target="_blank"
                                                 rel="noreferrer"
-                                                style={{
-                                                    fontSize: 12,
-                                                    color: "var(--md-sys-color-primary)",
-                                                    textDecoration: "none",
-                                                    display: "inline-flex",
-                                                    alignItems: "center",
-                                                    gap: 4,
-                                                    marginLeft: 4,
-                                                }}
                                                 title="在新标签页全屏查看原始画质与尺寸"
                                             >
-                                                🔍 查看原图 ↗
+                                                <MdIcon>open_in_new</MdIcon>
+                                                查看原图
                                             </a>
                                         ) : null}
                                     </div>
                                 </div>
-                                <MdTextButton onClick={() => setLightboxItem(null)}>✕</MdTextButton>
+                                <MdTextButton onClick={() => setLightboxItem(null)} aria-label="关闭">
+                                    <MdIcon>close</MdIcon>
+                                </MdTextButton>
                             </div>
 
-                            <div style={{ margin: "16px 0", fontSize: 13 }}>
-                                <div style={{ color: "var(--md-sys-color-outline)", marginBottom: 4, fontWeight: 500 }}>触发词 (Triggers):</div>
+                            <div className="nu-artist-field">
+                                <span className="nu-artist-field-label">触发词 (Triggers)</span>
                                 {lightboxItem.is_notrigger ? (
-                                    <span className="nu-artist-notrigger-badge">
-                                        ✓ 无需触发词 (No Trigger Word) · 靠权重即生效
-                                    </span>
+                                    <span className="nu-artist-notrigger-badge">无需触发词 · 靠权重即生效</span>
                                 ) : lightboxItem.triggers.length > 0 ? (
-                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                    <div className="nu-artist-lightbox-chips">
                                         {lightboxItem.triggers.map((t) => (
-                                            <span
+                                            <button
                                                 key={t}
-                                                style={{ backgroundColor: "var(--md-sys-color-secondary-container)", color: "var(--md-sys-color-on-secondary-container)", padding: "3px 8px", borderRadius: 4, cursor: "pointer" }}
+                                                type="button"
+                                                className="nu-chip nu-chip--trigger"
                                                 onClick={() => copyToClipboard(t, "触发词")}
                                                 title="点击复制"
                                             >
-                                                {t} 📋
-                                            </span>
+                                                {t}
+                                            </button>
                                         ))}
                                     </div>
                                 ) : (
-                                    <span style={{ color: "var(--md-sys-color-outline)" }}>未登记独立触发词</span>
+                                    <span className="nu-muted">未登记独立触发词</span>
                                 )}
                             </div>
 
-                            <div style={{ margin: "12px 0", fontSize: 13 }}>
-                                <div style={{ color: "var(--md-sys-color-outline)", marginBottom: 4, fontWeight: 500 }}>LoRA 磁盘路径:</div>
-                                <code style={{ display: "block", backgroundColor: "var(--md-sys-color-surface-container-highest)", padding: "8px 10px", borderRadius: 6, fontSize: 12, wordBreak: "break-all" }}>
-                                    {lightboxItem.win_path}
-                                </code>
+                            <div className="nu-artist-field">
+                                <span className="nu-artist-field-label">LoRA 磁盘路径</span>
+                                <code className="nu-artist-code">{lightboxItem.win_path}</code>
                             </div>
 
-                            <div style={{ margin: "12px 0", fontSize: 13 }}>
-                                <div style={{ color: "var(--md-sys-color-outline)", marginBottom: 4, fontWeight: 500 }}>TOML 配置片段:</div>
-                                <pre style={{ margin: 0, backgroundColor: "var(--md-sys-color-surface-container-highest)", padding: "10px", borderRadius: 6, fontSize: 12, overflowX: "auto" }}>
-                                    {lightboxItem.toml_snippet}
-                                </pre>
+                            <div className="nu-artist-field">
+                                <span className="nu-artist-field-label">TOML 配置片段</span>
+                                <pre className="nu-artist-code nu-artist-code--block">{lightboxItem.toml_snippet}</pre>
                             </div>
 
                             {lightboxItem.info_text ? (
-                                <div style={{ margin: "12px 0", fontSize: 12, color: "var(--md-sys-color-outline)" }}>
-                                    <div style={{ marginBottom: 4, fontWeight: 500 }}>说明与建议:</div>
-                                    <div style={{ whiteSpace: "pre-wrap", maxHeight: 120, overflowY: "auto", backgroundColor: "var(--md-sys-color-surface-container)", padding: 8, borderRadius: 6 }}>
-                                        {lightboxItem.info_text}
-                                    </div>
+                                <div className="nu-artist-field">
+                                    <span className="nu-artist-field-label">说明与建议</span>
+                                    <div className="nu-artist-info">{lightboxItem.info_text}</div>
                                 </div>
                             ) : null}
 
-                            <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                <MdFilledButton style={{ flex: "1 1 120px" }} onClick={() => copyToClipboard(lightboxItem.toml_snippet, "TOML 配置")}>
+                            <div className="nu-artist-lightbox-actions">
+                                <MdFilledButton onClick={() => copyToClipboard(lightboxItem.toml_snippet, "TOML 配置")}>
                                     <MdIcon slot="icon">content_copy</MdIcon>
                                     复制 TOML
                                 </MdFilledButton>
                                 <MdOutlinedButton onClick={() => copyToClipboard(lightboxItem.win_path, "路径")}>
+                                    <MdIcon slot="icon">link</MdIcon>
                                     路径
                                 </MdOutlinedButton>
                                 <MdOutlinedButton onClick={() => void handleRename(lightboxItem)}>
-                                    ✏️ 改名
+                                    <MdIcon slot="icon">edit</MdIcon>
+                                    改名
                                 </MdOutlinedButton>
                                 <MdOutlinedButton onClick={() => void handleMove([lightboxItem])}>
-                                    📁 移动
+                                    <MdIcon slot="icon">drive_file_move</MdIcon>
+                                    移动
                                 </MdOutlinedButton>
-                                <MdOutlinedButton
-                                    style={{ color: "var(--md-sys-color-error)" }}
-                                    onClick={() => void handleDelete([lightboxItem])}
-                                >
-                                    🗑️ 删除
-                                </MdOutlinedButton>
+                                <MdTextButton className="nu-btn--danger-text" onClick={() => void handleDelete([lightboxItem])}>
+                                    <MdIcon slot="icon">delete</MdIcon>
+                                    删除
+                                </MdTextButton>
                             </div>
                         </div>
                     </div>
@@ -1009,251 +945,117 @@ function ArtistCard({
     isApplying: boolean;
 }): ReactElement {
     const [imgFailed, setImgFailed] = useState(false);
+    const previewable = Boolean(artist.has_preview && !imgFailed);
+    const triggerIcon = artist.category === "chara" ? "person" : artist.category === "action" ? "accessibility_new" : artist.category === "outfit" ? "styler" : "brush";
 
     return (
-        <div
-            style={{
-                backgroundColor: "var(--md-sys-color-surface-container)",
-                borderRadius: 14,
-                overflow: "hidden",
-                border: isSelected
-                    ? "2px solid var(--md-sys-color-primary)"
-                    : "1px solid var(--md-sys-color-outline-variant)",
-                display: "flex",
-                flexDirection: "column",
-                transition: "transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease",
-                position: "relative",
-            }}
-            className="artist-card-hover"
-        >
-            {/* Thumbnail area: 250px vertical height */}
+        <div className={"nu-artist-card" + (isSelected ? " is-selected" : "")}>
             <div
                 className="nu-artist-card-thumb"
-                style={{
-                    cursor: manageMode ? "pointer" : artist.has_preview && !imgFailed ? "zoom-in" : "default",
-                }}
+                data-previewable={previewable ? "true" : undefined}
                 onClick={() => {
-                    if (manageMode) {
-                        onToggleSelect();
-                    } else if (artist.has_preview && !imgFailed) {
-                        onPreviewClick();
-                    }
+                    if (manageMode) onToggleSelect();
+                    else if (previewable) onPreviewClick();
                 }}
             >
-                {/* Checkbox for batch management */}
                 {manageMode ? (
-                    <div
-                        className="nu-artist-overlay"
-                        style={{
-                            position: "absolute",
-                            top: 8,
-                            left: 8,
-                            zIndex: 10,
-                            padding: "2px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                        }}
-                        onClick={(e) => {
-                            e.stopPropagation();
+                    <span
+                        className="nu-artist-overlay nu-artist-overlay--select"
+                        onClick={(event) => {
+                            event.stopPropagation();
                             onToggleSelect();
                         }}
                     >
                         <MdCheckbox checked={isSelected} />
-                    </div>
+                    </span>
                 ) : null}
 
                 {artist.preview_url && !imgFailed ? (
                     <>
                         {fitMode === "contain" ? (
-                            <img
-                                src={artist.preview_url}
-                                alt=""
-                                aria-hidden="true"
-                                style={{
-                                    position: "absolute",
-                                    inset: "-15%",
-                                    width: "130%",
-                                    height: "130%",
-                                    objectFit: "cover",
-                                    filter: "blur(20px) brightness(0.35) saturate(1.2)",
-                                    pointerEvents: "none",
-                                    userSelect: "none",
-                                }}
-                            />
+                            <img className="nu-artist-card-blur" src={artist.preview_url} alt="" aria-hidden="true" />
                         ) : null}
                         <img
+                            className="nu-artist-card-img"
                             src={artist.preview_url}
                             alt={artist.display_name}
                             loading="lazy"
+                            data-fit={fitMode}
                             onError={() => setImgFailed(true)}
-                            style={{
-                                position: fitMode === "contain" ? "relative" : "absolute",
-                                top: fitMode === "contain" ? undefined : 0,
-                                left: fitMode === "contain" ? undefined : 0,
-                                width: "100%",
-                                height: "100%",
-                                objectFit: fitMode,
-                                zIndex: 1,
-                                transition: "transform 0.25s ease",
-                            }}
                         />
                     </>
                 ) : (
-                    <div
-                        style={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: "var(--md-sys-color-outline)",
-                            gap: 6,
-                        }}
-                    >
-                        <MdIcon style={{ fontSize: 36 }}>
-                            {artist.category === "chara" ? "person" : artist.category === "action" ? "accessibility_new" : artist.category === "outfit" ? "styler" : "brush"}
-                        </MdIcon>
-                        <span style={{ fontSize: 12 }}>无预览图</span>
+                    <div className="nu-artist-card-empty">
+                        <MdIcon>{triggerIcon}</MdIcon>
+                        <span>无预览图</span>
                     </div>
                 )}
 
-                {/* Badges on top of image (offset right if checkbox is visible) */}
-                <div style={{ position: "absolute", top: 8, left: manageMode ? 52 : 8, display: "flex", gap: 5, flexWrap: "wrap", zIndex: 5 }}>
-                    <span className="nu-artist-chip-category">
-                        {artist.category_label}
-                    </span>
-                    <span className="nu-artist-chip-arch">
-                        {artist.arch}
-                    </span>
-                    <span className="nu-artist-chip-group">
-                        {artist.group}
-                    </span>
+                <div className="nu-artist-card-badges" data-manage={manageMode ? "true" : undefined}>
+                    <span className="nu-artist-chip-category">{artist.category_label}</span>
+                    <span className="nu-artist-chip-arch">{artist.arch}</span>
+                    {artist.group ? <span className="nu-artist-chip-group">{artist.group}</span> : null}
                 </div>
             </div>
 
-            {/* Info body */}
-            <div style={{ padding: "12px 14px", flex: 1, display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                    <h4
-                        style={{
-                            margin: 0,
-                            fontSize: 15,
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                        }}
-                        title={artist.display_name}
-                    >
-                        {artist.display_name}
-                    </h4>
-                </div>
+            <div className="nu-artist-card-body">
+                <h4 className="nu-artist-card-name" title={artist.display_name}>
+                    {artist.display_name}
+                </h4>
 
-                {/* Trigger pill */}
-                <div style={{ marginBottom: 10, minHeight: 24, display: "flex", alignItems: "center" }}>
+                <div className="nu-artist-card-triggers">
                     {artist.is_notrigger ? (
-                        <span className="nu-artist-notrigger-pill">
-                            ✓ 无需触发词 (notrigger)
-                        </span>
+                        <span className="nu-artist-notrigger-pill">无需触发词</span>
                     ) : artist.triggers.length > 0 ? (
-                        <div style={{ display: "flex", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <>
                             {artist.triggers.slice(0, 2).map((t) => (
-                                <span
+                                <button
                                     key={t}
-                                    style={{ fontSize: 11, color: "var(--md-sys-color-primary)", backgroundColor: "var(--md-sys-color-primary-container)", padding: "2px 6px", borderRadius: 4, cursor: "pointer" }}
+                                    type="button"
+                                    className="nu-chip nu-chip--trigger"
                                     onClick={() => onCopyTrigger(t)}
                                     title="点击复制此触发词"
                                 >
                                     {t}
-                                </span>
+                                </button>
                             ))}
-                            {artist.triggers.length > 2 ? <span style={{ fontSize: 11, color: "var(--md-sys-color-outline)" }}>+{artist.triggers.length - 2}</span> : null}
-                        </div>
+                            {artist.triggers.length > 2 ? <span className="nu-muted">+{artist.triggers.length - 2}</span> : null}
+                        </>
                     ) : (
-                        <span style={{ fontSize: 11, color: "var(--md-sys-color-outline)" }}>默认无需额外词</span>
+                        <span className="nu-muted">默认无需额外词</span>
                     )}
                 </div>
 
-                {/* Subtitle / path */}
-                <div
-                    style={{
-                        fontSize: 11,
-                        color: "var(--md-sys-color-outline)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        marginBottom: 10,
-                    }}
-                    title={artist.win_path}
-                >
+                <div className="nu-artist-card-path" title={artist.win_path}>
                     {artist.filename}
                 </div>
 
-                {/* Row 1: Copy TOML, Path, Apply */}
-                <div style={{ marginTop: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <MdFilledButton
-                        style={{ flex: "1 1 90px", height: 32, fontSize: 12 }}
-                        onClick={onCopyToml}
-                        title="复制可直接贴入 batch.toml 的配置块"
-                    >
-                        <MdIcon slot="icon" style={{ fontSize: 16 }}>content_copy</MdIcon>
+                <div className="nu-artist-card-actions">
+                    <button type="button" className="nu-mini nu-mini--primary" onClick={onCopyToml} title="复制可直接贴入 batch.toml 的配置块">
+                        <MdIcon>content_copy</MdIcon>
                         复制 TOML
-                    </MdFilledButton>
-
-                    <MdOutlinedButton
-                        style={{ height: 32, fontSize: 12 }}
-                        onClick={onCopyPath}
-                        title="复制 Windows 端完整路径"
-                    >
+                    </button>
+                    <button type="button" className="nu-mini" onClick={onCopyPath} title="复制 Windows 端完整路径">
                         路径
-                    </MdOutlinedButton>
-
-                    <MdTextButton
-                        style={{ height: 32, fontSize: 11 }}
-                        onClick={onApply}
-                        disabled={isApplying}
-                        title="一键写入当前作品 batch.toml"
-                    >
-                        {isApplying ? "应用中..." : "应用"}
-                    </MdTextButton>
+                    </button>
+                    <button type="button" className="nu-mini nu-mini--ghost" onClick={onApply} disabled={isApplying} title="一键写入当前作品 batch.toml">
+                        {isApplying ? "应用中…" : "应用"}
+                    </button>
                 </div>
 
-                {/* Row 2: Management buttons (Rename, Move, Delete) */}
-                <div
-                    style={{
-                        display: "flex",
-                        gap: 4,
-                        marginTop: 8,
-                        paddingTop: 6,
-                        borderTop: "1px dashed var(--md-sys-color-outline-variant)",
-                    }}
-                >
-                    <MdTextButton
-                        style={{ flex: 1, height: 28, fontSize: 11 }}
-                        onClick={onRename}
-                        title="重命名模型文件及关联预览图和触发词文件"
-                    >
-                        ✏️ 改名
-                    </MdTextButton>
-                    <MdTextButton
-                        style={{ flex: 1, height: 28, fontSize: 11 }}
-                        onClick={onMove}
-                        title="移动模型及关联文件到指定子目录"
-                    >
-                        📁 移动
-                    </MdTextButton>
-                    <MdTextButton
-                        style={{ flex: 1, height: 28, fontSize: 11, color: "var(--md-sys-color-error)" }}
-                        onClick={onDelete}
-                        title="彻底删除模型及关联文件"
-                    >
-                        🗑️ 删除
-                    </MdTextButton>
+                <div className="nu-artist-card-manage">
+                    <button type="button" className="nu-mini nu-mini--ghost" onClick={onRename} title="重命名模型文件及关联预览图和触发词文件">
+                        <MdIcon>edit</MdIcon>
+                        改名
+                    </button>
+                    <button type="button" className="nu-mini nu-mini--ghost" onClick={onMove} title="移动模型及关联文件到指定子目录">
+                        <MdIcon>drive_file_move</MdIcon>
+                        移动
+                    </button>
+                    <button type="button" className="nu-mini nu-mini--ghost nu-mini--danger" onClick={onDelete} title="彻底删除模型及关联文件">
+                        <MdIcon>delete</MdIcon>
+                        删除
+                    </button>
                 </div>
             </div>
         </div>

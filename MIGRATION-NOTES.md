@@ -1010,3 +1010,76 @@ their public hooks — the reason for the generated hook file below.
 5. **No data was on screen.** No ComfyUI was reachable, so Models/Gallery/Generate rendered their
    offline states. Their filters, badges, detail panel, results grid and node forms are unreviewed
    with content in them.
+
+---
+
+## 10. 2026-10-22 — second pass: the MD3 shell itself replaced
+
+§9 restated the classic components in Expressive tokens but kept the classic shell: a wordmark
+app bar, a rail of three labelled clusters, a 148px hero band, underline tabs and stock outlined
+fields. This pass rebuilds the shell and the seven views against the two reference builds
+themselves, not only their tokens. **Where §9 and this section disagree about implementation
+specifics — hero height, rail labels, underline tabs, outlined fields, card borders — this section
+is current; §9's token, package and generator findings still stand.**
+
+### What the UI is now
+
+- **Brand bar**: a custom mark (three interlocking tiles), the product name and a caption; the
+  right side is a status pill plus two labelled control pills (scheme, classic UI). No MD3 top app
+  bar and no icon-only ghost buttons.
+- **Rail**: icon-and-label destinations in three unlabelled clusters separated by a short rule.
+  The active item is a tone-filled squircle; the cluster name lives once in the hero eyebrow.
+- **Hero**: one per screen — eyebrow (cluster · index), an oversized editorial headline with a
+  cluster-coloured full stop, one sentence, and a saturated shaped plate carrying a lobed bloom,
+  a dashed route and two true labels. The plate is violet for Create, blue for Library and green
+  for Studio; it is the only saturated field on the page.
+- **Controls**: pill buttons with real containers (no outlines), filled fields whose label sits on
+  the fill, inverted/tone selection chips, custom pill tabs, borderless cards with one notched
+  corner, and card grids that cycle four tones at rest. The stock MD3 tab indicator is gone.
+- **Empty states**: a composed bloom, icon, heading and orientation line, used by Workflow,
+  Models, Gallery and Artists. The Workflow editor shows an empty state instead of a 320px void.
+- **Mobile**: the rail is replaced below 840px by a floating seven-destination dock; the hero
+  stacks, the plate keeps its notch and the page has no horizontal overflow at 390px.
+- **Views**: Artists was rewritten end to end (its inline MD3 borders, 14px radii, emoji labels
+  and duplicate star control are gone; cards, filter deck, lightbox and empty state are CSS
+  classes). Models got custom tabs, a tone-tinted grid, a single favourite control and a composed
+  detail placeholder. Workflow, Gallery, Generate, Prompt and Settings were recomposed through the
+  shared primitives; multiline prompt fields now actually render as textareas.
+
+### Files
+
+| file | change |
+| --- | --- |
+| `frontend/src/App.tsx` | brand bar, unlabelled clustered rail, editorial hero + `HeroArt`, mobile dock, skip link |
+| `frontend/src/theme.css` | rewritten composition layer: layered paper/obsidian surfaces, component overrides, rail/hero/dock, view primitives, 839/640 breakpoints |
+| `static/css/newui/expressive.css` | Roboto Flex, focus ring, four tone pairs + vivid hero pairs (measured 7.63 / 6.14 / 5.26 / 6.82:1 against primary-98), hero/section/tone primitives |
+| `frontend/src/EmptyState.tsx` | new: the shaped empty-state component |
+| `frontend/src/views/Artists.tsx` | card, filter deck, lightbox and empty state rebuilt without inline MD3 styling |
+| `frontend/src/views/{Workflow,Gallery,Models,Generate,Prompt,Settings}.tsx` | empty states, custom tabs, tone cards, multiline fields, detail placeholder, menu option roles |
+
+### Evidence (2026-10-22)
+
+* `tsc --noEmit` clean; `vite build` clean.
+* `bash tools/check-newui.sh` — **31 gates, 0 failed**; `node --test tools/core-tests/` — 117
+  passed; `bash tools/test-gates.sh` — 3 gates, 0 failed.
+* axe-core (`wcag2a`, `wcag2aa`, `wcag21aa`): **0 violations over 7 routes × 2 schemes** at
+  1440×1000, and again at 390×844 and 768×844 for both schemes. The open select menu was also
+  scanned (adding `role="option"` to the two `md-select-option` call sites closed its
+  `aria-required-children` violation).
+* No horizontal document or `.nu-main` overflow at 1440 / 768 / 390.
+* The production build was served from `static/`: CSS/JS/fonts load, the title and hero render,
+  and the only 4xx is the expected `/system_stats` when no ComfyUI is running.
+* Populated states were checked with intercepted API responses: 6 workflows, 12 gallery images in
+  2 folders, 52 artists and 12 checkpoints, in both schemes. Models was inspected in grid and
+  table views; Artists cards and lightbox were inspected.
+* Interactions: theme toggle changes `data-theme` and persists, the mobile dock changes the hash,
+  the first Tab reaches the skip link and it slides into view, and the select menu opens.
+
+### Still not measured
+
+* No real ComfyUI backend was available: no generation/queue run, no real preview decoding. All
+  populated data was mocked.
+* Springs and shape morphs are verified as CSS, not as motion — the screenshots are single frames.
+* The shared worktree has a parallel writer. Commit `3b8b969` captured the brand/hero/theme
+  portion as it stood mid-pass; the rest of this section is in the working tree, so re-read
+  `git status` before assuming §10 is fully committed.

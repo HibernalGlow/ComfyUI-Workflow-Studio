@@ -11,6 +11,7 @@ import {
     MdFilterChip,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { EmptyState } from "../EmptyState.js";
 import { confirmDialog } from "../dialogs.js";
 import { requestWorkflow } from "../store.js";
 import { api, tr } from "core";
@@ -238,6 +239,13 @@ export default function Gallery({ navigate }: ViewProps): ReactElement {
                     ))}
                 </MdOutlinedCard>
 
+                {!loading && images.length === 0 ? (
+                    <EmptyState
+                        icon="photo_library"
+                        title={tr("nu.gallery.none", "Nothing in this folder yet")}
+                        hint={tr("nu.gallery.noneHint", "Pick another folder, clear the search, or draw something — finished images land here.")}
+                    />
+                ) : (
                 <div className="nu-grid nu-tone-cycle">
                     {images.map((shot) => (
                         <figure key={shot.path} className="nu-shot">
@@ -258,6 +266,7 @@ export default function Gallery({ navigate }: ViewProps): ReactElement {
                         </figure>
                     ))}
                 </div>
+                )}
             </div>
 
             {preview ? (

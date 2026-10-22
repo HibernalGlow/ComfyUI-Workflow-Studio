@@ -15,14 +15,13 @@ import {
     MdLinearProgress,
     MdIcon,
     MdDivider,
-    MdTabs,
-    MdPrimaryTab,
     MdCheckbox,
     MdSwitch,
     MdFilterChip,
     MdChipSet,
 } from "../md.js";
 import { useSnackbar } from "../snackbar.js";
+import { EmptyState } from "../EmptyState.js";
 import { requestApply, requestPromptAppend, getState, touchBatch } from "../store.js";
 import { batch as B } from "core";
 import { confirmDialog, promptDialog } from "../dialogs.js";
@@ -515,13 +514,20 @@ export default function Models({ navigate }: ViewProps): ReactElement {
 
     return (
         <div className="nu-view">
-            <MdTabs aria-label={tr("nu.models.types", "Model types")}>
+            <div className="nu-tabs" role="tablist" aria-label={tr("nu.models.types", "Model types")}>
                 {MC.MODEL_TYPES.map((t) => (
-                    <MdPrimaryTab key={t} active={t === type} onClick={() => setType(t)}>
+                    <button
+                        key={t}
+                        type="button"
+                        role="tab"
+                        aria-selected={t === type}
+                        className="nu-tab"
+                        onClick={() => setType(t)}
+                    >
                         {(MC.TYPE_LABELS as Record<string, string>)[t] ?? t}
-                    </MdPrimaryTab>
+                    </button>
                 ))}
-            </MdTabs>
+            </div>
 
             {loading ? <MdLinearProgress indeterminate aria-label={tr("nu.common.loading", "Loading")} /> : null}
             {civitaiProgress ? (
@@ -718,7 +724,11 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                     {filtered.length === 0 ? (
                         /* One placeholder for both "this type is empty" and "nothing matches",
                            before the view branch — exactly upstream's guard (`grid-view.js:39-42`). */
-                        <p className="nu-placeholder">{tr("nu.models.noneFound", "No models found")}</p>
+                        <EmptyState
+                            icon="inventory_2"
+                            title={tr("nu.models.noneFound", "No models found")}
+                            hint={tr("nu.models.noneHint", "Try another model type, change the filters, or scan the folders again.")}
+                        />
                     ) : view === "thumb" ? (
                         <div className="nu-grid nu-tone-cycle">
                             {slice.map((r) => (
@@ -732,9 +742,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                                             ))}
                                         </span>
                                     </button>
-                                    <div className="nu-row">
-                                        <MdIcon aria-hidden="true">{r.favorite ? "star" : "star_border"}</MdIcon>
-                                        <MdTextButton onClick={() => void setFavorite(r)}>★</MdTextButton>
+                                    <div className="nu-row nu-card__controls">
+                                        <button
+                                            type="button"
+                                            className={"nu-iconbtn" + (r.favorite ? " is-on" : "")}
+                                            aria-label={tr("nu.models.favorite", "Favorite")}
+                                            aria-pressed={r.favorite}
+                                            onClick={() => void setFavorite(r)}
+                                        >
+                                            <MdIcon>{r.favorite ? "star" : "star_border"}</MdIcon>
+                                        </button>
                                         <MdSwitch selected={r.enabled} aria-label="enabled" onChange={() => void setEnabled(r, !r.enabled)} />
                                         {/* §4 item 13: only checkpoints join Batch and only LoRAs
                                             stack (MC.isBatchType/isStackType) — a chip rendered for a
@@ -865,6 +882,16 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                         <MdOutlinedButton disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>›</MdOutlinedButton>
                     </div>
                 </div>
+
+                {!detail ? (
+                    <MdOutlinedCard className="nu-detail nu-detail--empty">
+                        <EmptyState
+                            icon="tune"
+                            title={tr("nu.models.select", "Select a model")}
+                            hint={tr("nu.models.selectHint", "Its tags, groups, badges and preview controls will open here.")}
+                        />
+                    </MdOutlinedCard>
+                ) : null}
 
                 {detail ? (
                     <MdOutlinedCard className="nu-detail">

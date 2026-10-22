@@ -88,7 +88,7 @@ function Field({ name, value, spec, onChange }: {
                 onChange={(e) => onChange((e.target as unknown as { value: string }).value)}
             >
                 {choices.map((option) => (
-                    <MdSelectOption key={option} value={option}>
+                    <MdSelectOption key={option} value={option} role="option">
                         {option}
                     </MdSelectOption>
                 ))}
@@ -336,17 +336,8 @@ export default function Generate({ params }: ViewProps): ReactElement {
     return (
         <div className="nu-view">
             <div className="nu-view__toolbar">
-                {/* Readout of the native select below: `disabled` keeps it out of the tab order,
-                    `.nu-readout` keeps its caption legible (MD3's disabled dim is 3.05:1 here). */}
-                <MdOutlinedTextField
-                    className="nu-readout"
-                    label={tr("nu.generate.workflow", "Workflow")}
-                    value={chosen}
-                    readOnly
-                    disabled
-                />
                 <select
-                    className="nu-native-select"
+                    className="nu-native-select nu-grow"
                     aria-label={tr("nu.generate.workflow", "Workflow")}
                     value={chosen}
                     onChange={(e) => setChosen(e.target.value)}
@@ -382,12 +373,14 @@ export default function Generate({ params }: ViewProps): ReactElement {
                 <div className="nu-card__body">
                     <MdOutlinedTextField
                         label={tr("nu.generate.prompt", "Positive prompt")}
+                        type="textarea"
                         value={prompt}
                         rows={4}
                         onInput={(e) => setPrompt((e.target as HTMLTextAreaElement & HTMLInputElement).value)}
                     />
                     <MdOutlinedTextField
                         label={tr("nu.generate.negative", "Negative prompt")}
+                        type="textarea"
                         value={negative}
                         rows={3}
                         onInput={(e) => setNegative((e.target as HTMLTextAreaElement & HTMLInputElement).value)}

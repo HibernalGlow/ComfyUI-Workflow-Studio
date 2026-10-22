@@ -458,7 +458,7 @@ export default function Settings({ setConnected }: ViewProps): ReactElement {
                         onChange={(e) => patchVram({ mode: (e.target as unknown as { value: string }).value })}
                     >
                         {VRAM_MODES.map(([value, label]) => (
-                            <MdSelectOption key={value} value={value}>
+                            <MdSelectOption key={value} value={value} role="option">
                                 {label}
                             </MdSelectOption>
                         ))}

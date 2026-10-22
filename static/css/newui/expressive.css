@@ -1,42 +1,29 @@
 /* ============================================================================
-   expressive.css — the Material 3 Expressive layer the token files cannot carry
+   expressive.css — the Material 3 Expressive composition layer
    ============================================================================
-   Sits after m3-tokens.css (layer 1-3) and theme-m3.css (colour switch) and
-   after expressive-hooks.css (generated per-component shape hooks), and adds the
-   four things those files have no room for:
+   Sits after m3-tokens.css (layer 1-3), theme-m3.css (colour switch) and
+   expressive-hooks.css (generated per-component shape hooks).
 
-     1. the self-hosted variable font the Expressive typescale needs (ROND axis),
-     2. the library hooks that are not shape hooks — focus ring and icons,
-     3. the tone utilities the composition layer uses for multi-colour grids,
-     4. the expressive primitives (hero, section head, connected group, tilt)
-        that the app's own markup composes with.
+   The language is lifted from the two reference builds on this machine:
+     InkLoom apps/web  — obsidian ground, pastel tone tiles, violet hero plate,
+                         pill controls, one giant editorial headline.
+     CV hibernalglow   — paper ground, saturated ink, full-bleed dark sections,
+                         a shaped hero panel and a coloured full stop.
 
-   Provenance of every number here, in three classes:
-     SPEC    verbatim from Google's tokens as shipped in the installed package
-             (node_modules/@material/web/labs/gb/styles/m3.css, Apache-2.0), or
-             from a hook name read out of that package's compiled JS.
-     MEASURED a curve or value already running in production on this machine in
-             ../Inkloom/src/styles/expressive.css, or in the CV site's
-             DESIGN.md art direction (/Users/glow/Base/Code/Ikaros/CV/…).
-     PRODUCT a size or composition decision of this app, said so in the comment.
+   What lives here: the font, the focus ring, the tone seam, the hero art and the
+   few primitives the app markup composes with. Layout lives in theme.css.
 
-   No raw colour literals: colours come from layer 2 only (gate A5a and the
-   three-layer contract in m3-tokens.css). No !important anywhere.
+   Provenance is marked on every number that is not obvious:
+     SPEC      read out of the installed @material/web package (Apache-2.0)
+     MEASURED  a value running in one of the two reference projects
+     PRODUCT   this app's own composition decision
    ========================================================================= */
 
-/* --- 1. Roboto Flex, the family M3 Expressive names ------------------------ */
+/* --- 1. Roboto Flex, the family M3 Expressive names ----------------------- */
 /*
- * SPEC: --md-ref-typeface-plain in Google's own expressive tokens is
- *   "Roboto Flex, Roboto, Noto Sans, system-ui, sans-serif".
- * The emphasized typescale roles set "ROND" 100 (rounded terminals), an axis
- * only Roboto Flex has, so the family is loaded rather than approximated.
- * MEASURED: the file is the same variable font file the build already emitted
- * (static/newui/roboto-flex-latin-full-normal-*.woff2, 326 kB), copied into
- * static/css/newui/fonts/ by hand so the plugin stays offline — this UI runs on
- * a ComfyUI box with no internet, which is why nothing here uses @import or a
- * CDN. Latin subset only: CJK falls through to the platform Chinese face, the
- * same decision and the same fallback list as the CV site's art direction
- * (「不下载大型中文字库」).
+ * SPEC: --md-ref-typeface-plain in Google's expressive tokens names Roboto Flex;
+ * the emphasized roles set ROND 100, an axis only that family has. Latin subset
+ * only — CJK falls through to the platform face, like both reference sites.
  */
 @font-face {
   font-family: "Roboto Flex Variable";
@@ -44,17 +31,9 @@
   font-weight: 100 1000;
   font-display: swap;
   src: url("./fonts/roboto-flex-latin-full-normal.woff2") format("woff2-variations");
-  /* the file carries every axis; the ones the UI uses are wght and ROND. */
 }
 
 /* --- 2. library hooks that are not shapes --------------------------------- */
-/*
- * SPEC: every name below was read out of the installed package
- * (focus/focus-ring.js and icon/icon.js expose exactly these; there is no
- * --md-icon-opsz/-fill/-wght in the classic md-icon, those live only in
- * labs/gb, so FILL and wght are set through font-variation-settings instead —
- * an inherited property, which does reach the shadow tree).
- */
 @property --md-focus-ring-shape-start-start {
   syntax: "<length-percentage>";
   inherits: true;
@@ -77,8 +56,6 @@
 }
 
 :root {
-  /* a keyboard ring on an Expressive control is a rounded rect, not a circle,
-     and it is thicker than M3's 2px so it stays visible on a 32px radius */
   --md-focus-ring-shape-start-start: var(--md-sys-shape-corner-lg-increased);
   --md-focus-ring-shape-start-end: var(--md-sys-shape-corner-lg-increased);
   --md-focus-ring-shape-end-end: var(--md-sys-shape-corner-lg-increased);
@@ -91,123 +68,302 @@
   --md-focus-ring-duration: var(--md-sys-motion-duration-medium2);
 
   --md-icon-size: 24px;
+
+  /* the app's own spacing rhythm — 8px unit, but surfaces breathe at 24–32 */
+  --nu-unit: 8px;
+  --nu-pad: calc(var(--nu-unit) * 4);
+  --nu-gap: calc(var(--nu-unit) * 2.5);
+  --nu-radius: var(--md-sys-shape-corner-xl-increased);
+  --nu-radius-sm: var(--md-sys-shape-corner-lg-increased);
+  --nu-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --nu-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --nu-dur: 220ms;
 }
 
-/* PRODUCT: icons carry the expressive weight so a 24px glyph reads at the same
-   visual weight as the 700 label next to it. font-variation-settings is an
-   inherited property, which is how it reaches md-icon's shadow tree at all —
-   the classic component exposes no --md-icon-wght/-fill hooks of its own. */
+/* PRODUCT: icons carry expressive weight so a glyph reads beside a 700 label.
+   font-variation-settings is inherited, which is how it reaches md-icon's
+   shadow tree; the classic component exposes no weight hook. */
 md-icon {
-  font-variation-settings: "FILL" 0, "wght" 600, "GRAD" 0, "opsz" 24;
+  font-variation-settings: "FILL" 0, "wght" 560, "GRAD" 0, "opsz" 24;
 }
 
-/* the filled, heavier glyph is the expressive "this is where you are" signal */
 .nu-icon--filled md-icon,
-md-icon.nu-icon--filled {
-  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
+md-icon.nu-icon--filled,
+.nu-rail__item--active md-icon,
+.nu-dock__item--active md-icon {
+  font-variation-settings: "FILL" 1, "wght" 680, "GRAD" 0, "opsz" 24;
 }
 
-/* --- 3. tone utilities ---------------------------------------------------- */
+/* --- 3. the tone seam ----------------------------------------------------- */
 /*
- * M3 Expressive composes several container colours at once instead of putting
- * everything on one accent. MEASURED: the four-tone set (purple / green / peach
- * / blue) and the --tone / --on-tone seam are the ones running in
- * ../Inkloom/src/styles/expressive.css; purple reuses the audited primary pair,
- * the other three are the tone-30/90 (dark) and 90/10 (light) pairs added to
- * m3-tokens.css and theme-m3.css.
- *
- * --tone is the container, --on-tone the text on it, --tone-ink the accent drawn
- * on the container's own surface. Anything that paints a tone sets the pair and
- * everything downstream reads it, so a grid can cycle tones without knowing
- * which hues exist.
+ * Every tone is a pair plus a saturated accent:
+ *   --tone / --on-tone        the large container (hero plate, active rail)
+ *   --tone-bright / --on-bright  a small chip or dot that must read at 12px
+ * The pairs are the audited 30/90 (dark) and 90/10 (light) roles; the bright
+ * pair is 80/20 (dark) and 40/100 (light), which the palette check also covers.
+ * Nothing downstream names a hue, so a grid can cycle tones and both schemes
+ * resolve on their own.
  */
-:root {
+:root,
+[data-theme="m3-dark"] {
   --tone: var(--md-sys-color-primary-container);
   --on-tone: var(--md-sys-color-on-primary-container);
-  --tone-ink: var(--md-sys-color-primary);
+  --tone-bright: var(--md-ref-palette-primary-80);
+  --on-tone-bright: var(--md-ref-palette-primary-20);
 }
+
+[data-theme="m3-light"] {
+  --tone: var(--md-sys-color-primary-container);
+  --on-tone: var(--md-sys-color-on-primary-container);
+  --tone-bright: var(--md-ref-palette-primary-40);
+  --on-tone-bright: var(--md-ref-palette-primary-100);
+}
+
 .nu-tone--primary {
   --tone: var(--md-sys-color-primary-container);
   --on-tone: var(--md-sys-color-on-primary-container);
-  --tone-ink: var(--md-sys-color-primary);
+  --tone-bright: var(--md-ref-palette-primary-80);
+  --on-tone-bright: var(--md-ref-palette-primary-20);
+  /* the hero plate is the one saturated field on the page; measured 7.63:1
+     against primary-98, the same near-white the reference plates use */
+  --tone-vivid: oklch(45% 0.17 290);
+  --on-vivid: var(--md-ref-palette-primary-98);
 }
 .nu-tone--spring {
   --tone: var(--md-e-color-tone-spring-container);
   --on-tone: var(--md-e-color-tone-spring-on);
-  --tone-ink: var(--md-e-color-tone-spring-on);
+  --tone-bright: var(--md-ref-palette-spring-80);
+  --on-tone-bright: var(--md-ref-palette-spring-20);
+  /* 6.14:1 */
+  --tone-vivid: oklch(47% 0.13 145);
+  --on-vivid: var(--md-ref-palette-primary-98);
 }
 .nu-tone--peach {
   --tone: var(--md-e-color-tone-peach-container);
   --on-tone: var(--md-e-color-tone-peach-on);
-  --tone-ink: var(--md-e-color-tone-peach-on);
+  --tone-bright: var(--md-ref-palette-peach-80);
+  --on-tone-bright: var(--md-ref-palette-peach-20);
+  /* 5.26:1 */
+  --tone-vivid: oklch(53% 0.14 55);
+  --on-vivid: var(--md-ref-palette-primary-98);
 }
 .nu-tone--sky {
   --tone: var(--md-e-color-tone-sky-container);
   --on-tone: var(--md-e-color-tone-sky-on);
-  --tone-ink: var(--md-e-color-tone-sky-on);
+  --tone-bright: var(--md-ref-palette-sky-80);
+  --on-tone-bright: var(--md-ref-palette-sky-20);
+  /* 6.82:1 */
+  --tone-vivid: oklch(46% 0.12 255);
+  --on-vivid: var(--md-ref-palette-primary-98);
 }
 
-/* PRODUCT: the cycle a grid applies to its children so adjacent cards are not
-   all purple, the way the reference sites' subject grids do it. */
-.nu-tone-cycle > :nth-child(4n + 1) { --tone: var(--md-sys-color-primary-container); --on-tone: var(--md-sys-color-on-primary-container); }
-.nu-tone-cycle > :nth-child(4n + 2) { --tone: var(--md-e-color-tone-sky-container); --on-tone: var(--md-e-color-tone-sky-on); }
-.nu-tone-cycle > :nth-child(4n + 3) { --tone: var(--md-e-color-tone-spring-container); --on-tone: var(--md-e-color-tone-spring-on); }
-.nu-tone-cycle > :nth-child(4n + 4) { --tone: var(--md-e-color-tone-peach-container); --on-tone: var(--md-e-color-tone-peach-on); }
+[data-theme="m3-light"] .nu-tone--primary,
+[data-theme="m3-light"] .nu-tone--spring,
+[data-theme="m3-light"] .nu-tone--peach,
+[data-theme="m3-light"] .nu-tone--sky {
+  --tone-bright: var(--md-ref-palette-primary-40);
+  --on-tone-bright: var(--md-ref-palette-primary-100);
+}
+[data-theme="m3-light"] .nu-tone--spring {
+  --tone-bright: var(--md-ref-palette-spring-40);
+}
+[data-theme="m3-light"] .nu-tone--peach {
+  --tone-bright: var(--md-ref-palette-peach-40);
+}
+[data-theme="m3-light"] .nu-tone--sky {
+  --tone-bright: var(--md-ref-palette-sky-40);
+}
 
-/* --- 4. expressive primitives -------------------------------------------- */
-/*
- * These are the pieces the app markup composes with; theme.css lays them out.
- * The morph is the point: a surface rests with one notched corner, squares off
- * a little on hover and collapses on press, all on the spatial spring.
- */
+/* the cycle a grid applies so adjacent cards are not all one colour */
+.nu-tone-cycle > :nth-child(4n + 1) {
+  --tone: var(--md-sys-color-primary-container);
+  --on-tone: var(--md-sys-color-on-primary-container);
+  --tone-bright: var(--md-ref-palette-primary-80);
+  --on-tone-bright: var(--md-ref-palette-primary-20);
+}
+.nu-tone-cycle > :nth-child(4n + 2) {
+  --tone: var(--md-e-color-tone-sky-container);
+  --on-tone: var(--md-e-color-tone-sky-on);
+  --tone-bright: var(--md-ref-palette-sky-80);
+  --on-tone-bright: var(--md-ref-palette-sky-20);
+}
+.nu-tone-cycle > :nth-child(4n + 3) {
+  --tone: var(--md-e-color-tone-spring-container);
+  --on-tone: var(--md-e-color-tone-spring-on);
+  --tone-bright: var(--md-ref-palette-spring-80);
+  --on-tone-bright: var(--md-ref-palette-spring-20);
+}
+.nu-tone-cycle > :nth-child(4n + 4) {
+  --tone: var(--md-e-color-tone-peach-container);
+  --on-tone: var(--md-e-color-tone-peach-on);
+  --tone-bright: var(--md-ref-palette-peach-80);
+  --on-tone-bright: var(--md-ref-palette-peach-20);
+}
 
-/* the one hero moment of a view: oversized emphasized type, nothing else */
-.nu-hero {
-  display: grid;
-  gap: var(--md-sys-space-300);
+[data-theme="m3-light"] .nu-tone-cycle > :nth-child(4n + 1) { --tone-bright: var(--md-ref-palette-primary-40); --on-tone-bright: var(--md-ref-palette-primary-100); }
+[data-theme="m3-light"] .nu-tone-cycle > :nth-child(4n + 2) { --tone-bright: var(--md-ref-palette-sky-40); --on-tone-bright: var(--md-ref-palette-sky-100); }
+[data-theme="m3-light"] .nu-tone-cycle > :nth-child(4n + 3) { --tone-bright: var(--md-ref-palette-spring-40); --on-tone-bright: var(--md-ref-palette-spring-100); }
+[data-theme="m3-light"] .nu-tone-cycle > :nth-child(4n + 4) { --tone-bright: var(--md-ref-palette-peach-40); --on-tone-bright: var(--md-ref-palette-peach-100); }
+
+/* --- 4. editorial primitives --------------------------------------------- */
+
+/* the eyebrow is the only uppercase line on the page; the dot and rule are the
+   same gesture the reference heroes use to open a section (MEASURED) */
+.nu-eyebrow {
+  display: inline-flex;
   align-items: center;
+  gap: 10px;
+  color: var(--md-sys-color-on-surface-variant);
+  font: 650 11px/1 var(--md-sys-typescale-font-family-plain);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
+.nu-eyebrow__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+}
+.nu-eyebrow__rule {
+  width: 28px;
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+}
+
+/* one hero per screen: display type, one sentence, one shaped plate */
 .nu-hero__title {
   margin: 0;
-  font: var(--md-e-typescale-hero);
-  font-variation-settings: var(--md-e-typescale-hero-axes);
-  letter-spacing: var(--md-e-tracking-tight);
+  font: 760 clamp(56px, 6.6vw, 104px)/0.94 var(--md-sys-typescale-font-family-brand);
+  font-variation-settings: "ROND" 100, "wght" 760;
+  letter-spacing: -0.055em;
   text-wrap: balance;
+}
+.nu-hero__period {
+  color: var(--md-sys-color-primary);
+  /* the full stop is the CV site's signature: it hangs off the baseline */
+  margin-inline-start: 0.02em;
 }
 .nu-hero__lede {
   margin: 0;
+  max-width: 54ch;
   color: var(--md-sys-color-on-surface-variant);
   font: var(--md-sys-typescale-emphasized-body-lg);
   font-variation-settings: var(--md-sys-typescale-emphasized-body-lg-axes);
-  max-width: 68ch;
-  line-height: 1.7;
+  line-height: 1.75;
 }
-/* the shaped block a hero pairs its type with: a big container with one notch,
-   tilted the way both reference sites tilt their hero art (MEASURED) */
+
+/* the plate: tone field, notch, dashed route, bloom and two true labels */
 .nu-hero__art {
-  background: var(--tone);
-  color: var(--on-tone);
-  border-radius: var(--md-e-shape-hero);
-  padding: var(--md-sys-space-300);
-  transform: rotate(-1.5deg);
-  transition: var(--md-e-morph-color);
+  position: relative;
+  min-height: 300px;
+  padding: 30px;
+  border-radius: 56px 56px 56px 16px;
+  background: var(--tone-vivid, var(--tone));
+  color: var(--on-vivid, var(--on-tone));
+  overflow: hidden;
+  transform: rotate(-1.6deg);
+  transition:
+    border-radius var(--nu-dur) var(--nu-ease),
+    transform var(--nu-dur) var(--nu-ease);
 }
 .nu-hero__art:hover {
-  border-radius: var(--md-sys-shape-corner-xxl);
+  border-radius: 40px 56px 56px 56px;
   transform: rotate(0deg);
+}
+.nu-hero__route {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.42;
+}
+.nu-hero__bloom {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 210px;
+  height: 210px;
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  color: var(--on-vivid, var(--on-tone));
+  filter: drop-shadow(0 18px 28px color-mix(in srgb, var(--md-sys-color-shadow) 28%, transparent));
+  transition: transform var(--nu-dur) var(--nu-ease-spring);
+}
+.nu-hero__bloom svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.nu-hero__bloom md-icon {
+  position: relative;
+  color: var(--tone-vivid, var(--tone));
+  --md-icon-size: 66px;
+  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 48;
+}
+.nu-hero__art:hover .nu-hero__bloom {
+  transform: scale(1.035) rotate(3deg);
+}
+.nu-hero__pill {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: var(--md-sys-shape-corner-full);
+  font: 650 12px/1 var(--md-sys-typescale-font-family-plain);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.nu-hero__pill--a {
+  inset-inline-start: 28px;
+  inset-block-start: 30px;
+  background: var(--on-vivid, var(--on-tone));
+  color: var(--tone-vivid, var(--tone));
+}
+.nu-hero__pill--b {
+  inset-inline-end: 28px;
+  inset-block-end: 30px;
+  background: color-mix(in oklab, var(--tone-vivid, var(--tone)) 84%, var(--md-sys-color-shadow));
+  color: var(--on-vivid, var(--on-tone));
+}
+.nu-hero__spark {
+  position: absolute;
+  display: block;
+  background: var(--on-vivid, var(--on-tone));
+  opacity: 0.5;
+}
+.nu-hero__spark--a {
+  inset-block-start: 58px;
+  inset-inline-end: 54px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px 50% 50% 50%;
+  rotate: 12deg;
+}
+.nu-hero__spark--b {
+  inset-block-end: 64px;
+  inset-inline-start: 52px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50% 4px 50% 50%;
+  rotate: -18deg;
 }
 
 .nu-section__head {
   display: flex;
   align-items: baseline;
-  gap: var(--md-sys-space-200);
+  gap: var(--nu-gap);
   flex-wrap: wrap;
 }
 .nu-section__title {
   margin: 0;
-  font: var(--md-e-typescale-section);
-  font-variation-settings: var(--md-e-typescale-section-axes);
-  letter-spacing: var(--md-e-tracking-tight);
+  font: 720 clamp(22px, 2.2vw, 30px)/1.25 var(--md-sys-typescale-font-family-brand);
+  font-variation-settings: "ROND" 100, "wght" 720;
+  letter-spacing: -0.035em;
 }
 .nu-section__note {
   color: var(--md-sys-color-on-surface-variant);
@@ -215,18 +371,18 @@ md-icon.nu-icon--filled {
   font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
 }
 
-/* a surface: 32px rest, one corner notched on hover, collapsed on press */
+/* a surface rests as a large squircle with one small corner; the notch moves
+   only when the surface itself is interactive (MEASURED: 32px rest) */
 .nu-elevated {
-  background: var(--md-sys-color-surface-container-low);
-  border-radius: var(--md-e-shape-surface);
-  transition: var(--md-e-morph-color);
+  background: var(--nu-panel);
+  border-radius: var(--nu-radius);
+  transition: border-radius var(--nu-dur) var(--nu-ease);
 }
 .nu-elevated:hover {
-  border-radius: var(--md-e-shape-surface-hover);
+  border-radius: 32px 32px 12px 32px;
 }
 
-/* connected group: the outer corners stay Expressive-large, the meeting edges
-   go small, so two controls read as one object (MEASURED: CV 外角 28 / 内角 6) */
+/* connected group: outer corners stay expressive, meeting edges go small */
 .nu-connected {
   display: inline-flex;
 }
@@ -246,12 +402,11 @@ md-icon.nu-icon--filled {
   border-radius: 6px;
 }
 
-/* the expressive press feedback: shrink, in the same spring as the shape */
 .nu-pressable {
-  transition: var(--md-e-morph-color);
+  transition: transform var(--nu-dur) var(--nu-ease), border-radius var(--nu-dur) var(--nu-ease);
   cursor: pointer;
 }
 .nu-pressable:active {
-  border-radius: var(--md-e-shape-press);
-  transform: var(--md-e-press-scale);
+  border-radius: var(--md-sys-shape-corner-md);
+  transform: scale(0.985);
 }
