@@ -475,7 +475,7 @@ export default function Generate({ params }: ViewProps): ReactElement {
                     <div className="nu-card__head">
                         <h2 className="nu-card__title">{tr("nu.generate.results", "Results")}</h2>
                     </div>
-                    <div className="nu-grid">
+                    <div className="nu-grid nu-tone-cycle">
                         {results.map((r, i) => (
                             <figure key={`${r.filename}-${i}`} className="nu-shot">
                                 <img src={r.src} alt={r.filename} loading="lazy" />

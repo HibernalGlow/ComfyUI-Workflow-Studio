@@ -169,11 +169,50 @@
   --md-ref-palette-error-99: oklch(99.17% 0.003 27);
   --md-ref-palette-error-100: oklch(100.00% 0.000 27);
 
-  /* typeface — nothing is fetched (offline plugin UI, no @import). Brand and
-     plain resolve to the same system stack; the seam exists for a future
-     display face. Layer 3 may only read layer 2, hence the re-export below. */
-  --md-ref-typeface-brand: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --md-ref-typeface-plain: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Expressive tone families — M3 Expressive composes with several container
+     colours at once (the CV site's "tone" idea, and the four-tone grid in
+     production at ../Inkloom/src/styles/expressive.css .tone-purple/green/
+     peach/blue). Three extra palettes: spring hue 145, peach hue 55, sky hue
+     255. The L* of every tone is the SAME number the audited primary palette
+     uses (10 -> 22.85%, 30 -> 40.48%, 90 -> 91.59%, 95 -> 95.79% …), so each
+     on-container / container pair keeps the contrast the primary pair already
+     measures in both schemes — hue changes the flavour, tone numbers carry the
+     ratio. Chroma follows primary's, which browsers gamut-map for out-of-gamut
+     hues; chroma reduction does not move L*, so the ratio holds. */
+  --md-ref-palette-spring-10: oklch(22.85% 0.053 145);
+  --md-ref-palette-spring-20: oklch(31.69% 0.078 145);
+  --md-ref-palette-spring-30: oklch(40.48% 0.098 145);
+  --md-ref-palette-spring-40: oklch(49.23% 0.115 145);
+  --md-ref-palette-spring-80: oklch(83.16% 0.063 145);
+  --md-ref-palette-spring-90: oklch(91.59% 0.035 145);
+  --md-ref-palette-spring-95: oklch(95.79% 0.018 145);
+
+  --md-ref-palette-peach-10: oklch(22.85% 0.053 55);
+  --md-ref-palette-peach-20: oklch(31.69% 0.078 55);
+  --md-ref-palette-peach-30: oklch(40.48% 0.098 55);
+  --md-ref-palette-peach-40: oklch(49.23% 0.115 55);
+  --md-ref-palette-peach-80: oklch(83.16% 0.063 55);
+  --md-ref-palette-peach-90: oklch(91.59% 0.035 55);
+  --md-ref-palette-peach-95: oklch(95.79% 0.018 55);
+
+  --md-ref-palette-sky-10: oklch(22.85% 0.053 255);
+  --md-ref-palette-sky-20: oklch(31.69% 0.078 255);
+  --md-ref-palette-sky-30: oklch(40.48% 0.098 255);
+  --md-ref-palette-sky-40: oklch(49.23% 0.115 255);
+  --md-ref-palette-sky-80: oklch(83.16% 0.063 255);
+  --md-ref-palette-sky-90: oklch(91.59% 0.035 255);
+  --md-ref-palette-sky-95: oklch(95.79% 0.018 255);
+
+  /* typeface — Roboto Flex, self-hosted (expressive.css carries the @font-face
+     from static/css/newui/fonts/, so nothing is fetched at runtime). It is the
+     family Google's own Expressive tokens name (--md-ref-typeface-plain:
+     "Roboto Flex, Roboto, Noto Sans, system-ui"), and it is the only family here
+     that has the ROND axis the emphasized typescale roles turn on. Latin and
+     digits come from Roboto Flex; CJK falls through to the platform Chinese face
+     because a CJK webfont would be tens of megabytes (same decision and same
+     fallback list as the CV site's art direction). */
+  --md-ref-typeface-brand: "Roboto Flex Variable", "Roboto Flex", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --md-ref-typeface-plain: "Roboto Flex Variable", "Roboto Flex", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 }
 
 /* ---------------------------------------------------------------------------
@@ -227,14 +266,73 @@
   --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-20);
   --md-sys-color-inverse-primary: var(--md-ref-palette-primary-40);
 
-  /* shape — 7 steps */
-  --md-sys-shape-corner-none: 0;
+  /* expressive tone roles (DARK = default scheme; theme-m3.css owns the switch)
+     — a container and its own on-colour, for the multi-tone composition. */
+  --md-e-color-tone-spring-container: var(--md-ref-palette-spring-30);
+  --md-e-color-tone-spring-on: var(--md-ref-palette-spring-90);
+  --md-e-color-tone-peach-container: var(--md-ref-palette-peach-30);
+  --md-e-color-tone-peach-on: var(--md-ref-palette-peach-90);
+  --md-e-color-tone-sky-container: var(--md-ref-palette-sky-30);
+  --md-e-color-tone-sky-on: var(--md-ref-palette-sky-90);
+
+  /* shape — M3 Expressive corner family. The ten steps below are verbatim from
+     the Google tokens that ship inside the installed package
+     (node_modules/@material/web/labs/gb/styles/m3.css, @layer md.sys.shape,
+     Apache-2.0): none/xs/sm/md/lg/lg-increased/xl/xl-increased/xxl/full.
+     ONE deliberate deviation: Google writes corner-full as 50cqmin, which only
+     resolves inside a query container, and most hosts in this SPA have none —
+     so the pill step stays an explicit 9999px. CSS clamps overlapping radii,
+     so a pill still renders as a pill. */
+  --md-sys-shape-corner-none: 0px;
   --md-sys-shape-corner-xs: 4px;
   --md-sys-shape-corner-sm: 8px;
   --md-sys-shape-corner-md: 12px;
   --md-sys-shape-corner-lg: 16px;
+  --md-sys-shape-corner-lg-increased: 20px;
   --md-sys-shape-corner-xl: 28px;
+  --md-sys-shape-corner-xl-increased: 32px;
+  --md-sys-shape-corner-xxl: 48px;
   --md-sys-shape-corner-full: 9999px;
+
+  /* expressive shape states — what M3 Expressive actually draws is a shape that
+     MOVES: a control rests as a pill, grows a large uniform radius on hover and
+     collapses to a small corner on press; a surface keeps one notched corner so
+     the eye reads it as open. Single steps cannot express a non-uniform corner
+     list, so the states are tokenised whole and referenced from one transition.
+     Sources: the shapes in production in ../Inkloom/src/styles/expressive.css
+     (48px 48px 48px 12px hero, 20px/12px button morph, 32px 8px 32px 32px note)
+     and the CV site's art direction (外角 28 / 内角 6 connected controls). */
+  --md-e-shape-rest: var(--md-sys-shape-corner-full);
+  --md-e-shape-hover: var(--md-sys-shape-corner-lg-increased);
+  --md-e-shape-press: var(--md-sys-shape-corner-md);
+  --md-e-shape-surface: var(--md-sys-shape-corner-xl-increased);
+  --md-e-shape-surface-hover: 32px 32px 12px 32px;
+  --md-e-shape-surface-press: var(--md-sys-shape-corner-md);
+  --md-e-shape-hero: 48px 48px 48px 12px;
+  --md-e-shape-note: 32px 8px 32px 32px;
+  --md-e-shape-connected: 28px 6px 6px 28px;
+
+  /* space — M3 Expressive's 8px scale, verbatim from @layer md.sys/space in the
+     same file. Layout code uses these instead of hand-picked gaps. */
+  --md-sys-space-unit: 8px;
+  --md-sys-space-0: calc(var(--md-sys-space-unit) * 0);
+  --md-sys-space-25: calc(var(--md-sys-space-unit) * 0.25);
+  --md-sys-space-50: calc(var(--md-sys-space-unit) * 0.5);
+  --md-sys-space-75: calc(var(--md-sys-space-unit) * 0.75);
+  --md-sys-space-100: var(--md-sys-space-unit);
+  --md-sys-space-125: calc(var(--md-sys-space-unit) * 1.25);
+  --md-sys-space-150: calc(var(--md-sys-space-unit) * 1.5);
+  --md-sys-space-175: calc(var(--md-sys-space-unit) * 1.75);
+  --md-sys-space-200: calc(var(--md-sys-space-unit) * 2);
+  --md-sys-space-250: calc(var(--md-sys-space-unit) * 2.5);
+  --md-sys-space-300: calc(var(--md-sys-space-unit) * 3);
+  --md-sys-space-400: calc(var(--md-sys-space-unit) * 4);
+  --md-sys-space-450: calc(var(--md-sys-space-unit) * 4.5);
+  --md-sys-space-500: calc(var(--md-sys-space-unit) * 5);
+  --md-sys-space-600: calc(var(--md-sys-space-unit) * 6);
+  --md-sys-space-700: calc(var(--md-sys-space-unit) * 7);
+  --md-sys-space-800: calc(var(--md-sys-space-unit) * 8);
+  --md-sys-space-900: calc(var(--md-sys-space-unit) * 9);
 
   /* elevation — M3 key + ambient shadow pairs (rgb literals allowed here only) */
   --md-sys-elevation-level0: none;
@@ -300,7 +398,164 @@
   --md-sys-typescale-label-small-size: 11px; --md-sys-typescale-label-small-line-height: 16px;
   --md-sys-typescale-label-small-weight: 500; --md-sys-typescale-label-small-tracking: 0.5px;
 
-  /* motion — durations */
+  /* typescale — M3 Expressive role names + the emphasized pair.
+     Sizes and line-heights are IDENTICAL to the fifteen roles above (checked
+     rem-by-rem against @layer md.sys.typescale in
+     node_modules/@material/web/labs/gb/styles/m3.css), so this block adds no new
+     metrics — it adds (a) Google's current naming (label/body/title/headline/
+     display x sm/md/lg), (b) the emphasized role of every step, which raises the
+     weight by one tier (regular 400 -> medium 500, medium 500 -> bold 700), and
+     (c) the -axes sibling that turns on Roboto Flex's rounded terminal axis.
+     Emphasized is the expressive default for headings, controls and nav labels;
+     body copy keeps the regular role. Both schemes keep AA: heavier weight and
+     ROND only thicken strokes on the same colour pair, and tools/contrast-audit.mjs
+     re-measures the pairs after this change. */
+  --md-ref-typeface-weight-regular: 400;
+  --md-ref-typeface-weight-medium: 500;
+  --md-ref-typeface-weight-bold: 700;
+
+  --md-sys-typescale-label-sm: var(--md-ref-typeface-weight-medium) 11px/16px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-label-sm-tracking: 0.5px; --md-sys-typescale-label-sm-axes: normal;
+  --md-sys-typescale-emphasized-label-sm: var(--md-ref-typeface-weight-bold) 11px/16px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-label-sm-axes: "ROND" 100;
+  --md-sys-typescale-label-md: var(--md-ref-typeface-weight-medium) 12px/16px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-label-md-tracking: 0.5px; --md-sys-typescale-label-md-axes: normal;
+  --md-sys-typescale-emphasized-label-md: var(--md-ref-typeface-weight-bold) 12px/16px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-label-md-axes: "ROND" 100;
+  --md-sys-typescale-label-lg: var(--md-ref-typeface-weight-medium) 14px/20px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-label-lg-tracking: 0.1px; --md-sys-typescale-label-lg-axes: normal;
+  --md-sys-typescale-emphasized-label-lg: var(--md-ref-typeface-weight-bold) 14px/20px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-label-lg-axes: "ROND" 100;
+
+  --md-sys-typescale-body-sm: var(--md-ref-typeface-weight-regular) 12px/16px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-body-sm-tracking: 0.4px; --md-sys-typescale-body-sm-axes: normal;
+  --md-sys-typescale-emphasized-body-sm: var(--md-ref-typeface-weight-medium) 12px/16px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-body-sm-axes: "ROND" 100;
+  --md-sys-typescale-body-md: var(--md-ref-typeface-weight-regular) 14px/20px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-body-md-tracking: 0.25px; --md-sys-typescale-body-md-axes: normal;
+  --md-sys-typescale-emphasized-body-md: var(--md-ref-typeface-weight-medium) 14px/20px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-body-md-axes: "ROND" 100;
+  --md-sys-typescale-body-lg: var(--md-ref-typeface-weight-regular) 16px/24px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-body-lg-tracking: 0.5px; --md-sys-typescale-body-lg-axes: normal;
+  --md-sys-typescale-emphasized-body-lg: var(--md-ref-typeface-weight-medium) 16px/24px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-body-lg-axes: "ROND" 100;
+
+  --md-sys-typescale-title-sm: var(--md-ref-typeface-weight-medium) 14px/20px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-title-sm-tracking: 0.1px; --md-sys-typescale-title-sm-axes: normal;
+  --md-sys-typescale-emphasized-title-sm: var(--md-ref-typeface-weight-bold) 14px/20px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-title-sm-axes: "ROND" 100;
+  --md-sys-typescale-title-md: var(--md-ref-typeface-weight-medium) 16px/24px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-title-md-tracking: 0.15px; --md-sys-typescale-title-md-axes: normal;
+  --md-sys-typescale-emphasized-title-md: var(--md-ref-typeface-weight-bold) 16px/24px var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-emphasized-title-md-axes: "ROND" 100;
+  --md-sys-typescale-title-lg: var(--md-ref-typeface-weight-regular) 22px/28px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-title-lg-tracking: 0px; --md-sys-typescale-title-lg-axes: normal;
+  --md-sys-typescale-emphasized-title-lg: var(--md-ref-typeface-weight-medium) 22px/28px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-title-lg-axes: "ROND" 100;
+
+  --md-sys-typescale-headline-sm: var(--md-ref-typeface-weight-regular) 24px/32px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-headline-sm-tracking: 0px; --md-sys-typescale-headline-sm-axes: normal;
+  --md-sys-typescale-emphasized-headline-sm: var(--md-ref-typeface-weight-medium) 24px/32px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-headline-sm-axes: "ROND" 100;
+  --md-sys-typescale-headline-md: var(--md-ref-typeface-weight-regular) 28px/36px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-headline-md-tracking: 0px; --md-sys-typescale-headline-md-axes: normal;
+  --md-sys-typescale-emphasized-headline-md: var(--md-ref-typeface-weight-medium) 28px/36px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-headline-md-axes: "ROND" 100;
+  --md-sys-typescale-headline-lg: var(--md-ref-typeface-weight-regular) 32px/40px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-headline-lg-tracking: 0px; --md-sys-typescale-headline-lg-axes: normal;
+  --md-sys-typescale-emphasized-headline-lg: var(--md-ref-typeface-weight-medium) 32px/40px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-headline-lg-axes: "ROND" 100;
+
+  --md-sys-typescale-display-sm: var(--md-ref-typeface-weight-regular) 36px/44px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-display-sm-tracking: 0px; --md-sys-typescale-display-sm-axes: normal;
+  --md-sys-typescale-emphasized-display-sm: var(--md-ref-typeface-weight-medium) 36px/44px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-display-sm-axes: "ROND" 100;
+  --md-sys-typescale-display-md: var(--md-ref-typeface-weight-regular) 45px/52px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-display-md-tracking: 0px; --md-sys-typescale-display-md-axes: normal;
+  --md-sys-typescale-emphasized-display-md: var(--md-ref-typeface-weight-medium) 45px/52px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-display-md-axes: "ROND" 100;
+  --md-sys-typescale-display-lg: var(--md-ref-typeface-weight-regular) 57px/64px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-display-lg-tracking: -0.25px; --md-sys-typescale-display-lg-axes: normal;
+  --md-sys-typescale-emphasized-display-lg: var(--md-ref-typeface-weight-medium) 57px/64px var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-emphasized-display-lg-axes: "ROND" 100;
+
+  /* the expressive display step this UI uses for a view's single hero: bigger
+     than display-lg on a wide canvas, clamped so a 320px phone never overflows.
+     Ratio and clamp follow the two reference sites (CV 48-88px, Inkloom
+     clamp(40px,4.5vw,64px)); this is the app shell, so it starts lower. */
+  --md-e-typescale-hero: var(--md-ref-typeface-weight-bold) clamp(34px, 4.2vw, 56px)/1.15 var(--md-sys-typescale-font-family-brand);
+  --md-e-typescale-hero-axes: "ROND" 100;
+  --md-e-typescale-section: var(--md-ref-typeface-weight-bold) clamp(22px, 2.2vw, 30px)/1.3 var(--md-sys-typescale-font-family-brand);
+  --md-e-typescale-section-axes: "ROND" 100;
+  --md-e-tracking-tight: -0.03em;
+
+  /* typescale — the -font sibling of every role. @material/web reads
+     var(--md-filled-button-label-text-font, var(--md-sys-typescale-label-large-font, Roboto)),
+     i.e. the sys role needs a -font name or the component keeps its baked Roboto
+     and the app's family never reaches it. Read out of the package's compiled JS,
+     not assumed. */
+  --md-sys-typescale-display-large-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-display-medium-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-display-small-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-headline-large-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-headline-medium-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-headline-small-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-title-large-font: var(--md-sys-typescale-font-family-brand);
+  --md-sys-typescale-title-medium-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-title-small-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-body-large-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-body-medium-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-body-small-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-label-large-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-label-medium-font: var(--md-sys-typescale-font-family-plain);
+  --md-sys-typescale-label-small-font: var(--md-sys-typescale-font-family-plain);
+
+  /* Expressive weights, applied at the role level so every control that inherits
+     a sys role picks them up: controls and headings go to the emphasized tier
+     (labels and small titles 700, display/headline/title-large 500), body copy
+     stays regular so a paragraph does not turn into a shout. The -axes siblings
+     are the ROND setting app-layer text applies with font-variation-settings. */
+  --md-sys-typescale-label-large-weight: 700;
+  --md-sys-typescale-label-medium-weight: 700;
+  --md-sys-typescale-label-small-weight: 700;
+  --md-sys-typescale-title-medium-weight: 700;
+  --md-sys-typescale-title-small-weight: 700;
+  --md-sys-typescale-title-large-weight: 500;
+  --md-sys-typescale-headline-large-weight: 500;
+  --md-sys-typescale-headline-medium-weight: 500;
+  --md-sys-typescale-headline-small-weight: 500;
+  --md-sys-typescale-display-large-weight: 500;
+  --md-sys-typescale-display-medium-weight: 500;
+  --md-sys-typescale-display-small-weight: 500;
+  --md-sys-typescale-label-large-axes: "ROND" 100;
+  --md-sys-typescale-label-medium-axes: "ROND" 100;
+  --md-sys-typescale-label-small-axes: "ROND" 100;
+  --md-sys-typescale-title-medium-axes: "ROND" 100;
+  --md-sys-typescale-title-small-axes: "ROND" 100;
+  --md-sys-typescale-title-large-axes: "ROND" 100;
+  --md-sys-typescale-headline-large-axes: "ROND" 100;
+  --md-sys-typescale-headline-medium-axes: "ROND" 100;
+  --md-sys-typescale-headline-small-axes: "ROND" 100;
+  --md-sys-typescale-display-large-axes: "ROND" 100;
+  --md-sys-typescale-display-medium-axes: "ROND" 100;
+  --md-sys-typescale-display-small-axes: "ROND" 100;
+
+  /* shape — the legacy step names @material/web still reads
+     (var(--md-*-container-shape, var(--md-sys-shape-corner-extra-large, …)) is in
+     the compiled fallback chain of the baked components). They alias the
+     Expressive steps so a component that resolves a legacy name gets the same
+     geometry as one that resolves the current name. */
+  --md-sys-shape-corner-extra-small: var(--md-sys-shape-corner-xs);
+  --md-sys-shape-corner-small: var(--md-sys-shape-corner-sm);
+  --md-sys-shape-corner-medium: var(--md-sys-shape-corner-md);
+  --md-sys-shape-corner-large: var(--md-sys-shape-corner-lg);
+  --md-sys-shape-corner-extra-large: var(--md-sys-shape-corner-xl);
+  --md-sys-shape-corner-extra-large-top: 28px 28px 0 0;
+  --md-sys-shape-corner-large-top: 16px 16px 0 0;
+  --md-sys-shape-corner-large-bottom: 0 0 16px 16px;
+
+  /* motion — durations. M3 Expressive keeps the M3 tiers and adds extra-long1..4
+     for the large spatial animations (verbatim from @layer md.sys.motion). */
   --md-sys-motion-duration-short1: 50ms;
   --md-sys-motion-duration-short2: 100ms;
   --md-sys-motion-duration-short3: 150ms;
@@ -313,6 +568,10 @@
   --md-sys-motion-duration-long2: 500ms;
   --md-sys-motion-duration-long3: 550ms;
   --md-sys-motion-duration-long4: 600ms;
+  --md-sys-motion-duration-extra-long1: 700ms;
+  --md-sys-motion-duration-extra-long2: 800ms;
+  --md-sys-motion-duration-extra-long3: 900ms;
+  --md-sys-motion-duration-extra-long4: 1000ms;
   /* motion — easings */
   --md-sys-motion-easing-linear: cubic-bezier(0, 0, 1, 1);
   --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -321,6 +580,25 @@
   --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
   --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  /* motion — the two Expressive timing roles.
+     M3 Expressive splits timing in two: SPATIAL things (shape, size, position)
+     move on a spring that overshoots and settles; non-spatial things (colour,
+     opacity) stay on a short standard curve. Google publishes those springs as
+     Sass `$spring-*` functions, which have no browser equivalent, so the curve
+     below is the linear() approximation already shipped in production on this
+     machine — ../Inkloom/src/styles/expressive.css --md-spatial-fast, peak +6%
+     at 40%, settling by 78% — reused here at three durations rather than
+     invented. Effects use Google's own emphasized/standard curve. */
+  --md-e-spatial-fast: 350ms linear(0, 0.234 7%, 0.773 22%, 1.06 40%, 1.039 58%, 0.994 78%, 1);
+  --md-e-spatial: 500ms linear(0, 0.234 7%, 0.773 22%, 1.06 40%, 1.039 58%, 0.994 78%, 1);
+  --md-e-spatial-slow: 650ms linear(0, 0.234 7%, 0.773 22%, 1.06 40%, 1.039 58%, 0.994 78%, 1);
+  --md-e-effects: 180ms cubic-bezier(0.2, 0, 0, 1);
+  /* the morph presets a control applies in one transition declaration */
+  --md-e-morph: border-radius var(--md-e-spatial-fast), transform var(--md-e-spatial-fast);
+  --md-e-morph-color: border-radius var(--md-e-spatial-fast), background-color var(--md-e-effects), color var(--md-e-effects);
+  --md-e-press-scale: scale(0.96);
+  --md-e-hover-lift: translateY(-2px);
   /* state layer opacities */
   --md-sys-state-hover-opacity: 0.08;
   --md-sys-state-focus-opacity: 0.12;
@@ -331,7 +609,9 @@
 /* Accessibility: honour the OS "reduce motion" setting by zeroing every
    duration token. All transitions become instant at once, with no important
    flag and no per-component opt-out. Easings are left intact so components can
-   keep a single transition declaration. */
+   keep a single transition declaration. The expressive composite tokens carry
+   their duration inside themselves, so they are re-declared here too — a spring
+   with 0ms duration is just a jump, which is what reduced-motion asks for. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --md-sys-motion-duration-short1: 0ms;
@@ -346,6 +626,18 @@
     --md-sys-motion-duration-long2: 0ms;
     --md-sys-motion-duration-long3: 0ms;
     --md-sys-motion-duration-long4: 0ms;
+    --md-sys-motion-duration-extra-long1: 0ms;
+    --md-sys-motion-duration-extra-long2: 0ms;
+    --md-sys-motion-duration-extra-long3: 0ms;
+    --md-sys-motion-duration-extra-long4: 0ms;
+    --md-e-spatial-fast: 0ms var(--md-sys-motion-easing-standard);
+    --md-e-spatial: 0ms var(--md-sys-motion-easing-standard);
+    --md-e-spatial-slow: 0ms var(--md-sys-motion-easing-standard);
+    --md-e-effects: 0ms var(--md-sys-motion-easing-standard);
+    --md-e-morph: border-radius 0ms var(--md-sys-motion-easing-standard);
+    --md-e-morph-color: border-radius 0ms var(--md-sys-motion-easing-standard);
+    --md-e-press-scale: none;
+    --md-e-hover-lift: none;
   }
 }
 

@@ -1,25 +1,43 @@
 /*
- * App-level styling for the new UI.
+ * App-level styling for the new UI — Material 3 Expressive.
  *
- * Component look-and-feel comes from @material/web. This file only provides
- * (a) the M3 design tokens that material-web reads, and (b) the app shell
- * layout the library does not cover.
+ * Where the look comes from:
+ *   static/css/newui/m3-tokens.css   layer 1-3 tokens, now carrying the Expressive
+ *                                    corner family, space scale, emphasized
+ *                                    typescale (ROND axis) and spatial springs.
+ *   static/css/newui/theme-m3.css    the light/dark colour switch.
+ *   static/css/newui/expressive-hooks.css  GENERATED per-component shape hooks of
+ *                                    the @material/web elements this app mounts,
+ *                                    registered with @property so they interpolate.
+ *   static/css/newui/expressive.css  the font, the tone utilities and the
+ *                                    expressive primitives (hero, section,
+ *                                    connected group, press feedback).
+ *   @material/web                    the components themselves.
  *
- * The tokens are the pre-existing static/css/newui/{m3-tokens,theme-m3}.css:
- * material-web resolves colours as
- *   var(--md-filled-button-container-color, var(--md-sys-color-primary, #6750a4))
- * so supplying `--md-sys-color-*` is enough to retheme every component, and no
- * sass pipeline is needed.
+ * This file therefore does two things: it lays out the app shell and the views
+ * with those tokens, and it restates every `nu-*` class the views already use in
+ * the Expressive composition language — pill at rest, rounder on hover, collapsed
+ * on press, one notched corner on a surface, weight 700 on a control label.
+ *
+ * Every selector that existed before still exists: the seven views, and the
+ * responsive unit test in tools/core-tests/core.test.mjs, address them by name.
  */
 
 @import "../../static/css/newui/m3-tokens.css";
 @import "../../static/css/newui/theme-m3.css";
+@import "../../static/css/newui/expressive-hooks.css";
+@import "../../static/css/newui/expressive.css";
 
 :root {
-  --nu-top-bar-height: 64px;
-  --nu-rail-width: 80px;
+  --nu-top-bar-height: 76px;
+  --nu-rail-width: 96px;
   --nu-rail-width-label: 96px;
-  --nu-content-gap: 24px;
+  --nu-content-gap: var(--md-sys-space-300);
+  --nu-content-max: 1440px;
+  /* PRODUCT: the shell keeps 8px as its unit (Expressive's own space scale) and
+     lets a surface breathe at 24px instead of M3's 16px, because the shapes are
+     32px now and the same padding reads cramped against them. */
+  --nu-surface-pad: var(--md-sys-space-300);
 }
 
 html,
@@ -30,10 +48,18 @@ body,
 
 body {
   margin: 0;
-  background: var(--md-sys-color-background);
-  color: var(--md-sys-color-on-background);
-  font: var(--md-sys-typescale-body-medium);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", sans-serif;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  /* the UI body text is Expressive's body-md at weight 400; only controls and
+     headings go to the emphasized tier */
+  font: var(--md-sys-typescale-body-md);
+  font-family: var(--md-sys-typescale-font-family-plain);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
 }
 
 /* --- app grid ------------------------------------------------------------ */
@@ -52,18 +78,20 @@ body {
   grid-area: bar;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  gap: var(--md-sys-space-200);
+  padding: 0 var(--nu-surface-pad);
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
-  box-shadow: var(--md-sys-elevation-level2);
   z-index: 10;
 }
 
+/* the current destination is said out loud, big, in the emphasized tier — M3
+   Expressive's small top app bar carries a headline, not a title */
 .nu-top-bar__title {
   margin: 0;
-  font: var(--md-sys-typescale-title-large);
-  font-weight: 400;
+  font: var(--md-sys-typescale-emphasized-headline-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-headline-sm-axes);
+  letter-spacing: var(--md-e-tracking-tight);
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -71,34 +99,50 @@ body {
   white-space: nowrap;
 }
 
+/* a status read-out, not a decoration: pill container, tone colour, the word and
+   the dot both carrying the state (a colour alone is not readable evidence) */
 .nu-top-bar__status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--md-sys-space-100);
+  min-height: 36px;
+  padding: 0 var(--md-sys-space-200);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-label-medium);
+  font: var(--md-sys-typescale-emphasized-label-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-md-axes);
+  transition: var(--md-e-morph-color);
+}
+
+.nu-top-bar__status:hover {
+  border-radius: var(--md-sys-shape-corner-lg);
 }
 
 .nu-top-bar__dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-outline);
 }
 
 .nu-top-bar__dot--on {
   background: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent);
 }
 
 .nu-top-bar__dot--off {
   background: var(--md-sys-color-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-error) 22%, transparent);
 }
 
 /* --- navigation rail ----------------------------------------------------- */
 /*
- * @material/web 2.5.0 ships md-navigation-drawer (modal/adaptive only, props
- * `opened` + `pivot`) and md-navigation-bar (bottom). Neither is an M3
- * Navigation Rail, so the rail is built here from the M3 spec using tokens.
+ * @material/web 2.5.0 ships md-navigation-drawer (modal/adaptive only) and
+ * md-navigation-bar (bottom) — neither is an M3 Navigation Rail, so the rail is
+ * built here from tokens. Expressively it is a column of destinations where the
+ * ACTIVE one is a filled pill and everything else is bare: the container is the
+ * selection, and it morphs on hover and press like any other Expressive control.
  */
 
 .nu-rail {
@@ -106,9 +150,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 0;
-  background: var(--md-sys-color-surface-container);
+  gap: var(--md-sys-space-100);
+  padding: var(--md-sys-space-200) var(--md-sys-space-100);
+  background: var(--md-sys-color-surface-container-low);
   overflow: hidden;
 }
 
@@ -118,16 +162,18 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  width: 56px;
-  min-height: 56px;
-  padding: 0;
+  gap: var(--md-sys-space-050);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--md-sys-space-100) 0;
   border: 0;
   background: none;
   color: var(--md-sys-color-on-surface-variant);
   cursor: pointer;
   border-radius: var(--md-sys-shape-corner-full);
-  transition: color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  /* one spring for shape, size and colour: the label, tile and container all
+     follow the same gesture, which is what makes it read as one movement */
+  transition: var(--md-e-morph-color);
 }
 
 .nu-rail__item::before {
@@ -139,7 +185,7 @@ body {
   opacity: 0;
   pointer-events: none;
   border-radius: inherit;
-  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+  transition: opacity var(--md-e-effects);
 }
 
 .nu-rail__item:hover::before {
@@ -154,8 +200,18 @@ body {
   opacity: var(--md-sys-state-pressed-opacity);
 }
 
+.nu-rail__item:hover {
+  border-radius: var(--md-sys-shape-corner-xl);
+  color: var(--md-sys-color-on-surface);
+}
+
+.nu-rail__item:active {
+  border-radius: var(--md-sys-shape-corner-md);
+  transform: var(--md-e-press-scale);
+}
+
 .nu-rail__item:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+  outline: 3px solid var(--md-sys-color-primary);
   outline-offset: 2px;
 }
 
@@ -163,24 +219,260 @@ body {
   display: grid;
   place-items: center;
   width: 56px;
-  height: 32px;
+  height: 36px;
   border-radius: var(--md-sys-shape-corner-full);
-}
-
-/* The M3 active indicator sits behind the icon only. */
-.nu-rail__item--active .nu-rail__icon {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
+  transition: var(--md-e-morph);
 }
 
 .nu-rail__item--active {
-  color: var(--md-sys-color-on-surface);
+  /* the cluster tone, set once on .nu-app by the shell, so the selected tile and
+     the hero plate are the same colour and mean the same thing */
+  background: var(--tone);
+  color: var(--on-tone);
+}
+
+.nu-rail__item--active .nu-rail__icon {
+  width: auto;
+  background: transparent;
+  color: inherit;
+}
+
+/* the active destination is the filled, heavier glyph — the Expressive cue that
+   survives even where colour is not distinguishable */
+.nu-rail__item--active .nu-rail__icon md-icon {
+  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
 }
 
 .nu-rail__label {
-  font: var(--md-sys-typescale-label-small);
-  font-weight: 500;
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
   line-height: 16px;
+  text-align: center;
+}
+
+.nu-rail__item--active .nu-rail__label {
+  font-weight: 700;
+}
+
+/* seven equal tiles read as a list; three labelled clusters read as a map. The
+   group label is the only thing in the rail that is not a destination. */
+.nu-rail__group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--md-sys-space-050);
+  width: 100%;
+}
+
+.nu-rail__group + .nu-rail__group {
+  margin-block-start: var(--md-sys-space-200);
+  padding-block-start: var(--md-sys-space-200);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.nu-rail__group-label {
+  padding: 0 var(--md-sys-space-100) var(--md-sys-space-050);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: center;
+  opacity: 0.8;
+}
+
+/* --- the shell hero ------------------------------------------------------ */
+/*
+ * Press feedback on the library controls. The shape hooks of @material/web
+ * resolve into internal --_container-shape-* aliases inside each component's
+ * shadow tree, so a host-side shape morph depends on that indirection holding.
+ * A transform on the host does not: it always lands. Both are declared, so the
+ * Expressive "press" gesture survives even where a component's internals would
+ * not interpolate, and the two are the same spring and the same scale the
+ * reference sites use.
+ */
+md-filled-button,
+md-filled-tonal-button,
+md-outlined-button,
+md-text-button,
+md-elevated-button,
+md-icon-button,
+md-filled-icon-button,
+md-filled-tonal-icon-button,
+md-outlined-icon-button,
+md-assist-chip,
+md-filter-chip,
+md-input-chip,
+md-suggestion-chip,
+md-primary-tab {
+  transition: transform var(--md-e-spatial-fast);
+}
+
+md-filled-button:active,
+md-filled-tonal-button:active,
+md-outlined-button:active,
+md-text-button:active,
+md-elevated-button:active,
+md-icon-button:active,
+md-filled-icon-button:active,
+md-filled-tonal-icon-button:active,
+md-outlined-icon-button:active,
+md-assist-chip:active,
+md-filter-chip:active,
+md-input-chip:active,
+md-suggestion-chip:active {
+  transform: var(--md-e-press-scale);
+}
+
+md-filled-button:hover,
+md-filled-tonal-button:hover,
+md-outlined-button:hover,
+md-elevated-button:hover,
+md-icon-button:hover,
+md-filled-icon-button:hover,
+md-filled-tonal-icon-button:hover,
+md-outlined-icon-button:hover,
+md-assist-chip:hover,
+md-filter-chip:hover,
+md-input-chip:hover,
+md-suggestion-chip:hover,
+md-fab:hover {
+  transform: var(--md-e-hover-lift);
+}
+
+/*
+ * One hero per screen, and it belongs to the shell: the destination's name in
+ * Expressive display weight, what it is for in one line, and the cluster's colour
+ * as a shaped mark. Views keep their own toolbars as sections underneath, so the
+ * page never stacks two headlines.
+ */
+.nu-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--md-sys-space-400);
+  align-items: center;
+  min-height: 148px;
+  margin-block-end: var(--md-sys-space-400);
+}
+
+.nu-hero__copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-space-150);
+  min-width: 0;
+}
+
+.nu-hero__title {
+  margin: 0;
+  font: var(--md-e-typescale-hero);
+  font-variation-settings: var(--md-e-typescale-hero-axes);
+  letter-spacing: var(--md-e-tracking-tight);
+  text-wrap: balance;
+}
+
+.nu-hero__lede {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-emphasized-body-lg);
+  font-variation-settings: var(--md-sys-typescale-emphasized-body-lg-axes);
+  line-height: 1.6;
+}
+
+/* the mark keeps the hero honest: it is the destination's own glyph, in the
+   cluster's colour, on a plate with one notched corner. Nothing here is fake art. */
+.nu-hero__art {
+  display: grid;
+  gap: var(--md-sys-space-150);
+  justify-items: center;
+  padding: var(--md-sys-space-250) var(--md-sys-space-300);
+  transform: rotate(-2deg);
+}
+
+.nu-hero__art:hover {
+  transform: rotate(0deg) var(--md-e-hover-lift);
+}
+
+.nu-hero__mark {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: var(--md-sys-shape-corner-xl);
+  background: color-mix(in srgb, var(--on-tone) 14%, transparent);
+  color: var(--on-tone);
+  transition: var(--md-e-morph);
+}
+
+.nu-hero__art:hover .nu-hero__mark {
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+.nu-hero__mark md-icon {
+  --md-icon-size: 44px;
+  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 40;
+}
+
+/* three shapes, three corner families: the expressive vocabulary in miniature,
+   and the only decoration in the shell that is not carrying information */
+.nu-hero__shapes {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--md-sys-space-100);
+}
+
+.nu-hero__shape {
+  display: block;
+  background: color-mix(in srgb, var(--on-tone) 32%, transparent);
+  transition: var(--md-e-morph);
+}
+
+.nu-hero__shape--a {
+  width: 34px;
+  height: 22px;
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+.nu-hero__shape--b {
+  width: 22px;
+  height: 34px;
+  border-radius: 12px 12px 12px 2px;
+}
+
+.nu-hero__shape--c {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-md) var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-md);
+}
+
+.nu-hero__art:hover .nu-hero__shape--a {
+  border-radius: var(--md-sys-shape-corner-md);
+}
+
+.nu-hero__art:hover .nu-hero__shape--b {
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+/* --- the app bar's own pieces -------------------------------------------- */
+
+.nu-top-bar__wordmark {
+  font: var(--md-sys-typescale-emphasized-title-lg);
+  font-variation-settings: var(--md-sys-typescale-emphasized-title-lg-axes);
+  letter-spacing: var(--md-e-tracking-tight);
+  color: var(--md-sys-color-on-surface);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the two app-bar actions are tonal circles that square off when you reach for
+   them — the same gesture the rail and the controls use */
+md-icon-button.nu-top-bar__action {
+  --md-icon-button-container-color: var(--md-sys-color-surface-container-high);
+  --md-icon-button-container-height: 44px;
+  --md-icon-button-icon-size: 22px;
 }
 
 .nu-main {
@@ -188,6 +480,7 @@ body {
   overflow: auto;
   padding: var(--nu-content-gap);
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 /* --- generic view layout ------------------------------------------------- */
@@ -195,46 +488,51 @@ body {
 .nu-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1440px;
+  gap: var(--md-sys-space-400);
+  max-width: var(--nu-content-max);
   margin: 0 auto;
 }
 
 .nu-view__toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--md-sys-space-150);
   flex-wrap: wrap;
+  padding: var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--md-sys-color-surface-container-low);
+  transition: var(--md-e-morph);
 }
 
 .nu-view__title {
-  font: var(--md-sys-typescale-headline-small);
-  font-weight: 400;
+  font: var(--md-e-typescale-section);
+  font-variation-settings: var(--md-e-typescale-section-axes);
+  letter-spacing: var(--md-e-tracking-tight);
   margin: 0;
 }
 
 .nu-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--md-sys-space-100);
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
 .nu-fields {
   display: grid;
-  gap: 12px;
+  gap: var(--md-sys-space-150);
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .nu-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--md-sys-space-150);
 }
 
 .nu-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--md-sys-space-100);
   flex-wrap: wrap;
 }
 
@@ -244,13 +542,14 @@ body {
 
 .nu-muted {
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-body-small);
+  font: var(--md-sys-typescale-body-sm);
+  font-variation-settings: var(--md-sys-typescale-body-sm-axes);
 }
 
 .nu-empty,
 .nu-error {
-  padding: 24px;
-  border-radius: var(--md-sys-shape-corner-md);
+  padding: var(--md-sys-space-400);
+  border-radius: var(--md-e-shape-note);
   text-align: center;
 }
 
@@ -259,17 +558,33 @@ body {
   color: var(--md-sys-color-on-error-container);
 }
 
+/* an empty state deserves a shape of its own; it is the screen a user sees most
+   on a fresh box, so it is composed rather than left as grey text */
+.nu-empty {
+  background: var(--tone, var(--md-sys-color-surface-container));
+  color: var(--on-tone, var(--md-sys-color-on-surface-variant));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-sys-space-150);
+}
+
 .nu-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  height: 20px;
-  border-radius: var(--md-sys-shape-corner-sm);
-  border: 1px solid var(--md-sys-color-outline-variant);
+  gap: var(--md-sys-space-050);
+  padding: 0 var(--md-sys-space-150);
+  height: 26px;
+  border-radius: var(--md-sys-shape-corner-full);
   color: var(--badge-color, var(--md-sys-color-on-surface-variant));
-  background: color-mix(in srgb, var(--badge-color, var(--md-sys-color-primary)) 12%, transparent);
-  font: var(--md-sys-typescale-label-small);
+  background: color-mix(in srgb, var(--badge-color, var(--md-sys-color-primary)) 18%, transparent);
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  transition: var(--md-e-morph);
+}
+
+.nu-badge:hover {
+  border-radius: var(--md-sys-shape-corner-sm);
 }
 
 /* --- cards --------------------------------------------------------------- */
@@ -282,21 +597,21 @@ body {
 .nu-card__head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-block: 16px;
+  gap: var(--md-sys-space-200);
+  padding-block: var(--md-sys-space-200);
 }
 
 .nu-card__title {
   margin: 0;
-  font: var(--md-sys-typescale-title-medium);
-  font-weight: 500;
+  font: var(--md-sys-typescale-emphasized-title-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-title-md-axes);
 }
 
 .nu-card__body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-block-end: 16px;
+  gap: var(--md-sys-space-200);
+  padding-block-end: var(--md-sys-space-200);
 }
 
 /* --- switch rows ---------------------------------------------------------- */
@@ -305,12 +620,21 @@ body {
 .nu-switch-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 40px;
+  gap: var(--md-sys-space-200);
+  min-height: 48px;
+  padding: var(--md-sys-space-100) var(--md-sys-space-200);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: var(--md-e-morph);
+}
+
+.nu-switch-row:hover {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-xl);
 }
 
 .nu-switch-row__label {
-  font: var(--md-sys-typescale-body-medium);
+  font: var(--md-sys-typescale-emphasized-body-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
   overflow-wrap: anywhere;
 }
 
@@ -325,7 +649,7 @@ body {
 .nu-split {
   display: grid;
   grid-template-columns: minmax(240px, 320px) 1fr;
-  gap: 16px;
+  gap: var(--md-sys-space-200);
   align-items: start;
 }
 
@@ -335,32 +659,44 @@ body {
   }
 }
 
+/* a list panel is a surface: 32px, and the rows inside it are pills */
 .nu-list-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--md-sys-space-050);
   max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
   overflow: auto;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-md);
-  padding: 8px;
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-e-shape-surface);
+  padding: var(--md-sys-space-150);
+  transition: var(--md-e-morph);
+}
+
+.nu-list-panel:hover {
+  border-radius: var(--md-e-shape-surface-hover);
 }
 
 /* --- form + list primitives ----------------------------------------------- */
 
 .nu-native-select {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: var(--md-sys-shape-corner-xs);
+  height: 44px;
+  padding: 0 var(--md-sys-space-200);
+  border: 1px solid var(--md-sys-color-outline-strong, var(--md-sys-color-outline));
+  border-radius: var(--md-sys-shape-corner-lg-increased);
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-body-medium);
+  font: var(--md-sys-typescale-emphasized-body-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
+  transition: var(--md-e-morph);
+}
+
+.nu-native-select:hover {
+  border-radius: var(--md-sys-shape-corner-full);
 }
 
 .nu-native-select:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: 1px;
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
 }
 
 .nu-grow {
@@ -368,9 +704,10 @@ body {
   min-width: 200px;
 }
 
-/* A disabled field used as a readout: MD3 draws its label/value as on-surface at 38% opacity
-   (3.05:1 on this surface). The text here is information, not an editable control, so the
-   opacity is lifted while the disabled outline keeps the "not an input" signal. */
+/* A disabled field used as a readout: the library draws its label/value as
+   on-surface at 38% opacity (3.05:1 on this surface). The text here is
+   information, not an editable control, so the opacity is lifted while the
+   disabled outline keeps the "not an input" signal. */
 .nu-readout {
   --md-outlined-text-field-disabled-label-text-color: var(--md-sys-color-on-surface-variant);
   --md-outlined-text-field-disabled-label-text-opacity: 1;
@@ -381,31 +718,39 @@ body {
 .nu-file {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--md-sys-space-100);
   width: 100%;
-  min-height: 40px;
-  padding: 0 8px;
+  min-height: 44px;
+  padding: var(--md-sys-space-100) var(--md-sys-space-200);
   border: 0;
-  border-radius: var(--md-sys-shape-corner-sm);
+  border-radius: var(--md-sys-shape-corner-full);
   background: none;
   color: inherit;
   font: inherit;
   text-align: start;
   cursor: pointer;
+  transition: var(--md-e-morph-color);
 }
 
 .nu-file:hover {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-sys-shape-corner-xl);
+}
+
+.nu-file:active {
+  border-radius: var(--md-sys-shape-corner-md);
+  transform: var(--md-e-press-scale);
 }
 
 .nu-file:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+  outline: 3px solid var(--md-sys-color-primary);
   outline-offset: -2px;
 }
 
 .nu-file--active {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-weight: 700;
 }
 
 .nu-file__name {
@@ -418,23 +763,29 @@ body {
 .nu-list-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 0;
+  gap: var(--md-sys-space-200);
+  padding: var(--md-sys-space-150) var(--md-sys-space-100);
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  transition: var(--md-e-morph);
+}
+
+.nu-list-row:hover {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-xl);
 }
 
 .nu-list-row__main {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--md-sys-space-050);
   min-width: 0;
 }
 
 .nu-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--md-sys-space-100);
 }
 
 /* --- code + JSON --------------------------------------------------------- */
@@ -444,21 +795,24 @@ body {
   width: 100%;
   min-height: 240px;
   margin: 0;
-  padding: 12px;
+  padding: var(--md-sys-space-200);
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-sm);
+  border-radius: var(--md-sys-shape-corner-xl);
   background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  transition: var(--md-e-morph);
 }
 
-.nu-code:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+.nu-code:focus-visible,
+.nu-pre:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
 }
 
 .nu-code-preview {
@@ -470,41 +824,91 @@ body {
 .nu-node {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 0;
+  gap: var(--md-sys-space-100);
+  padding: var(--md-sys-space-200) var(--md-sys-space-100);
   border-top: 1px solid var(--md-sys-color-outline-variant);
+  transition: var(--md-e-morph);
+}
+
+.nu-node:hover {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-xl);
 }
 
 .nu-node__title {
   margin: 0;
-  font: var(--md-sys-typescale-title-small);
-  font-weight: 500;
+  font: var(--md-sys-typescale-emphasized-title-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-title-sm-axes);
 }
 
 .nu-shot {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--md-sys-space-050);
 }
 
+/* a thumbnail is the one place the notch is worth spending: the image is square
+   and the container is not, so the corner reads as an opening, not a mistake */
 .nu-shot__hit,
 .nu-card__hit {
   display: block;
   width: 100%;
   padding: 0;
   border: 0;
-  border-radius: var(--md-sys-shape-corner-md);
+  border-radius: var(--md-sys-shape-corner-xl);
   background: var(--md-sys-color-surface-container-low);
   color: inherit;
   cursor: pointer;
   overflow: hidden;
+  transition: var(--md-e-morph-color);
+}
+
+.nu-shot__hit:hover,
+.nu-card__hit:hover {
+  border-radius: var(--md-e-shape-hero);
+  transform: var(--md-e-hover-lift);
+}
+
+.nu-shot__hit:active,
+.nu-card__hit:active {
+  border-radius: var(--md-sys-shape-corner-md);
+  transform: var(--md-e-press-scale);
 }
 
 .nu-shot__hit:focus-visible,
 .nu-card__hit:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+  outline: 3px solid var(--md-sys-color-primary);
   outline-offset: 2px;
+}
+
+/* Multi-tone grids. MEASURED: this is the interaction Inkloom's subject grid
+   uses — the tile takes its colour from a --tone the row above it sets, so a
+   grid of six reads as six hues without any of them being a new colour value.
+   .nu-tone-cycle (expressive.css) assigns the tone per child; nothing here
+   names a hue, so both schemes and the audited pairs carry it. */
+.nu-tone-cycle .nu-shot__hit:hover,
+.nu-tone-cycle .nu-card__hit:hover {
+  background: var(--tone);
+}
+
+.nu-tone-cycle .nu-shot:hover .nu-card__name,
+.nu-tone-cycle .nu-shot:hover .nu-muted {
+  color: var(--on-tone);
+}
+
+/* Artists' manage-mode scrim badge over a thumbnail. It was an inline
+   rgba(0,0,0,.6) — gate A5a exists precisely so a colour like that is a token
+   instead, because a literal does not change with the scheme. */
+.nu-artist-overlay {
+  background-color: color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent);
+  color: var(--md-sys-color-inverse-on-surface);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: var(--md-e-morph);
+}
+
+.nu-artist-overlay:hover {
+  border-radius: var(--md-sys-shape-corner-md);
 }
 
 .nu-shot__hit img,
@@ -524,8 +928,9 @@ body {
 
 .nu-card__name {
   display: block;
-  padding: 6px 8px;
-  font: var(--md-sys-typescale-label-medium);
+  padding: var(--md-sys-space-075) var(--md-sys-space-100);
+  font: var(--md-sys-typescale-emphasized-label-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-md-axes);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -545,7 +950,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: rgba(0, 0, 0, 0.3);
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 30%, transparent);
 }
 
 .nu-thumb--fail {
@@ -557,7 +962,7 @@ body {
 .nu-models {
   display: grid;
   grid-template-columns: 1fr minmax(260px, 340px);
-  gap: 16px;
+  gap: var(--md-sys-space-200);
   align-items: start;
 }
 
@@ -565,7 +970,7 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--md-sys-space-150);
 }
 
 .nu-detail {
@@ -573,6 +978,9 @@ body {
   top: 0;
   max-height: calc(100dvh - var(--nu-top-bar-height) - 48px);
   overflow: auto;
+  padding: var(--md-sys-space-200);
+  border-radius: var(--md-e-shape-surface);
+  background: var(--md-sys-color-surface-container-low);
 }
 
 @media (max-width: 1100px) {
@@ -591,23 +999,27 @@ body {
 .nu-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-lg);
+  gap: var(--md-sys-space-150);
+  padding: var(--nu-surface-pad);
+  border-radius: var(--md-e-shape-surface);
   background: var(--md-sys-color-surface-container-low);
+  transition: var(--md-e-morph);
+}
+
+.nu-panel:hover {
+  border-radius: var(--md-e-shape-surface-hover);
 }
 
 .nu-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 0;
+  gap: var(--md-sys-space-025);
+  padding: var(--md-sys-space-100) 0;
   border-top: 1px solid var(--md-sys-color-outline-variant);
 }
 
 .nu-row--indent {
-  padding-inline-start: 28px;
+  padding-inline-start: var(--md-sys-space-350, 28px);
 }
 
 .nu-row--wrap {
@@ -628,7 +1040,7 @@ body {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--md-sys-space-025);
   max-height: 220px;
   overflow: auto;
 }
@@ -636,16 +1048,26 @@ body {
 .nu-log li {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font: var(--md-sys-typescale-body-small);
+  gap: var(--md-sys-space-100);
+  padding: var(--md-sys-space-050) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+  font: var(--md-sys-typescale-body-sm);
+  transition: var(--md-e-morph);
+}
+
+.nu-log li:hover {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-md);
 }
 
 .nu-log__fail md-icon {
   color: var(--md-sys-color-error);
+  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
 }
 
 .nu-log__ok md-icon {
   color: var(--md-sys-color-primary);
+  font-variation-settings: "FILL" 1, "wght" 700, "GRAD" 0, "opsz" 24;
 }
 
 /* --- snackbar ------------------------------------------------------------ */
@@ -653,29 +1075,37 @@ body {
 
 .nu-snackbar-host {
   position: fixed;
-  inset-inline-start: 16px;
-  bottom: 16px;
+  inset-inline-start: var(--md-sys-space-200);
+  bottom: var(--md-sys-space-200);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--md-sys-space-100);
   z-index: 70;
   pointer-events: none;
 }
 
+/* Expressive keeps the inverse surface but gives it a real radius and a spring
+   on the way in, so a report arrives as an object rather than a bar */
 .nu-snackbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--md-sys-space-100);
   min-width: 288px;
   max-width: 56vw;
-  padding: 0 12px 0 16px;
-  min-height: 48px;
-  border-radius: var(--md-sys-shape-corner-xs);
+  padding: var(--md-sys-space-100) var(--md-sys-space-150) var(--md-sys-space-100) var(--md-sys-space-250);
+  min-height: 52px;
+  border-radius: var(--md-sys-shape-corner-xl);
   background: var(--md-sys-color-inverse-surface);
   color: var(--md-sys-color-inverse-on-surface);
   box-shadow: var(--md-sys-elevation-level3);
-  font: var(--md-sys-typescale-body-medium);
+  font: var(--md-sys-typescale-emphasized-body-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
   pointer-events: auto;
+  transition: var(--md-e-morph);
+}
+
+.nu-snackbar:hover {
+  border-radius: var(--md-sys-shape-corner-xxl);
 }
 
 .nu-snackbar__label {
@@ -683,25 +1113,30 @@ body {
 }
 
 /* --- data table ---------------------------------------------------------- */
-/* M3 has no table component; md-navigation-rail/table are built from tokens. */
+/* M3 has no table component; the shell is built from tokens. */
 
 .nu-table-wrap {
   overflow: auto;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-md);
-  background: var(--md-sys-color-surface);
+  border-radius: var(--md-e-shape-surface);
+  background: var(--md-sys-color-surface-container-low);
+  padding: var(--md-sys-space-100);
+  transition: var(--md-e-morph);
+}
+
+.nu-table-wrap:hover {
+  border-radius: var(--md-e-shape-surface-hover);
 }
 
 .nu-table {
   width: 100%;
   border-collapse: collapse;
-  font: var(--md-sys-typescale-body-small);
+  font: var(--md-sys-typescale-body-md);
 }
 
 .nu-table th,
 .nu-table td {
-  padding: 0 16px;
-  height: 52px;
+  padding: 0 var(--md-sys-space-200);
+  height: 56px;
   text-align: start;
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
   white-space: nowrap;
@@ -711,40 +1146,53 @@ body {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--md-sys-color-surface);
+  background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-label-large);
+  font: var(--md-sys-typescale-emphasized-label-lg);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-lg-axes);
+}
+
+.nu-table tbody tr {
+  transition: var(--md-e-morph);
 }
 
 .nu-table tbody tr:hover {
   background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  border-radius: var(--md-sys-shape-corner-lg);
 }
 
 .nu-table tbody tr[data-selected="true"] {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
+  border-radius: var(--md-sys-shape-corner-lg-increased);
 }
 
 .nu-table__sort {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--md-sys-space-050);
   background: none;
   border: 0;
   color: inherit;
   font: inherit;
   cursor: pointer;
-  padding: 0;
+  padding: var(--md-sys-space-050) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: var(--md-e-morph);
+}
+
+.nu-table__sort:hover {
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-sys-shape-corner-md);
 }
 
 .nu-table__sort:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+  outline: 3px solid var(--md-sys-color-primary);
   outline-offset: 2px;
-  border-radius: var(--md-sys-shape-corner-xs);
 }
 
-/* Per-row table controls: upstream's table cells are plain buttons that inherit the row's
-   typography (`grid-view.js:175-186`) — no filled chip, no card. The state is carried by glyph
+/* Per-row table controls: upstream's table cells are plain buttons that inherit
+   the row's typography — no filled chip, no card. The state is carried by glyph
    (★/☆, ⏸/▶) and by the accent colour for an active Batch/Stack. */
 .nu-table__act {
   background: none;
@@ -753,8 +1201,14 @@ body {
   font: inherit;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--md-sys-shape-corner-xs);
+  padding: var(--md-sys-space-050) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: var(--md-e-morph);
+}
+
+.nu-table__act:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  border-radius: var(--md-sys-shape-corner-sm);
 }
 
 .nu-table__act--on {
@@ -767,20 +1221,205 @@ body {
 }
 
 .nu-table__act:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+  outline: 3px solid var(--md-sys-color-primary);
   outline-offset: 2px;
 }
 
-/* Upstream's empty state (`grid-view.js:39-42`), one placeholder for "this type has no models"
-   and "nothing matches the filters", rendered in both the grid and the table. */
+/* Upstream's empty state, one placeholder for "this type has no models" and
+   "nothing matches the filters", rendered in both the grid and the table. */
 .nu-placeholder {
-  margin: 16px 0;
+  margin: var(--md-sys-space-200) 0;
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-body-small);
+  font: var(--md-sys-typescale-emphasized-body-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-body-md-axes);
   text-align: center;
+  padding: var(--md-sys-space-200);
+  border-radius: var(--md-sys-shape-corner-xl);
+  background: var(--md-sys-color-surface-container-low);
+}
+
+/* --- dialogs --------------------------------------------------------------- */
+/* md-dialog supplies the scrim, focus trap and Escape handling; only its slotted
+   content is styled here (its shape comes from the generated hooks). */
+
+.nu-dialog-portal {
+  display: contents;
+}
+
+.nu-dialog__body {
+  font: var(--md-sys-typescale-body-md);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.nu-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-space-100);
+  justify-content: flex-end;
+}
+
+.nu-dialog__actions > :first-child:last-child {
+  justify-content: center;
+}
+
+.nu-dialog__input {
+  width: 100%;
+  margin-block-start: var(--md-sys-space-150);
+  padding: var(--md-sys-space-150) var(--md-sys-space-200);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-lg-increased);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-lg);
+  transition: var(--md-e-morph);
+}
+
+.nu-dialog__input:hover {
+  border-radius: var(--md-sys-shape-corner-xl);
+}
+
+.nu-dialog__input:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* Destructive confirmation, expressed through the error role rather than a
+   hard-coded colour. */
+md-filled-button.nu-btn--danger {
+  --md-filled-button-container-color: var(--md-sys-color-error);
+  --md-filled-button-label-text-color: var(--md-sys-color-on-error);
+  --md-filled-button-hover-state-layer-color: var(--md-sys-color-on-error);
+  --md-filled-button-focus-state-layer-color: var(--md-sys-color-on-error);
+  --md-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error);
+}
+
+/* --- Artists view ---------------------------------------------------------- */
+/* The lightbox is a viewer, so it keeps the scrim and the dark plate; what it
+   borrows from Expressive is the shape language of the card around the art. */
+.nu-artist-lightbox-scrim {
+  position: fixed;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--md-sys-color-scrim) 85%, transparent);
+  backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--nu-surface-pad);
+}
+
+.nu-artist-lightbox-card {
+  background-color: var(--md-sys-color-surface);
+  border-radius: var(--md-sys-shape-corner-xxl);
+  max-width: 920px;
+  max-height: 90vh;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+  box-shadow: var(--md-sys-elevation-level5);
+}
+
+.nu-artist-lightbox-preview {
+  flex: 1 1 56%;
+  background-color: var(--md-sys-color-surface-container-lowest);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 88vh;
+  overflow: hidden;
+  position: relative;
+  padding: var(--md-sys-space-200);
+}
+
+.nu-artist-lightbox-img {
+  position: relative;
+  max-width: 100%;
+  max-height: 84vh;
+  object-fit: contain;
+  z-index: 1;
+  border-radius: var(--md-sys-shape-corner-xl);
+  box-shadow: var(--md-sys-elevation-level4);
+}
+
+.nu-artist-lightbox-empty {
+  color: var(--md-sys-color-outline);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.nu-artist-cat-badge {
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  padding: var(--md-sys-space-025) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+  background-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.nu-artist-notrigger-badge {
+  display: inline-block;
+  background-color: var(--md-e-color-tone-spring-container);
+  color: var(--md-e-color-tone-spring-on);
+  padding: var(--md-sys-space-050) var(--md-sys-space-150);
+  border-radius: var(--md-sys-shape-corner-full);
+  font: var(--md-sys-typescale-emphasized-label-md);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-md-axes);
+}
+
+.nu-artist-card-thumb {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  background-color: var(--md-sys-color-surface-container-highest);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nu-artist-chip-category {
+  background-color: var(--md-e-color-tone-sky-container);
+  color: var(--md-e-color-tone-sky-on);
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  padding: var(--md-sys-space-025) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+.nu-artist-chip-arch {
+  background-color: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  padding: var(--md-sys-space-025) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+  text-transform: uppercase;
+}
+
+.nu-artist-chip-group {
+  background-color: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  padding: var(--md-sys-space-025) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
+}
+
+.nu-artist-notrigger-pill {
+  font: var(--md-sys-typescale-emphasized-label-sm);
+  font-variation-settings: var(--md-sys-typescale-emphasized-label-sm-axes);
+  color: var(--md-e-color-tone-spring-on);
+  background-color: var(--md-e-color-tone-spring-container);
+  padding: var(--md-sys-space-025) var(--md-sys-space-100);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 
 /* --- narrow viewports ---------------------------------------------------- */
+/* The rail gives up its labels below 840px and the tiles shrink to the 48dp
+   target; the breakpoint and the three values are asserted by
+   tools/core-tests/core.test.mjs, so they change together or not at all. */
 
 @media (max-width: 839px) {
   .nu-app {
@@ -796,11 +1435,28 @@ body {
     width: 48px;
   }
 
+  .nu-rail__item {
+    min-height: 56px;
+  }
+
   .nu-top-bar {
-    padding: 0 8px;
-    gap: 8px;
+    padding: 0 var(--md-sys-space-150);
+    gap: var(--md-sys-space-100);
+  }
+
+  .nu-top-bar__title {
+    font: var(--md-sys-typescale-emphasized-title-lg);
+    font-variation-settings: var(--md-sys-typescale-emphasized-title-lg-axes);
+  }
+
+  .nu-hero__art {
+    transform: none;
   }
 }
+
+/* --- reduced motion ------------------------------------------------------ */
+/* The token file zeroes every duration, so nothing springs at all. What still
+   has to be stopped here is anything this file declares outside those tokens. */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -810,173 +1466,12 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+
+  .nu-hero__art,
+  .nu-shot__hit:hover,
+  .nu-card__hit:hover,
+  .nu-rail__item:active,
+  .nu-file:active {
+    transform: none;
+  }
 }
-
-/* --- dialogs --------------------------------------------------------------- */
-/* md-dialog supplies the scrim, focus trap and Escape handling; only its slotted
-   content is styled here. */
-
-.nu-dialog-portal {
-  display: contents;
-}
-
-.nu-dialog__body {
-  font: var(--md-sys-typescale-body-medium);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-.nu-dialog__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.nu-dialog__input {
-  width: 100%;
-  margin-block-start: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: var(--md-sys-shape-corner-xs);
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-body-large);
-}
-
-.nu-dialog__input:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: 1px;
-}
-
-/* Destructive confirmation, expressed through the error role rather than a
-   hard-coded colour. */
-md-filled-button.nu-btn--danger {
-  --md-filled-button-container-color: var(--md-sys-color-error);
-  --md-filled-button-label-text-color: var(--md-sys-color-on-error);
-  --md-filled-button-hover-state-layer-color: var(--md-sys-color-on-error);
-  --md-filled-button-focus-state-layer-color: var(--md-sys-color-on-error);
-  --md-filled-button-pressed-state-layer-color: var(--md-sys-color-on-error);
-}
-
-/* --- Artists view ---------------------------------------------------------- */
-.nu-artist-lightbox-scrim {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.nu-artist-lightbox-card {
-  background-color: var(--md-sys-color-surface);
-  border-radius: var(--md-sys-shape-corner-xl, 16px);
-  max-width: 920px;
-  max-height: 90vh;
-  width: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: row;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-}
-
-.nu-artist-lightbox-preview {
-  flex: 1 1 56%;
-  background-color: #080808;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  max-height: 88vh;
-  overflow: hidden;
-  position: relative;
-  padding: 16px;
-}
-
-.nu-artist-lightbox-img {
-  position: relative;
-  max-width: 100%;
-  max-height: 84vh;
-  object-fit: contain;
-  z-index: 1;
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
-}
-
-.nu-artist-lightbox-empty {
-  color: var(--md-sys-color-outline);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.nu-artist-cat-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background-color: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-  font-weight: 600;
-}
-
-.nu-artist-notrigger-badge {
-  display: inline-block;
-  background-color: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-weight: 500;
-}
-
-.nu-artist-card-thumb {
-  position: relative;
-  width: 100%;
-  height: 250px;
-  background-color: #0d0d0d;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.nu-artist-chip-category {
-  background-color: rgba(59, 130, 246, 0.85);
-  backdrop-filter: blur(4px);
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.nu-artist-chip-arch {
-  background-color: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-}
-
-.nu-artist-chip-group {
-  background-color: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  color: #cccccc;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.nu-artist-notrigger-pill {
-  font-size: 11px;
-  color: #16a34a;
-  background-color: rgba(34, 197, 94, 0.12);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: 500;
-}
-

@@ -328,6 +328,44 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# E — the Expressive layer: generated hooks match the package, tone pairs hold AA
+# ---------------------------------------------------------------------------
+# Both of these fail for reasons no type error can see: an @property whose
+# initial-value is a var() is dropped silently (the morph becomes a jump), and a
+# tone pair can miss AA by a hue change that keeps every token name intact.
+if [ -f tools/gen-expressive-shape-hooks.mjs ]; then
+    if node tools/gen-expressive-shape-hooks.mjs --check >/tmp/wfm-expressive-hooks.log 2>&1; then
+        pass "E1  expressive shape hooks match the installed @material/web"
+    else
+        fail "E1  static/css/newui/expressive-hooks.css is stale for this package"
+        tail -10 /tmp/wfm-expressive-hooks.log
+    fi
+else
+    fail "E1  tools/gen-expressive-shape-hooks.mjs is missing"
+fi
+
+if [ -f tools/expressive-palette-check.mjs ]; then
+    if node tools/expressive-palette-check.mjs >/tmp/wfm-expressive-palette.log 2>&1; then
+        pass "E2  expressive tone pairs pass AA in both schemes (controls reproduced)"
+    else
+        fail "E2  palette check: a pair misses AA, or the controls no longer match"
+        tail -12 /tmp/wfm-expressive-palette.log
+    fi
+else
+    fail "E2  tools/expressive-palette-check.mjs is missing"
+fi
+
+# @property registrations with a var() initial-value are discarded without a
+# warning, which is exactly the silent failure E1 cannot see (the file would still
+# match its generator). The rule is therefore checked in the output too.
+if rg -q 'initial-value:\s*var\(' static/css/newui/expressive-hooks.css 2>/dev/null; then
+    fail "E3  an @property initial-value is a var() — that registration is dropped by the browser"
+    rg -n 'initial-value:\s*var\(' static/css/newui/expressive-hooks.css | head -5
+else
+    pass "E3  every @property initial-value is a literal length"
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n================ %s passed, %s failed ================\n' "$PASS" "$FAIL"
 cat <<'EOF'
 Live-browser items (brief §8 6-10) are measured and logged in MIGRATION-NOTES §5.1:

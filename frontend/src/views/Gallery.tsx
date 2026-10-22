@@ -238,7 +238,7 @@ export default function Gallery({ navigate }: ViewProps): ReactElement {
                     ))}
                 </MdOutlinedCard>
 
-                <div className="nu-grid">
+                <div className="nu-grid nu-tone-cycle">
                     {images.map((shot) => (
                         <figure key={shot.path} className="nu-shot">
                             <button type="button" className="nu-shot__hit" onClick={() => (selectMode ? setSelected((p) => {

@@ -597,7 +597,7 @@ export default function Artists({ navigate }: ViewProps): ReactElement {
             {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <div>
-                    <h2 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
+                    <h2 className="nu-section__title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span>🎨 全量 LoRA 视觉画廊与挑选中心</span>
                         <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--md-sys-color-outline)", backgroundColor: "var(--md-sys-color-surface-container)", padding: "2px 10px", borderRadius: 12 }}>
                             全库 {artists.length} 个 LoRA · {withPreviewCount} 个带预览图 · 当前显示 {filtered.length} 个
@@ -1043,13 +1043,12 @@ function ArtistCard({
                 {/* Checkbox for batch management */}
                 {manageMode ? (
                     <div
+                        className="nu-artist-overlay"
                         style={{
                             position: "absolute",
                             top: 8,
                             left: 8,
                             zIndex: 10,
-                            backgroundColor: "rgba(0,0,0,0.6)",
-                            borderRadius: 8,
                             padding: "2px",
                             display: "flex",
                             alignItems: "center",

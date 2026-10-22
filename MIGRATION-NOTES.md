@@ -917,3 +917,85 @@ cp axe-core/package/axe.min.js static/newui/
 #   # 9 s is the floor, not a guess: /object_info alone is 16 MB / ~13 s over the tunnel, and a
 #   # route scanned before that yields a confident "0 violations" over an empty shell.
 ```
+
+---
+
+## 9. 2026-10-22 — md3ui rewritten as Material 3 Expressive
+
+### What this is
+
+The new UI was Material 3 classic: one accent, 12px cards, 400-weight headings, static
+shapes, standard easing. It is now the same components, the same routes and the same data
+path laid out in the Expressive language — shape that moves, container colour that means
+something, type in the emphasized tier, and one spring instead of eight unrelated durations.
+
+References used, in the three classes the token file tags:
+
+| class | source | what was taken |
+| --- | --- | --- |
+| SPEC | `node_modules/@material/web/labs/gb/styles/m3.css` (Google, Apache-2.0) | the corner family (`xs…xxl`, `lg-increased`, `xl-increased`, `full`), the space scale, `extra-long1..4` durations, the emphasized typescale roles with their `"ROND" 100` axes, `--md-icon-*` |
+| MEASURED | `~/Base/Code/Ikaros/Inkloom/src/styles/expressive.css`, `~/Base/Code/Ikaros/CV/hibernalglow.github.io/DESIGN.md` | the spatial spring as `linear()` (350 ms, peak +6 % at 40 %), effects 180 ms, the pill→20px→12px morph, the notched hero plate `48px 48px 48px 12px`, the four-tone container set, connected-control 28px/6px |
+| PRODUCT | this app | where the morph is spent, 148 px hero band, rail grouped into three labelled clusters, tone bound to the cluster rather than to decoration |
+
+No `labs/gb` **component** was mounted. `labs/gb/…/*-element.js` imports its stylesheet as
+`import css from './x.css' with { type: 'css' }`, which rolldown-vite does not resolve (22
+MISSING_EXPORT errors, recorded in `/Users/glow/Base/Works/ComfyUI/_bmd3.log`); the tokens are
+deep-importable as text, the elements are not. Classic components stay, retargeted through
+their public hooks — the reason for the generated hook file below.
+
+### Files
+
+| file | change |
+| --- | --- |
+| `static/css/newui/m3-tokens.css` | layer 2 becomes Expressive: corner family + non-uniform shape states + space scale + `extra-long` tiers + `linear()` springs + emphasized typescale + `-font`/`-axes` siblings + legacy shape-name aliases + three new tone palettes (spring 145, peach 55, sky 255) + tone roles |
+| `static/css/newui/theme-m3.css` | tone pairs in all four scheme blocks, and the contrast note that says which tone numbers they reuse |
+| `static/css/newui/expressive-hooks.css` | **generated** — 107 `@property` registrations + 23 morph rules covering every `md-*` element `frontend/src/md.ts` mounts |
+| `static/css/newui/expressive.css` | `@font-face` for the self-hosted Roboto Flex variable file, focus-ring hooks, icon `font-variation-settings`, the `--tone` utilities and the hero/section/connected/pressable primitives |
+| `static/css/newui/fonts/*.woff2` | Roboto Flex latin-full (326 kB) copied out of `@fontsource-variable/roboto-flex` so the plugin stays offline |
+| `tools/gen-expressive-shape-hooks.mjs` | the generator: reads hook names out of the package's compiled JS and the element list out of `md.ts`, asserts each literal `initial-value` still equals the token it mirrors, `--check` for drift |
+| `tools/expressive-palette-check.mjs` | WCAG arithmetic for the new tone pairs, gated on reproducing the two documented control numbers |
+| `tools/check-newui.sh` | gates E1/E2/E3 added |
+| `frontend/src/theme.css` | rewritten: every `nu-*` class restated in the expressive language; shell hero, grouped rail, wordmark app bar; tone-cycled grids; Artists' inline `rgba(0,0,0,.6)` replaced by `.nu-artist-overlay` (that literal was the pre-existing A5a failure) |
+| `frontend/src/App.tsx` | app bar = wordmark + status pill; rail = three labelled clusters; one hero band per screen (destination name, purpose line, cluster-tone mark) |
+| `frontend/src/useHashRoute.ts` | `ViewDef` gains `blurb/blurbKey/group`; `VIEW_GROUPS` |
+| `frontend/src/views/{Gallery,Models,Generate,Artists}.tsx` | grids get `nu-tone-cycle`; Artists' heading moved onto `nu-section__title` |
+
+### Measured on 2026-10-22
+
+* `tsc --noEmit` clean; `vite build` clean (CSS 131.5 kB).
+* `bash tools/check-newui.sh` — **31 gates, 0 failed** (was 28/1: A5a's pre-existing colour
+  literal is gone, and E1/E2/E3 are new).
+* `node --test tools/core-tests/` — 117 passed, 0 failed, including the rail-collapse
+  responsive test, which the rewrite keeps at 839px / 56px / 48px on purpose.
+* Palette check: controls reproduced exactly (7.24:1 dark, 13.27:1 light), and the eight new
+  tone pairs land at 6.82 / 7.22 / 7.07 (dark) and 13.19 / 13.26 / 13.25 (light) — all AA.
+* In-browser, on the dev bundle: Roboto Flex actually resolved (`document.fonts.check` true),
+  hero computed as 700 / `"ROND" 100` / −1.02px tracking, rail = 7 items in 3 labelled groups
+  (Create / Library / Studio), active tile `oklch(0.4048 0.098 290)` at 9999px with
+  `transition: border-radius, background-color, color`, `--md-e-spatial-fast` resolving to the
+  `linear()` spring, and a `md-outlined-button`'s shadow `.container` sitting at 9999px at rest
+  (proof the generated hook is the one the component reads).
+* Wide-layout properties were read through a same-origin 1440×900 iframe (the in-app browser
+  surface itself was 0×0): hero tilt `rotate(-2deg)`, notch `48px/12px`, rail labels visible,
+  grid `96px 1344px`, hero 56px, panel radius 32px, snackbar 28px, active icon
+  `"FILL" 1 … "wght" 700`.
+
+### Not measured — what is still owed
+
+1. **Nobody has looked at it.** Every number above is a computed value. A screenshot was
+   attempted and the in-app browser refused: `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE … visible=false`.
+   Whether the shapes *look* Expressive — and whether the morph reads as one movement rather
+   than four — is still unverified, and springs in particular cannot be judged from a
+   computed value.
+2. **The shape morph is unproven in motion.** `@material/web` resolves a public hook into an
+   internal `--_container-shape-*` alias inside each shadow tree, so host-side interpolation has
+   to survive that indirection. The attempt to watch it interpolate was made on a hidden page,
+   where transitions do not run at all — the result is inconclusive, not negative. A guaranteed
+   fallback for the same gesture (`transform: scale(.96)` on press, `translateY(-2px)` on hover)
+   was added to `theme.css` for this reason; it needs the same visual pass.
+3. **axe-core and the DOM contrast walk were not re-run.** The tone pairs are arithmetic-certified
+   (item 3 above) but the 635-sample DOM audit predates the typescale change; §5.1's claim should
+   not be quoted as current until it runs again.
+4. **The data-bound views were seen empty.** No ComfyUI was reachable, so Models/Gallery/Generate
+   were rendered as their offline states. Their filters, badges and detail panels are unreviewed.
+5. **The `workflow`/`prompt`/`settings` forms** were not exercised against a live node graph.

@@ -720,7 +720,7 @@ export default function Models({ navigate }: ViewProps): ReactElement {
                            before the view branch — exactly upstream's guard (`grid-view.js:39-42`). */
                         <p className="nu-placeholder">{tr("nu.models.noneFound", "No models found")}</p>
                     ) : view === "thumb" ? (
-                        <div className="nu-grid">
+                        <div className="nu-grid nu-tone-cycle">
                             {slice.map((r) => (
                                 <MdOutlinedCard key={r.name}>
                                     <button type="button" className="nu-card__hit" onClick={() => (selectMode ? toggleSelect(r.name) : setDetail(r))}>

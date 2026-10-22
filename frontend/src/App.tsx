@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState, type ReactElement } from "react";
 import { MdIconButton, MdIcon, MdLinearProgress } from "./md.js";
-import { useHashRoute, VIEWS, FIRST_VIEW, type ViewDef, type ViewId } from "./useHashRoute.js";
+import { useHashRoute, VIEWS, VIEW_GROUPS, FIRST_VIEW, type ViewDef, type ViewId } from "./useHashRoute.js";
 import { SnackbarProvider, useSnackbar } from "./snackbar.js";
 import { comfyUI, initI18n, readPref, setVramToastSink, writePref, tr } from "core";
 
@@ -48,6 +48,18 @@ function ConnectionDot({ connected }: { connected: boolean | null }): ReactEleme
         </span>
     );
 }
+
+/**
+ * The Expressive tone of a cluster of destinations. Colour here is not
+ * decoration: it is the same signal in the hero and in the selected rail item,
+ * so a glance at the accent says which cluster you are in. The pairs are the
+ * audited container/on-container roles (see theme-m3.css).
+ */
+const TONE_BY_GROUP: Record<ViewDef["group"], string> = {
+    create: "primary",
+    library: "sky",
+    system: "spring",
+};
 
 function Shell(): ReactElement {
     const { view, params, navigate } = useHashRoute();
@@ -117,11 +129,14 @@ function Shell(): ReactElement {
     }, [wentOffline, snackbar, navigate]);
 
     return (
-        <div className="nu-app">
+        <div className={"nu-app nu-tone--" + TONE_BY_GROUP[active.group]}>
             <header className="nu-top-bar">
-                <h1 className="nu-top-bar__title">{tr(active.labelKey, active.label)}</h1>
+                {/* the app bar says who the product is; the destination is said once,
+                    in the hero below, so the same words are not stacked twice */}
+                <span className="nu-top-bar__wordmark">{tr("nu.app.title", "Workflow Studio")}</span>
                 <ConnectionDot connected={connected} />
                 <MdIconButton
+                    className="nu-top-bar__action"
                     aria-label={tr("nu.action.toggleTheme", "Toggle colour scheme")}
                     title={tr("nu.action.toggleTheme", "Toggle colour scheme")}
                     onClick={toggleTheme}
@@ -129,6 +144,7 @@ function Shell(): ReactElement {
                     <MdIcon>{theme === "m3-light" ? "dark_mode" : "light_mode"}</MdIcon>
                 </MdIconButton>
                 <MdIconButton
+                    className="nu-top-bar__action"
                     aria-label={tr("nu.action.openOldUi", "Open the previous interface")}
                     title={tr("nu.action.openOldUi", "Open the previous interface")}
                     onClick={() => window.open("/wfm", "_blank", "noopener")}
@@ -138,27 +154,54 @@ function Shell(): ReactElement {
             </header>
 
             <nav className="nu-rail" aria-label={tr("nu.nav.label", "Views")}>
-                {VIEWS.map((item) => {
-                    const isActive = item.id === active.id;
+                {VIEW_GROUPS.map((group) => {
+                    const items = VIEWS.filter((v) => v.group === group.id);
+                    if (!items.length) return null;
                     return (
-                        <button
-                            key={item.id}
-                            type="button"
-                            className={"nu-rail__item" + (isActive ? " nu-rail__item--active" : "")}
-                            aria-current={isActive ? "page" : undefined}
-                            title={tr(item.labelKey, item.label)}
-                            onClick={() => navigate(item.id)}
-                        >
-                            <span className="nu-rail__icon">
-                                <MdIcon>{item.icon}</MdIcon>
-                            </span>
-                            <span className="nu-rail__label">{tr(item.labelKey, item.label)}</span>
-                        </button>
+                        <div className="nu-rail__group" key={group.id}>
+                            <span className="nu-rail__group-label">{tr(group.labelKey, group.label)}</span>
+                            {items.map((item) => {
+                                const isActive = item.id === active.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        className={"nu-rail__item" + (isActive ? " nu-rail__item--active" : "")}
+                                        aria-current={isActive ? "page" : undefined}
+                                        title={tr(item.labelKey, item.label)}
+                                        onClick={() => navigate(item.id)}
+                                    >
+                                        <span className="nu-rail__icon">
+                                            <MdIcon>{item.icon}</MdIcon>
+                                        </span>
+                                        <span className="nu-rail__label">{tr(item.labelKey, item.label)}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     );
                 })}
             </nav>
 
             <main className="nu-main" id="nu-view-root">
+                <section className="nu-hero" aria-live="polite">
+                    <div className="nu-hero__copy">
+                        <h2 className="nu-hero__title">{tr(active.labelKey, active.label)}</h2>
+                        <p className="nu-hero__lede">{tr(active.blurbKey, active.blurb)}</p>
+                    </div>
+                    {/* the shaped mark is the cluster's colour, tilted, and it straightens
+                        when you point at it — the expressive "engage" gesture */}
+                    <div className="nu-hero__art" aria-hidden="true">
+                        <span className="nu-hero__mark">
+                            <MdIcon>{active.icon}</MdIcon>
+                        </span>
+                        <span className="nu-hero__shapes">
+                            <i className="nu-hero__shape nu-hero__shape--a" />
+                            <i className="nu-hero__shape nu-hero__shape--b" />
+                            <i className="nu-hero__shape nu-hero__shape--c" />
+                        </span>
+                    </div>
+                </section>
                 {Array.from(visitedViews).map((id) => {
                     const ViewComponent = VIEW_MODULES[id];
                     const isCurrent = id === active.id;

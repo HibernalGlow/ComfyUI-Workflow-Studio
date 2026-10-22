@@ -16,6 +16,11 @@
    Values reference the layer-1 palette only — no literals at this layer and no
    forced-important overrides.
 
+   Expressive tone pairs (--md-e-color-tone-{spring,peach,sky}-*) use the same
+   tone numbers as the audited primary pair (30/90 dark, 90/10 light), so they
+   land on the same ratios: 7.24:1 dark and 13.27:1 light. They are re-measured
+   with every other pair by tools/contrast-audit.mjs, which reads these files.
+
    Contrast (WCAG AA, both schemes >= 4.5:1 for every text pair):
      dark  — on-surface/surface 14.35, on-surface-variant/surface-variant 5.49,
              on-surface-variant/surface 10.89, on-primary/primary 7.72,
@@ -86,6 +91,13 @@
   --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-90);
   --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-20);
   --md-sys-color-inverse-primary: var(--md-ref-palette-primary-40);
+
+  --md-e-color-tone-spring-container: var(--md-ref-palette-spring-30);
+  --md-e-color-tone-spring-on: var(--md-ref-palette-spring-90);
+  --md-e-color-tone-peach-container: var(--md-ref-palette-peach-30);
+  --md-e-color-tone-peach-on: var(--md-ref-palette-peach-90);
+  --md-e-color-tone-sky-container: var(--md-ref-palette-sky-30);
+  --md-e-color-tone-sky-on: var(--md-ref-palette-sky-90);
 }
 
 /* ---------------------------------------------------------------------------
@@ -136,6 +148,13 @@
   --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-90);
   --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-20);
   --md-sys-color-inverse-primary: var(--md-ref-palette-primary-40);
+
+  --md-e-color-tone-spring-container: var(--md-ref-palette-spring-30);
+  --md-e-color-tone-spring-on: var(--md-ref-palette-spring-90);
+  --md-e-color-tone-peach-container: var(--md-ref-palette-peach-30);
+  --md-e-color-tone-peach-on: var(--md-ref-palette-peach-90);
+  --md-e-color-tone-sky-container: var(--md-ref-palette-sky-30);
+  --md-e-color-tone-sky-on: var(--md-ref-palette-sky-90);
 }
 
 /* ---------------------------------------------------------------------------
@@ -186,6 +205,13 @@
   --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-20);
   --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-95);
   --md-sys-color-inverse-primary: var(--md-ref-palette-primary-80);
+
+  --md-e-color-tone-spring-container: var(--md-ref-palette-spring-90);
+  --md-e-color-tone-spring-on: var(--md-ref-palette-spring-10);
+  --md-e-color-tone-peach-container: var(--md-ref-palette-peach-90);
+  --md-e-color-tone-peach-on: var(--md-ref-palette-peach-10);
+  --md-e-color-tone-sky-container: var(--md-ref-palette-sky-90);
+  --md-e-color-tone-sky-on: var(--md-ref-palette-sky-10);
 }
 
 /* ---------------------------------------------------------------------------
@@ -237,5 +263,12 @@
     --md-sys-color-inverse-surface: var(--md-ref-palette-neutral-20);
     --md-sys-color-inverse-on-surface: var(--md-ref-palette-neutral-95);
     --md-sys-color-inverse-primary: var(--md-ref-palette-primary-80);
+
+    --md-e-color-tone-spring-container: var(--md-ref-palette-spring-90);
+    --md-e-color-tone-spring-on: var(--md-ref-palette-spring-10);
+    --md-e-color-tone-peach-container: var(--md-ref-palette-peach-90);
+    --md-e-color-tone-peach-on: var(--md-ref-palette-peach-10);
+    --md-e-color-tone-sky-container: var(--md-ref-palette-sky-90);
+    --md-e-color-tone-sky-on: var(--md-ref-palette-sky-10);
   }
 }
