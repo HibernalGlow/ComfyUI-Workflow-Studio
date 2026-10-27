@@ -115,7 +115,6 @@ export default function Prompt(_props: ViewProps): ReactElement {
                     />
                     <MdOutlinedTextField
                         label={tr("nu.prompt.body", "Text (supports __wildcard__ tokens)")}
-                        type="textarea"
                         value={textOf(draft)}
                         rows={6}
                         onInput={(e) => setDraft((d) => ({ ...d, text: (e.target as HTMLTextAreaElement & HTMLInputElement).value }))}
