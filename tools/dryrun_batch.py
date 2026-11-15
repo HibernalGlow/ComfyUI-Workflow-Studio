@@ -15,6 +15,7 @@
 
 import json
 import sys
+import urllib.parse
 import urllib.request
 from collections import Counter, OrderedDict
 from pathlib import Path
@@ -62,6 +63,9 @@ def main() -> int:
 
     rtb, cfg, base_preset = load_story(toml)
     pages = sorted(rtb.PAGES_DIR.glob(rtb.PAGE_GLOB))
+    if not pages:
+        print(f"❌ 页面目录没有匹配 {rtb.PAGE_GLOB} 的文件：{rtb.PAGES_DIR}")
+        return 1
 
     print(f"📄 {toml}")
     print(f"   作品：{cfg.get('story', {}).get('name')}｜页面：{rtb.PAGES_DIR}")
@@ -69,6 +73,8 @@ def main() -> int:
     print(f"   底模：{rtb.UNET_NAME}")
     print(f"   基线预设：{base_preset}｜基线 LoRA：{' / '.join(l[1] for l in rtb.LORAS)}")
     print(f"   正向前缀：{rtb.QUALITY_PREFIX}")
+    if rtb.ARCH == "moss":
+        print(f"   架构：moss ｜ {rtb.STEPS}步 CFG{rtb.CFG} {rtb.SAMPLER}/{rtb.SCHEDULER}")
     if rtb.ARCH == "anima-incontext":
         ref_names = ", ".join(r.get("image", "") for r in rtb.INCONTEXT.get("refs", []))
         print(f"   架构：anima-incontext ｜ 参考图：{ref_names or '无'}")
@@ -101,6 +107,17 @@ def main() -> int:
         stack = [(l[1], l[2], l[3], l[4], "base") for l in rtb.LORAS]
         stack += [(n, p, mw, cw, "rule") for _s, n, p, mw, cw in extra]
 
+        # MOSS 的宽高、单采样限制和真实节点链路也必须在 dry-run 时验证。
+        # 调共享图构造器；不投递任何 GPU 任务。
+        canvas = rtb.resolve_page_canvas(page.stem)
+        pw, ph = canvas.get("width") or rtb.WIDTH, canvas.get("height") or rtb.HEIGHT
+        if rtb.ARCH == "moss":
+            graph = rtb.build_workflow(positive, "dryrun/" + code, width=pw, height=ph)
+            if positive.startswith("{"):
+                layout = json.loads(positive)
+                if layout.get("summary", {}).get("canvas") == "multi_panel":
+                    print(f"   Layout {code}：{len(layout.get('items', []))} items")
+
         preset_use[preset or "(沿用上一页)"] += 1
         # ── 采样验证闸：踩脚页不该跑双彩 ──────────────────────
         foot_hits = rtb.check_foot_preset(positive, preset)
@@ -119,6 +136,8 @@ def main() -> int:
         if not quiet:
             print(f"\n[{i:03d}/{len(pages)}] {code}   规则：{rule_names}")
             print(f"         预设：{preset}" + ("   ⚠️ 沿用上一页" if psrc == "inherit" else ""))
+            if rtb.ARCH == "moss":
+                print(f"         画布：{pw}x{ph} ({pw*ph:,} 像素) ｜ 单 KSampler，无 ModelSampling 节点")
             if rtb.ARCH == "anima-incontext":
                 canvas = rtb.resolve_page_canvas(page.stem)
                 pw = canvas.get("width") or rtb.WIDTH
@@ -206,6 +225,24 @@ def main() -> int:
         print("\n   常见原因：目录写错（outfit vs clothes）、文件名拼错、文件未落盘。")
         return 1
     print(f"✅ 全部 {len(lora_use)} 条 LoRA 路径均已注册。")
+
+    if rtb.ARCH == "moss":
+        # MOSS 的三个模型和真实 loader 类型均从后端节点 schema 核对，
+        # 不只核对 CR Stack 列出的 LoRA 文件名。
+        try:
+            for nid, node in graph.items():
+                kind = node["class_type"]
+                url = f"http://{COMFY_HOST}/object_info/" + urllib.parse.quote(kind)
+                with urllib.request.urlopen(url, timeout=15) as response:
+                    schema = json.load(response)[kind]["input"]["required"]
+                for key, spec in schema.items():
+                    value = node["inputs"].get(key)
+                    if isinstance(spec[0], list) and value not in spec[0]:
+                        raise ValueError(f"{kind}.{key}={value!r} 不在已注册选项中")
+            print("✅ MOSS 模型、LoRA、采样器与保存节点均通过后端 schema 核对。")
+        except Exception as error:
+            print(f"❌ MOSS 节点校验失败：{error}")
+            return 1
 
     if rtb.ARCH == "anima-incontext":
         if ref_missing:

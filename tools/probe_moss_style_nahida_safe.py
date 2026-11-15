@@ -17,6 +17,7 @@ from pathlib import Path
 
 HOST = "http://127.0.0.1:8188"
 UNET = "moss_image_sft_int8_convrot.safetensors"
+HEAL_UNET = r"moss\moss_image_heal_int8_convrot.safetensors"
 TE = "qwen3.5_9b_w4a8_gptq.safetensors"
 VAE = "flux2-vae_small.safetensors"
 FKEY = r"moss\MOSS_fkey-lora-r4-muon-step6840-comfy.safetensors"
@@ -49,26 +50,27 @@ def api(path: str, payload=None, timeout=120):
         return json.loads(r.read())
 
 
-def build(style="fkey"):
+def build(style="fkey", base="sft"):
+    unet = UNET if base == "sft" else HEAL_UNET
     if style == "fkey":
         lora = FKEY
         strength = 0.6
-        prefix = "probe_moss/fkey_nahida_greenhouse_sfw"
+        prefix = f"probe_moss/fkey_nahida_greenhouse_{base}_sfw"
         positive = POSITIVE
     elif style == "freng":
         # Civitai states the MOSS-heal variant has no trigger word. Remove the
         # Fkey structural token so the comparison isolates the style adapter.
         lora = FRENG
         strength = 0.7
-        prefix = "probe_moss/freng_nahida_greenhouse_sfw"
+        prefix = f"probe_moss/freng_nahida_greenhouse_{base}_sfw"
         positive = POSITIVE.removeprefix("<|artist|>fkey<|/artist|>\n")
     else:
         raise ValueError("style must be fkey or freng")
     return {
-        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": UNET, "weight_dtype": "default"}},
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": unet, "weight_dtype": "default"}},
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": TE, "type": "moss_image"}},
         "3": {"class_type": "VAELoader", "inputs": {"vae_name": VAE}},
-        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": POSITIVE, "clip": ["2", 0]}},
+        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": positive, "clip": ["2", 0]}},
         "5": {"class_type": "CLIPTextEncode", "inputs": {"text": NEGATIVE, "clip": ["2", 0]}},
         "6": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1536, "batch_size": 1}},
         # Fkey is a diffusion-model LoRA; this is the proven MOSS path used by
@@ -90,16 +92,17 @@ def build(style="fkey"):
 
 def main():
     style = sys.argv[1].lower() if len(sys.argv) > 1 else "fkey"
-    if style not in {"fkey", "freng"}:
-        print("usage: probe_moss_fkey_nahida_safe.py [fkey|freng]")
+    base = sys.argv[2].lower() if len(sys.argv) > 2 else "sft"
+    if style not in {"fkey", "freng"} or base not in {"sft", "heal"}:
+        print("usage: probe_moss_style_nahida_safe.py [fkey|freng] [sft|heal]")
         return 2
     try:
-        queued = api("/prompt", {"prompt": build(style), "client_id": str(uuid.uuid4())})
+        queued = api("/prompt", {"prompt": build(style, base), "client_id": str(uuid.uuid4())})
     except urllib.error.HTTPError as e:
         print("HTTP", e.code, e.read().decode(errors="replace")[:3000])
         return 1
     pid = queued["prompt_id"]
-    print(f"queued {pid} -> {style}", flush=True)
+    print(f"queued {pid} -> {style}/{base}", flush=True)
     deadline = time.time() + 1800
     while time.time() < deadline:
         time.sleep(5)

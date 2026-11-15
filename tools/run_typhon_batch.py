@@ -43,6 +43,7 @@ UNET_NAME       = "silvermoonmixAnima_v23_INT8.safetensors"
 # ─── 架构开关（由作品 TOML [base] arch 覆盖）─────────────────
 #   "anima"（默认）：OTUNetLoaderW8A8 + qwen CLIP/VAE + FLS_SamplerV4 + CR LoRA Stack
 #   "illus"        ：CheckpointLoaderSimple + LoraLoader 链 + KSampler（SDXL/Illustrious）
+#   "moss"         ：UNETLoader + moss_image CLIP/VAE + model-only LoRA 链 + KSampler
 # 两条线的图结构不通用：anima 的 LoRA 挂不上 SDXL checkpoint，反之亦然。
 ARCH       = "anima"
 CKPT_NAME  = "zukiAnimeILL_best.safetensors"   # illus 线的 checkpoint
@@ -107,6 +108,7 @@ OUTPUT_SUBDIR = "明日方舟_提丰"   # SaveImage 文件名前缀目录名
 NL_APPEND       = ""
 INCONTEXT       = {}
 PAGE_CANVAS     = []
+MAX_PIXELS      = None                 # [validation] max_pixels；干跑与实际投递共用
 
 # 生成后自动回传到 Mac 的根目录（None = 不回传，只留在 ComfyUI 端）。
 # 由作品 TOML 的 [output] mac_dir 设置；路径按 ComfyUI 的 subfolder 结构镜像。
@@ -379,6 +381,15 @@ def _fetch_presets():
 
 def load_preset(preset_id: str) -> dict:
     """按 id 或名称读取预设：优先运行中的 Studio，其次本地 data/gen_presets.json。"""
+    # Studio 的现有实时预设仅覆盖 Anima。MOSS 使用独立架构预设，防止
+    # 误读 Anima 双采样/Turbo；作品仍可通过 [sampling] 显式覆盖参数。
+    if preset_id == "moss-sft-native-30":
+        if ARCH != "moss":
+            raise ValueError("moss-sft-native-30 需要 [base] arch = 'moss'")
+        return {"id": preset_id, "name": "MOSS SFT 原生单采样 30 步",
+                "sampling_mode": "single", "loras": [],
+                "sampler_settings": {"steps": 30, "cfg": 3.0,
+                    "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}}
     presets, src = _fetch_presets()
     for p in presets:
         if p.get("id") == preset_id or p.get("name") == preset_id:
@@ -403,6 +414,12 @@ def _apply_sampling_overrides():
 
     # Illustrious 线：anima 的 FLS 双层采样与 anima-turbo 都不适用
     if ARCH == "illus":
+        SAMPLING_MODE = "single"
+        TURBO_ENABLED = False
+
+    # MOSS-Image ConvRot 走原生 ComfyUI KSampler。不要给它套
+    # ModelSamplingSD3 / AuraFlow；那是另一套工作流，会输出彩色噪点。
+    if ARCH == "moss":
         SAMPLING_MODE = "single"
         TURBO_ENABLED = False
 
@@ -529,11 +546,18 @@ def page_seed(stem: str) -> int:
 def build_workflow(positive_text: str, filename_prefix: str,
                    width: int = None, height: int = None,
                    end_percent: float = None) -> dict:
-    """构造纯净 API 格式工作流。按 ARCH 分流 anima / illus / anima-incontext 三种图结构。"""
+    """构造纯净 API 格式工作流。按 ARCH 分流 anima / illus / anima-incontext / moss。"""
     prompt = {}
 
     w = int(width if width is not None else WIDTH)
     h = int(height if height is not None else HEIGHT)
+    if MAX_PIXELS is not None and w * h > MAX_PIXELS:
+        raise ValueError(f"画布 {w}x{h} = {w*h} 像素，超过本批上限 {MAX_PIXELS}")
+    if ARCH == "moss":
+        if w <= 0 or h <= 0 or w % 16 or h % 16:
+            raise ValueError("MOSS 画布宽高必须是正的 16 倍数")
+        if SAMPLING_MODE != "single" or TURBO_ENABLED:
+            raise ValueError("MOSS ConvRot 使用 single + turbo=false，不适用 Anima 双层采样")
 
     # --- 模型装载：三条线完全不同 ---
     if ARCH == "illus":
@@ -553,6 +577,18 @@ def build_workflow(positive_text: str, filename_prefix: str,
             "vae_name": "qwen_image_vae.safetensors"
         }}
         base_model_ref, clip_ref, vae_ref = ["1", 0], ["4", 0], ["5", 0]
+    elif ARCH == "moss":
+        prompt["1"] = {"class_type": "UNETLoader", "inputs": {
+            "unet_name": UNET_NAME, "weight_dtype": "default"
+        }}
+        prompt["2"] = {"class_type": "CLIPLoader", "inputs": {
+            "clip_name": "qwen3.5_9b_w4a8_gptq.safetensors",
+            "type": "moss_image"
+        }}
+        prompt["3"] = {"class_type": "VAELoader", "inputs": {
+            "vae_name": "flux2-vae_small.safetensors"
+        }}
+        base_model_ref, clip_ref, vae_ref = ["1", 0], ["2", 0], ["3", 0]
     else:
         prompt["1"] = {"class_type": "OTUNetLoaderW8A8", "inputs": {
             "unet_name": UNET_NAME, "weight_dtype": "default",
@@ -591,6 +627,17 @@ def build_workflow(positive_text: str, filename_prefix: str,
             model_ref, clip_ref = [nid, 0], [nid, 1]
     elif ARCH == "anima-incontext":
         # LoraLoaderModelOnly 链 —— in-context 实测跑通的组合（单通道只叠 model，不碰 clip）
+        for _i, (_sw, _nm, path, mw, _cw) in enumerate(page_loras, 1):
+            nid = str(100 + _i)
+            prompt[nid] = {"class_type": "LoraLoaderModelOnly", "inputs": {
+                "model": model_ref,
+                "lora_name": path.replace("/", "\\"),
+                "strength_model": float(mw)
+            }}
+            model_ref = [nid, 0]
+    elif ARCH == "moss":
+        # MOSS LoRA 是 DiT model-only 权重。clip_weight 不参与计算，仍从
+        # TOML 读入以保持作品配置格式一致。
         for _i, (_sw, _nm, path, mw, _cw) in enumerate(page_loras, 1):
             nid = str(100 + _i)
             prompt[nid] = {"class_type": "LoraLoaderModelOnly", "inputs": {
@@ -700,6 +747,21 @@ def build_workflow(positive_text: str, filename_prefix: str,
             "sampler_name": SAMPLER, "scheduler": SCHEDULER, "denoise": float(DENOISE)
         }}
         last_latent = ["40", 0]
+    elif ARCH == "moss":
+        prompt["30"] = {"class_type": "CLIPTextEncode", "inputs": {
+            "text": positive_text, "clip": clip_ref
+        }}
+        prompt["31"] = {"class_type": "CLIPTextEncode", "inputs": {
+            "text": NEGATIVE, "clip": clip_ref
+        }}
+        prompt["40"] = {"class_type": "KSampler", "inputs": {
+            "model": model_ref, "positive": ["30", 0], "negative": ["31", 0],
+            "latent_image": [latent_nid, 0], "seed": SEED,
+            "steps": int(STEPS), "cfg": float(CFG),
+            "sampler_name": SAMPLER, "scheduler": SCHEDULER,
+            "denoise": float(DENOISE)
+        }}
+        last_latent = ["40", 0]
     else:
         prompt["30"] = {"class_type": "CLIPTextEncode", "inputs": {"text": positive_text, "clip": clip_ref}}
         prompt["31"] = {"class_type": "CLIPTextEncode", "inputs": {"text": NEGATIVE,      "clip": clip_ref}}
@@ -737,21 +799,26 @@ def build_workflow(positive_text: str, filename_prefix: str,
                 last_latent = ["40", 0]
 
     prompt["50"] = {"class_type": "VAEDecode",  "inputs": {"samples": last_latent, "vae": vae_ref}}
-    prompt["60"] = {
-        "class_type": "LayerUtility: SaveImagePlus",
-        "inputs": {
-            "images": ["50", 0],
-            "custom_path": "",
-            "filename_prefix": filename_prefix,
-            "timestamp": "None",
-            "format": "png",
-            "quality": 100,
-            "meta_data": True,
-            "blind_watermark": "",
-            "save_workflow_as_json": True,
-            "preview": True
+    if ARCH == "moss":
+        prompt["60"] = {"class_type": "SaveImage", "inputs": {
+            "images": ["50", 0], "filename_prefix": filename_prefix
+        }}
+    else:
+        prompt["60"] = {
+            "class_type": "LayerUtility: SaveImagePlus",
+            "inputs": {
+                "images": ["50", 0],
+                "custom_path": "",
+                "filename_prefix": filename_prefix,
+                "timestamp": "None",
+                "format": "png",
+                "quality": 100,
+                "meta_data": True,
+                "blind_watermark": "",
+                "save_workflow_as_json": True,
+                "preview": True
+            }
         }
-    }
     return prompt
 
 def free_vram(quiet: bool = False, why: str = "") -> bool:

@@ -71,7 +71,7 @@ def load_story(toml_path) -> tuple:
 
     # --- prompt ---
     prompt = cfg.get("prompt", {})
-    if prompt.get("quality_prefix"):
+    if "quality_prefix" in prompt:
         rtb.QUALITY_PREFIX = prompt["quality_prefix"]
     if prompt.get("negative"):
         rtb.NEGATIVE = prompt["negative"]
@@ -176,6 +176,7 @@ def load_story(toml_path) -> tuple:
     # 踩脚页禁止双彩：foot_keywords 覆盖默认踩脚词表，foot_allow_presets 放行
     # 全扩散类预设，double_presets 可手动点名「双彩」预设。
     val = cfg.get("validation", {}) or {}
+    rtb.MAX_PIXELS = int(val["max_pixels"]) if "max_pixels" in val else None
     rtb.FOOT_PLAY_KEYWORDS  = set(val.get("foot_keywords", []))
     rtb.FOOT_FRAME_KEYWORDS = set(val.get("foot_frame_keywords", []))
     rtb.FOOT_ALLOW_PRESETS  = set(val.get("foot_allow_presets", []))

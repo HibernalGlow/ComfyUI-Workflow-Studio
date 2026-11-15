@@ -129,9 +129,12 @@ def ssh(host, cmd):
                            "win30902", cmd], capture_output=True, text=True)
 
 
-def win_size(host, name):
+def win_size(host, name, subdir=""):
+    base = WIN_LORA_DIR.replace("/", "\\")
+    if subdir:
+        base = base + "\\" + subdir.replace("/", "\\")
     r = ssh(host, 'powershell -NoProfile -Command "(Get-Item \'%s\\%s\' -ErrorAction '
-                   'SilentlyContinue).Length"' % (WIN_LORA_DIR.replace("/", "\\"), name))
+                   'SilentlyContinue).Length"' % (base, name))
     v = (r.stdout or "").strip().splitlines()[-1:] or [""]
     return int(v[0]) if v[0].isdigit() else None
 
@@ -197,6 +200,7 @@ def main():
     ap.add_argument("--host", default="192.168.134.79")
     ap.add_argument("--endpoint", default="http://127.0.0.1:18188")
     ap.add_argument("--docs-only", action="store_true")
+    ap.add_argument("--subdir", default="", help="相对 moss/ 的子目录")
     args = ap.parse_args()
 
     tok = token()
@@ -218,7 +222,7 @@ def main():
         print("    base=%s size=%s trig=%s" % (ver.get("baseModel"), want,
                                                ver.get("trainedWords")))
 
-        have = win_size(args.host, name)
+        have = win_size(args.host, name, args.subdir)
         if os.path.exists(path):
             have_local = os.path.getsize(path)
         else:
@@ -315,7 +319,7 @@ def main():
         print("    scp: %s" % ", ".join(send))
         r = subprocess.run(["scp", "-o", "HostName=" + args.host,
                             "-o", "ConnectTimeout=10"] + send +
-                           ["win30902:" + WIN_LORA_DIR + "/"],
+                           ["win30902:" + WIN_LORA_DIR + ("/" + args.subdir if args.subdir else "") + "/"],
                            cwd=WORK, capture_output=True, text=True)
         if r.returncode != 0:
             print("    !!! scp 失败: %s" % (r.stderr.strip().splitlines()[-1:]))
